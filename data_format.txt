@@ -1,0 +1,33 @@
+/homes/add:
+{
+  "name": <home_name>,
+  "address": <address> #Optional
+}
+
+/homes/get_id:
+{
+  "name": <home_name>
+}
+
+device_types:
+  smart_plug,
+  motion_sensor,
+  sound_sensor
+
+/devices/add:
+{
+  "device_name": <device_name>, 
+  "ip_address": <ip_address>, 
+  "location": <location>, 
+  "device_type": '<device_type>',
+  "home_id": <home_id>
+}
+   
+/sensor_readings/add:
+{
+  "device_id": <device_id>,
+  "home_id": <home_id>,
+  "device_type": <device_type>,
+  "data": [{"attribute1": <value1>, ...}, ...]
+}
+
