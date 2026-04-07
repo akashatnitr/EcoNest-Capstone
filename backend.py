@@ -3,31 +3,24 @@ import mysql.connector
 from mysql.connector import pooling
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+import os
 
 app = Flask(__name__)
 
-# Database configuration with SSL
-db_config = {
-    'host': "econest.cz00244kc0f6.us-east-2.rds.amazonaws.com",
-    'user': "backend_user",
-    'password': "datac0113ct0r",
-    'database': "econest",
-    'port': 3306,
-    'ssl_disabled': False  # Enable SSL/TLS
-}
+load_dotenv()
 
-# Connection pool for better performance
-connection_pool = pooling.MySQLConnectionPool(
-    pool_name="econest_pool",
-    pool_size=5,  # Maintain 5 connections
-    pool_reset_session=True,
-    **db_config
-)
+db_config = {
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'host': os.getenv('DB_HOST'),
+    'database': os.getenv('DB_NAME')
+}
 
 def get_db_connection():
     """Get connection from pool"""
     try:
-        connection = connection_pool.get_connection()
+        connection = mysql.connector.connect(**db_config)
         if connection.is_connected():
             return connection
         else:
@@ -36,59 +29,63 @@ def get_db_connection():
     except mysql.connector.Error as e:
         print(f"Error getting connection: {e}")
         return None
-
+    
 # -----------------------------
-# Home endpoints
+# Room endpoints
 # -----------------------------
-@app.route("/homes/add", methods=["POST"])
-def add_home():
+@app.route("/rooms/add", methods=["POST"])
+def add_room():
     data = request.get_json()
     
     if not data or "name" not in data:
         return jsonify({"error": "Missing 'name' in request body"}), 400
 
     name = data["name"]
-    address = data.get("address", "")
+    description = data.get("address", "")
 
     conn = get_db_connection()
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
+    
+    cursor = conn.cursor(dictionary=True)
 
     try:
-        cursor = conn.cursor(dictionary=True)
-        
-        # Check if home already exists
-        cursor.execute("SELECT id FROM homes WHERE name = %s", (name,))
-        result = cursor.fetchone()
-        if result:
-            return jsonify({"error": "Home already exists", "home_id": result["id"]}), 400
-
-        # Insert home
         cursor.execute(
-            "INSERT INTO homes (name, address) VALUES (%s, %s)",
-            (name, address)
+            "INSERT INTO rooms (name, description) VALUES (%s, %s)",
+            (name, description)
         )
         conn.commit()
-        home_id = cursor.lastrowid
-        
-        return jsonify({"home_id": home_id, "message": "Home created successfully"}), 201
+        room_id = cursor.lastrowid
+
+        return jsonify({"room_id": room_id, "message": "Room created successfully"}), 201
 
     except Exception as e:
         conn.rollback()
-        return jsonify({"error": str(e)}), 500
 
+        if "Duplicate entry" in str(e):
+            cursor.execute("SELECT id FROM rooms WHERE name = %s", (name,))
+            result = cursor.fetchone()
+            return jsonify({
+                "error": "Room already exists",
+                "room_id": result["id"]
+            }), 400
+
+        return jsonify({"error": str(e)}), 500
+    
     finally:
         cursor.close()
         conn.close()
 
-@app.route("/homes/get_id", methods=["POST"])
-def get_home_id():
+
+
+@app.route("/rooms/get_id", methods=["POST"])
+def get_room_id():
     data = request.get_json()
     
     if not data or "name" not in data:
         return jsonify({"error": "Missing 'name' in request body"}), 400
 
-    home_name = data["name"]
+    room_name = data["name"]
 
     conn = get_db_connection()
     if conn is None:
@@ -96,13 +93,13 @@ def get_home_id():
 
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id FROM homes WHERE name = %s", (home_name,))
+        cursor.execute("SELECT id FROM rooms WHERE name = %s", (room_name,))
         result = cursor.fetchone()
 
         if result:
-            return jsonify({"home_id": result["id"]}), 200
+            return jsonify({"room_id": result["id"]}), 200
         else:
-            return jsonify({"error": f"No home found with name '{home_name}'"}), 404
+            return jsonify({"error": f"No room found with name '{room_name}'"}), 404
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -111,18 +108,18 @@ def get_home_id():
         cursor.close()
         conn.close()
 
-@app.route("/homes/list", methods=["GET"])
-def list_homes():
-    """Get all homes"""
+@app.route("/rooms/list", methods=["GET"])
+def list_rooms():
+    """Get all rooms"""
     conn = get_db_connection()
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
 
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, name, address FROM homes ORDER BY name")
-        homes = cursor.fetchall()
-        return jsonify({"homes": homes}), 200
+        cursor.execute("SELECT id, name, description FROM rooms ORDER BY name")
+        rooms = cursor.fetchall()
+        return jsonify({"rooms": rooms}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -137,15 +134,22 @@ def list_homes():
 @app.route("/devices/add", methods=["POST"])
 def add_device():
     data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Data not received"}), 400
     
     # Validate required fields
-    required_fields = ['device_name', 'ip_address', 'location', 'device_type', 'home_id']
-    for f in required_fields:
-        if f not in data:
-            return jsonify({'error': f'Missing {f}'}), 400
+    if "name" not in data:
+        return jsonify({"error": "Missing 'name' in request body"}), 400
+    if "ip_address" not in data:
+        return jsonify({"error": "Missing 'ip_address' in request body"}), 400
+    if "room_id" not in data:
+        return jsonify({"error": "Missing 'room_id' in request body"}), 400
+    if "device_type" not in data:
+        return jsonify({"error": "Missing 'device_type' in request body"}), 400
     
     # Validate device_type (must match ENUM)
-    valid_types = ['smart_plug', 'motion_sensor', 'sound_sensor']
+    valid_types = ['smart_plug', 'motion_sensor', 'sound_sensor', 'other']
     device_type = data['device_type']
     if device_type not in valid_types:
         return jsonify({
@@ -159,23 +163,22 @@ def add_device():
     try:
         cursor = conn.cursor()
         
-        # Verify home_id exists
-        cursor.execute("SELECT id FROM homes WHERE id = %s", (data['home_id'],))
+        # Verify room_id exists
+        cursor.execute("SELECT id FROM rooms WHERE id = %s", (data['room_id'],))
         if not cursor.fetchone():
-            return jsonify({'error': f'Invalid home_id: {data["home_id"]}'}), 400
+            return jsonify({'error': f'Invalid room_id: {data["room_id"]}'}), 400
         
-        # Insert device with is_active defaulting to TRUE
+        # Insert device
         cursor.execute(
             """
-            INSERT INTO devices (name, ip_address, location, device_type, home_id, is_active)
-            VALUES (%s, %s, %s, %s, %s, TRUE)
+            INSERT INTO devices (name, ip_address, room_id, device_type, is_active)
+            VALUES (%s, %s, %s, %s, TRUE)
             """,
             (
-                data['device_name'],
+                data['name'],
                 data['ip_address'],
-                data['location'],
-                data['device_type'],
-                data['home_id']
+                data['room_id'],
+                data['device_type']
             )
         )
         conn.commit()
@@ -183,7 +186,7 @@ def add_device():
         
         return jsonify({
             'device_id': device_id,
-            'message': f'Device {data["device_name"]} added successfully'
+            'message': f'Device {data["name"]} added successfully'
         }), 201
         
     except Exception as e:
@@ -194,9 +197,9 @@ def add_device():
         cursor.close()
         conn.close()
 
-@app.route("/devices/list/<int:home_id>", methods=["GET"])
-def list_devices(home_id):
-    """Get all devices for a home"""
+@app.route("/devices/list/<int:room_id>", methods=["GET"])
+def list_devices(room_id):
+    """Get all devices for a room"""
     conn = get_db_connection()
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
@@ -205,12 +208,12 @@ def list_devices(home_id):
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             """
-            SELECT id, name, ip_address, location, device_type, is_active
+            SELECT id, name, ip_address, device_type, is_active
             FROM devices 
-            WHERE home_id = %s
-            ORDER BY location, name
+            WHERE room_id = %s
+            ORDER BY name
             """,
-            (home_id,)
+            (room_id,)
         )
         devices = cursor.fetchall()
         return jsonify({"devices": devices}), 200
@@ -222,45 +225,98 @@ def list_devices(home_id):
         cursor.close()
         conn.close()
 
-@app.route("/devices/toggle/<int:device_id>", methods=["POST"])
-def toggle_device(device_id):
-    """Toggle device active status"""
+@app.route("/devices/toggle", methods=["POST"])
+def toggle_device():
+    """Toggle a device on/off"""
     conn = get_db_connection()
+
     if conn is None:
         return jsonify({"error": "Database connection failed"}), 500
 
+    data = request.get_json()
+
+    if not data or 'device_id' not in data:
+        return jsonify({"error": "Missing 'device_id' in request body"}), 400
+    
+    device_id = data['device_id']
+
     try:
         cursor = conn.cursor(dictionary=True)
-        
-        # Get current status
-        cursor.execute("SELECT is_active FROM devices WHERE id = %s", (device_id,))
-        result = cursor.fetchone()
-        
-        if not result:
-            return jsonify({"error": f"Device {device_id} not found"}), 404
-        
-        # Toggle status
-        new_status = not result['is_active']
         cursor.execute(
-            "UPDATE devices SET is_active = %s WHERE id = %s",
-            (new_status, device_id)
+            """
+            SELECT is_active 
+            FROM Devices 
+            WHERE id = %s;
+            """,
+            (device_id,)
         )
-        conn.commit()
-        
-        return jsonify({
-            "device_id": device_id,
-            "is_active": new_status,
-            "message": f"Device {'activated' if new_status else 'deactivated'}"
-        }), 200
+        result = cursor.fetchone()
 
+        if not result or 'is_active' not in result:
+            return jsonify({"error": f"No device found with device_id '{device_id}'"}), 404
+        
+        is_active = result['is_active']
+
+        cursor.execute(
+            """
+            UPDATE Devices
+            SET is_active = %s
+            WHERE id = %s
+            """,
+            (not is_active, device_id)
+        )
+
+        return jsonify({
+            'device_id': device_id,
+            'message': f'Device is_active is now {not is_active}'
+        }), 201
     except Exception as e:
-        conn.rollback()
         return jsonify({"error": str(e)}), 500
 
     finally:
         cursor.close()
         conn.close()
 
+@app.route("/devices/status", methods=["GET"])
+def get_device_status():
+    """Toggle a device on/off"""
+    conn = get_db_connection()
+
+    if conn is None:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    data = request.get_json()
+
+    if not data or 'device_id' not in data:
+        return jsonify({"error": "Missing 'device_id' in request body"}), 400
+    
+    device_id = data['device_id']
+
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT is_active 
+            FROM Devices 
+            WHERE id = %s;
+            """,
+            (device_id,)
+        )
+        result = cursor.fetchone()
+
+        if not result or 'is_active' not in result:
+            return jsonify({"error": f"No device found with device_id '{device_id}'"}), 404
+        
+        return jsonify({"device_id": device_id, "is_active": result['is_active']}), 200
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        cursor.close()
+        conn.close()
+
+        
 # -----------------------------
 # Sensor readings
 # -----------------------------
@@ -268,7 +324,8 @@ def toggle_device(device_id):
 REQUIRED_KEYS = {
     "smart_plug": ["power", "voltage", "current"],
     "motion_sensor": ["motion"],
-    "sound_sensor": ["sound_level"]
+    "sound_sensor": ["sound_level"],
+    "other": []
 }
 
 @app.route("/readings/add", methods=["POST"])
@@ -301,9 +358,9 @@ def add_readings():
                 errors.append(f"Reading {i} missing device_id or data")
                 continue
 
-            # Lookup device to get home_id and device_type
+            # Lookup device to get room_id and device_type
             cursor.execute(
-                "SELECT home_id, device_type, is_active FROM devices WHERE id = %s",
+                "SELECT room_id, device_type, is_active FROM devices WHERE id = %s",
                 (device_id,)
             )
             result = cursor.fetchone()
@@ -316,9 +373,8 @@ def add_readings():
                 errors.append(f"Reading {i} device {device_id} is not active")
                 continue
             
-            home_id = result['home_id']
             device_type = result['device_type']
-
+            room_id = result['room_id']
             # Validate data keys based on device_type
             required_keys = REQUIRED_KEYS.get(device_type, [])
             missing_keys = [k for k in required_keys if k not in data_payload]
@@ -329,10 +385,10 @@ def add_readings():
             # Insert into sensor_readings (timestamp auto-generated)
             cursor.execute(
                 """
-                INSERT INTO sensor_readings (device_id, home_id, data)
+                INSERT INTO sensor_readings (device_id, room_id, data)
                 VALUES (%s, %s, %s)
                 """,
-                (device_id, home_id, json.dumps(data_payload))
+                (device_id, room_id, json.dumps(data_payload))
             )
             inserted_count += 1
 
@@ -354,4 +410,4 @@ def add_readings():
         conn.close()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True)        

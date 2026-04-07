@@ -1,28 +1,67 @@
-CREATE TABLE homes (
+CREATE TABLE rooms (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    address VARCHAR(255)
+    name VARCHAR(100) NOT NULL COLLATE utf8mb4_general_ci,
+    description VARCHAR(255),
+    UNIQUE KEY unique_room_name (name)
 );
 
 CREATE TABLE devices (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
+    name VARCHAR(100) NOT NULL COLLATE utf8mb4_general_ci,
     ip_address VARCHAR(50),
-    location VARCHAR(100),
-    device_type ENUM('smart_plug', 'motion_sensor', 'sound_sensor') NOT NULL,
-    home_id INT NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,  
-    FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE CASCADE
+    device_type ENUM('smart_plug', 'motion_sensor', 'sound_sensor', 'other') NOT NULL,
+    room_id INT,
+    is_active BOOLEAN DEFAULT TRUE,
+    UNIQUE KEY unique_device_name (name),
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL
 );
 
 CREATE TABLE sensor_readings (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,  
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id INT NOT NULL,
-    home_id INT NOT NULL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  
+    room_id INT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     data JSON NOT NULL,
     INDEX idx_device_time (device_id, timestamp),
-    INDEX idx_home_time (home_id, timestamp),
+    INDEX idx_room_time (room_id, timestamp),
+    INDEX idx_time (timestamp),
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
-    FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE CASCADE
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+CREATE TABLE home_snapshot (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    room_id INT NOT NULL,
+    occupancy_estimate VARCHAR(50),
+    active_devices JSON,
+    power_trend FLOAT,
+    sound_spike BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+CREATE TABLE home_analytics (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    room_id INT NOT NULL,
+    hour_of_day INT,
+    motion_probability FLOAT,
+    avg_power_this_hour FLOAT,
+    total_kwh FLOAT,
+    baseline_sound_level FLOAT,
+    weekly_pattern JSON,
+    computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+CREATE TABLE device_profiles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    device_id INT NOT NULL,
+    expected_watt_min FLOAT,
+    expected_watt_max FLOAT,
+    max_idle_minutes INT,
+    active_hours_start INT,
+    active_hours_end INT,
+    sound_spike_threshold FLOAT,
+    motion_timeout_minutes INT,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
