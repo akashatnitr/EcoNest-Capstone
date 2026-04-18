@@ -1,0 +1,22 @@
+- alias: Sound spike and motion detected
+  description: Trigger when loud sound and motion happen together
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.motion_detected_backend
+      to: "on"
+    - platform: state
+      entity_id: binary_sensor.sound_spike
+      to: "on"
+  condition:
+    - condition: state
+      entity_id: binary_sensor.motion_detected_backend
+      state: "on"
+    - condition: state
+      entity_id: binary_sensor.sound_spike
+      state: "on"
+  action:
+    - service: persistent_notification.create
+      data:
+        title: "EcoNest Alert"
+        message: "Sound spike and motion detected."
+  mode: single

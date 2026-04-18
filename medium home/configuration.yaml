@@ -1,0 +1,144 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 127.0.0.1
+    - 172.17.0.0/16
+    - 100.64.0.0/10
+
+sensor:
+  - platform: rest
+    name: Sound Level
+    resource: http://127.0.0.1:5000/readings/latest/28
+    value_template: "{{ (value_json.data | from_json).sound_level }}"
+    unit_of_measurement: "dB"
+    scan_interval: 5
+
+rest:
+  - resource: http://127.0.0.1:5000/readings/latest/1
+    scan_interval: 30
+    sensor:
+      - name: EcoNest AirFryer Power
+        value_template: "{{ (value_json.data | from_json).power }}"
+        unit_of_measurement: "W"
+
+      - name: EcoNest AirFryer Voltage
+        value_template: "{{ (value_json.data | from_json).voltage }}"
+        unit_of_measurement: "V"
+
+      - name: EcoNest AirFryer Current
+        value_template: "{{ (value_json.data | from_json).current }}"
+        unit_of_measurement: "A"
+
+      - name: EcoNest AirFryer Energy
+        value_template: "{{ (value_json.data | from_json).total_kwh }}"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+
+  - resource: http://127.0.0.1:5000/readings/latest/2
+    scan_interval: 30
+    sensor:
+      - name: EcoNest Microwave Power
+        value_template: "{{ (value_json.data | from_json).power }}"
+        unit_of_measurement: "W"
+
+      - name: EcoNest Microwave Voltage
+        value_template: "{{ (value_json.data | from_json).voltage }}"
+        unit_of_measurement: "V"
+
+      - name: EcoNest Microwave Current
+        value_template: "{{ (value_json.data | from_json).current }}"
+        unit_of_measurement: "A"
+
+      - name: EcoNest Microwave Energy
+        value_template: "{{ (value_json.data | from_json).total_kwh }}"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+
+  - resource: http://127.0.0.1:5000/readings/latest/3
+    scan_interval: 30
+    sensor:
+      - name: EcoNest Washer Power
+        value_template: "{{ (value_json.data | from_json).power }}"
+        unit_of_measurement: "W"
+
+      - name: EcoNest Washer Voltage
+        value_template: "{{ (value_json.data | from_json).voltage }}"
+        unit_of_measurement: "V"
+
+      - name: EcoNest Washer Current
+        value_template: "{{ (value_json.data | from_json).current }}"
+        unit_of_measurement: "A"
+
+      - name: EcoNest Washer Energy
+        value_template: "{{ (value_json.data | from_json).total_kwh }}"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+
+  - resource: http://127.0.0.1:5000/readings/latest/4
+    scan_interval: 30
+    sensor:
+      - name: EcoNest Bedroom Powerstrip Power
+        value_template: "{{ (value_json.data | from_json).power }}"
+        unit_of_measurement: "W"
+
+      - name: EcoNest Bedroom Powerstrip Voltage
+        value_template: "{{ (value_json.data | from_json).voltage }}"
+        unit_of_measurement: "V"
+
+      - name: EcoNest Bedroom Powerstrip Current
+        value_template: "{{ (value_json.data | from_json).current }}"
+        unit_of_measurement: "A"
+
+      - name: EcoNest Bedroom Powerstrip Energy
+        value_template: "{{ (value_json.data | from_json).total_kwh }}"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+
+  - resource: http://127.0.0.1:5000/readings/latest/5
+    scan_interval: 30
+    sensor:
+      - name: EcoNest Living Room TV Power
+        value_template: "{{ (value_json.data | from_json).power }}"
+        unit_of_measurement: "W"
+
+      - name: EcoNest Living Room TV Voltage
+        value_template: "{{ (value_json.data | from_json).voltage }}"
+        unit_of_measurement: "V"
+
+      - name: EcoNest Living Room TV Current
+        value_template: "{{ (value_json.data | from_json).current }}"
+        unit_of_measurement: "A"
+
+      - name: EcoNest Living Room TV Energy
+        value_template: "{{ (value_json.data | from_json).total_kwh }}"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+
+binary_sensor:
+  - platform: rest
+    name: Sound Spike
+    resource: http://127.0.0.1:5000/readings/latest/28
+    value_template: "{{ (value_json.data | from_json).spike }}"
+    scan_interval: 5
+
+  - platform: rest
+    name: Motion Detected Backend
+    resource: http://127.0.0.1:5000/readings/latest/29
+    value_template: "{{ (value_json.data | from_json).motion }}"
+    scan_interval: 5
