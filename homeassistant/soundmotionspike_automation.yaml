@@ -1,0 +1,14 @@
+alias: Sound spike and motion detected
+triggers:
+  - entity_id: binary_sensor.sound_spike
+    to: "on"
+    trigger: state
+conditions:
+  - condition: state
+    entity_id: binary_sensor.hobeian_zg_204zl
+    state: "on"
+actions:
+  - data:
+      title: EcoNest Alert
+      message: Sound spike and motion detected.
+    action: persistent_notification.create
