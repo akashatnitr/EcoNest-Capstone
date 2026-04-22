@@ -1,0 +1,20 @@
+alias: Automatic Close After 45 Minutes (Single Garage)
+description: ""
+triggers:
+  - trigger: state
+    entity_id:
+      - cover.garage_door_3
+    to:
+      - open
+    for:
+      hours: 0
+      minutes: 45
+      seconds: 0
+conditions: []
+actions:
+  - action: cover.close_cover
+    target:
+      entity_id: cover.garage_door_3
+    data: {}
+mode: single
+
