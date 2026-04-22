@@ -1,0 +1,19 @@
+alias: Security Alert
+description: ""
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.sound_spike
+    to: "on"
+conditions:
+  - condition: state
+    entity_id: input_boolean.security_mode
+    state: "on"
+  - condition: state
+    entity_id: binary_sensor.hobeian_zg_204zl
+    state: "on"
+actions:
+  - action: persistent_notification.create
+    data:
+      title: Security Alert
+      message: Motion and sound detected while security mode is armed.
+mode: single
