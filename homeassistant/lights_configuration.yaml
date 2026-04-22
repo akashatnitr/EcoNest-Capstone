@@ -1,0 +1,118 @@
+views:
+  - title: Lights
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Permanent Lights
+          - type: tile
+            entity: light.permanent_lights
+            name: All Permanent Lights
+          - type: tile
+            entity: switch.permanent_lights_music_mode
+          - type: tile
+            entity: number.permanent_lights_music_sensitivity
+          - type: tile
+            entity: button.permanent_lights_refresh_scenes
+          - type: tile
+            entity: select.permanent_lights_scene
+      - type: grid
+        cards:
+          - type: heading
+            heading: Permanent Lights 2
+          - type: tile
+            entity: light.permanent_lights_2
+            name: All Permanent Lights 2
+          - type: tile
+            entity: select.permanent_lights_2_scene
+          - type: tile
+            entity: button.permanent_lights_2_refresh_scenes
+          - type: tile
+            entity: switch.permanent_lights_2_dreamview
+          - type: tile
+            entity: switch.permanent_lights_2_music_mode
+          - type: tile
+            entity: number.permanent_lights_2_music_sensitivity
+      - type: grid
+        cards:
+          - type: heading
+            heading: Bedroom 1
+          - type: tile
+            entity: light.bedroom_1_light_1
+          - type: tile
+            entity: select.bedroom_1_light_1_source_type
+          - type: tile
+            entity: number.bedroom_1_minimum_brightness_1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Bedroom 2
+          - type: tile
+            entity: light.bedroom_2_light_1
+          - type: tile
+            entity: select.bedroom_2_light_1_source_type
+          - type: tile
+            entity: number.bedroom_2_minimum_brightness_1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Hallway - Kids
+            heading_style: title
+          - type: tile
+            entity: light.hallway_kids_light_1
+          - type: tile
+            entity: select.hallway_kids_light_1_source_type
+          - type: tile
+            entity: number.hallway_kids_minimum_brightness_1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Master bedroom
+          - type: tile
+            entity: light.master_bedroom_light_1
+          - type: tile
+            entity: number.master_bedroom_minimum_brightness_1
+          - type: tile
+            entity: select.master_bedroom_light_1_source_type
+      - type: grid
+        cards:
+          - type: heading
+            heading: Outside front
+          - type: tile
+            entity: light.outside_front_light_1
+          - type: tile
+            entity: select.outside_front_light_1_source_type
+          - type: tile
+            entity: number.outside_front_minimum_brightness_1
+      - type: grid
+        cards:
+          - type: heading
+            heading: SD Livingroom
+          - type: tile
+            entity: light.sd_livingroom_light_1
+          - type: tile
+            entity: select.sd_livingroom_light_1_source_type
+          - type: tile
+            entity: number.sd_livingroom_minimum_brightness_1
+      - type: grid
+        cards:
+          - type: heading
+            heading: SD Study
+          - type: tile
+            entity: light.sd_study_light_1
+          - type: tile
+            entity: select.sd_study_light_1_source_type
+          - type: tile
+            entity: number.sd_study_minimum_brightness_1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Upstairs media
+          - type: tile
+            entity: light.upstairs_media_light_1
+          - type: tile
+            entity: select.upstairs_media_light_1_source_type
+          - type: tile
+            entity: number.upstairs_media_minimum_brightness_1
