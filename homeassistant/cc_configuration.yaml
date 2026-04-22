@@ -1,0 +1,72 @@
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: HydraWise Watering System
+            heading_style: title
+            grid_options:
+              rows: 1
+            icon: mdi:sprinkler-variant
+          - type: tile
+            entity: switch.front_l_automatic_watering
+          - type: tile
+            entity: switch.front_r_automatic_watering
+          - type: tile
+            entity: switch.side_left_automatic_watering
+          - type: tile
+            entity: switch.side_r_lawn_automatic_watering
+          - type: tile
+            entity: switch.drip_line_front_garden_automatic_watering
+          - type: tile
+            entity: switch.drip_line_flowerbeds_automatic_watering
+          - type: tile
+            entity: switch.back_lawn_automatic_watering
+          - type: tile
+            entity: switch.back_porch_lawn_automatic_watering
+          - type: tile
+            entity: switch.left_side_back_driveway_automatic_watering
+          - type: tile
+            entity: switch.vegetable_raised_beds_automatic_watering
+          - type: tile
+            entity: switch.plug_92
+        column_span: 1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Kitchen/Utillity
+            heading_style: title
+            grid_options:
+              rows: 1
+            icon: mdi:stove
+          - type: tile
+            entity: switch.sp8
+          - type: tile
+            entity: switch.disposal
+          - type: tile
+            entity: switch.kitchen_gfci_2
+        column_span: 1
+      - type: grid
+        cards:
+          - type: heading
+            heading: Electronic Devices
+            heading_style: title
+            icon: mdi:television
+            grid_options:
+              rows: 1
+          - type: tile
+            entity: switch.xbox
+          - type: tile
+            entity: switch.3
+          - type: tile
+            entity: switch.sp5
+          - type: tile
+            entity: switch.sp6
+          - type: tile
+            entity: switch.sp7
+    header: {}
+    max_columns: 4
+    title: Control Center
+    cards: []
+    badges: []
