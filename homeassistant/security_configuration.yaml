@@ -1,0 +1,101 @@
+views:
+  - type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Front Door Motion Senser
+          - type: tile
+            entity: binary_sensor.hobeian_zg_204zl
+          - type: tile
+            entity: sensor.hobeian_zg_204zl_illuminance
+          - type: tile
+            entity: sensor.hobeian_zg_204zl_battery
+          - type: history-graph
+            entities:
+              - entity: binary_sensor.hobeian_zg_204zl
+                name: Front Door
+            grid_options:
+              columns: full
+              rows: auto
+            title: Past 24 Hours
+          - type: history-graph
+            entities:
+              - entity: sensor.hobeian_zg_204zl_illuminance
+      - type: grid
+        cards:
+          - type: heading
+            heading_style: title
+            heading: Garage Motion Sensor
+          - type: tile
+            entity: binary_sensor.motion_sensor_garage
+          - type: tile
+            entity: sensor.motion_sensor_garage_battery
+          - type: tile
+            entity: sensor.motion_sensor_garage_illuminance
+          - type: history-graph
+            entities:
+              - entity: binary_sensor.motion_sensor_garage
+            title: Past 24 Hours
+          - type: history-graph
+            entities:
+              - entity: sensor.motion_sensor_garage_illuminance
+      - type: grid
+        cards:
+          - type: heading
+            heading: Garage Door (Double)
+          - type: tile
+            entity: cover.garage12
+            show_entity_picture: false
+            hide_state: false
+            vertical: true
+            features_position: bottom
+            features:
+              - type: cover-open-close
+            grid_options:
+              columns: full
+          - type: tile
+            entity: sensor.garage12_battery
+          - type: tile
+            entity: automation.automatic_close_after_45_minutes
+          - type: history-graph
+            entities:
+              - entity: cover.garage12
+            hours_to_show: 24
+            title: Past 24 Hours
+          - type: history-graph
+            entities:
+              - entity: automation.automatic_close_after_45_minutes
+      - type: grid
+        cards:
+          - type: heading
+            heading: Garage Door (Single)
+            grid_options:
+              rows: auto
+              columns: full
+          - type: tile
+            grid_options:
+              columns: full
+            entity: cover.garage_door_3
+            show_entity_picture: true
+            hide_state: false
+            vertical: true
+            features:
+              - type: cover-open-close
+            features_position: bottom
+          - type: tile
+            entity: sensor.garage_door_3_battery
+          - type: tile
+            entity: automation.automatic_close_after_45_minutes_single_garage
+          - type: history-graph
+            entities:
+              - entity: cover.garage_door_3
+            logarithmic_scale: false
+            hours_to_show: 24
+            title: Past 24 Hours
+          - type: history-graph
+            entities:
+              - entity: automation.automatic_close_after_45_minutes_single_garage
+    max_columns: 4
+    title: Security
+    cards: []
