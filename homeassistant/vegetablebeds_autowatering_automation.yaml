@@ -1,0 +1,15 @@
+alias: Vegetable Beds AutoWatering
+description: Water vegetable raised beds when soil humidity drops below 80%
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.wifi_soil_sensor_humidity
+    below: 80
+conditions:
+  - condition: state
+    entity_id: switch.vegetable_raised_beds_automatic_watering
+    state: "off"
+actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.vegetable_raised_beds_automatic_watering
+mode: single
