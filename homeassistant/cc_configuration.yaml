@@ -1,53 +1,861 @@
 views:
   - type: sections
+    title: Control Center
+    max_columns: 4
+    header: {}
+    cards: []
+    badges: []
     sections:
       - type: grid
+        column_span: 1
         cards:
           - type: heading
-            heading: HydraWise Watering System
+            heading: Security
             heading_style: title
+            icon: mdi:shield-home
             grid_options:
               rows: 1
-            icon: mdi:sprinkler-variant
-          - type: tile
-            entity: switch.front_l_automatic_watering
-          - type: tile
-            entity: switch.front_r_automatic_watering
-          - type: tile
-            entity: switch.side_left_automatic_watering
-          - type: tile
-            entity: switch.side_r_lawn_automatic_watering
-          - type: tile
-            entity: switch.drip_line_front_garden_automatic_watering
-          - type: tile
-            entity: switch.drip_line_flowerbeds_automatic_watering
-          - type: tile
-            entity: switch.back_lawn_automatic_watering
-          - type: tile
-            entity: switch.back_porch_lawn_automatic_watering
-          - type: tile
-            entity: switch.left_side_back_driveway_automatic_watering
-          - type: tile
-            entity: switch.vegetable_raised_beds_automatic_watering
-          - type: tile
-            entity: switch.plug_92
-        column_span: 1
+          - type: heading
+            heading: Garage Doors
+            heading_style: subtitle
+          - type: custom:button-card
+            entity: cover.garage12
+            name: Double Door Garage
+            icon: mdi:garage
+            show_label: true
+            label: >-
+              [[[ return entity.state === 'open' ? 'Open' : entity.state ===
+              'opening' ? 'Opening' : entity.state === 'closing' ? 'Closing' :
+              'Closed' ]]]
+            layout: icon_label_card
+            tap_action:
+              action: toggle
+            styles:
+              card:
+                - background: >-
+                    [[[ return entity.state === 'open' ? '#f5f5f5' : '#1e1e1e'
+                    ]]]
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: >-
+                    [[[ return entity.state === 'open' ? '#b45309' : '#6b6b6b'
+                    ]]]
+                - width: 22px
+              name:
+                - color: >-
+                    [[[ return entity.state === 'open' ? '#111111' : '#ffffff'
+                    ]]]
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: >-
+                    [[[ return entity.state === 'open' ? '#b45309' : '#9a9a9a'
+                    ]]]
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'open' ? '#b45309' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'open' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'open' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: cover.garage_door_3
+            name: Single Door Garage
+            icon: mdi:garage
+            show_label: true
+            label: >-
+              [[[ return entity.state === 'open' ? 'Open' : entity.state ===
+              'opening' ? 'Opening' : entity.state === 'closing' ? 'Closing' :
+              'Closed' ]]]
+            layout: icon_label_card
+            tap_action:
+              action: toggle
+            styles:
+              card:
+                - background: >-
+                    [[[ return entity.state === 'open' ? '#f5f5f5' : '#1e1e1e'
+                    ]]]
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: >-
+                    [[[ return entity.state === 'open' ? '#b45309' : '#6b6b6b'
+                    ]]]
+                - width: 22px
+              name:
+                - color: >-
+                    [[[ return entity.state === 'open' ? '#111111' : '#ffffff'
+                    ]]]
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: >-
+                    [[[ return entity.state === 'open' ? '#b45309' : '#9a9a9a'
+                    ]]]
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'open' ? '#b45309' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'open' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'open' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: sensor.garage12_battery
+            name: Double Door Garage Battery
+            icon: mdi:battery
+            show_label: true
+            label: '[[[ return entity.state + ''%'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#4d7c0f'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.garage_door_3_battery
+            name: Single Door Garage Battery
+            icon: mdi:battery
+            show_label: true
+            label: '[[[ return entity.state + ''%'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#4d7c0f'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: heading
+            heading: Motion Sensors
+            heading_style: subtitle
+          - type: custom:button-card
+            entity: binary_sensor.hobeian_zg_204zl
+            name: Front Door Motion Sensor
+            icon: mdi:motion-sensor
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''Motion'' : ''Clear'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#b45309'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#b45309'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: binary_sensor.motion_sensor_garage
+            name: Garage Motion Sensor
+            icon: mdi:motion-sensor
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''Motion'' : ''Clear'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#b45309'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#b45309'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.hobeian_zg_204zl_illuminance
+            name: Front Door Lux
+            icon: mdi:brightness-5
+            show_label: true
+            label: '[[[ return entity.state + '' lx'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#6b6b6b'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.motion_sensor_garage_illuminance
+            name: Garage Lux
+            icon: mdi:brightness-5
+            show_label: true
+            label: '[[[ return entity.state + '' lx'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#6b6b6b'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.hobeian_zg_204zl_battery
+            name: Front Door Motion Sensor Battery
+            icon: mdi:battery
+            show_label: true
+            label: '[[[ return entity.state + ''%'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#4d7c0f'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.motion_sensor_garage_battery
+            name: Garage Motion Sensor Battery
+            icon: mdi:battery
+            show_label: true
+            label: '[[[ return entity.state + ''%'' ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#4d7c0f'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
       - type: grid
+        column_span: 1
         cards:
           - type: heading
-            heading: Kitchen/Utillity
+            heading: Google Nest
             heading_style: title
+            icon: mdi:thermostat
             grid_options:
               rows: 1
-            icon: mdi:stove
-          - type: tile
-            entity: switch.sp8
-          - type: tile
-            entity: switch.disposal
-          - type: tile
-            entity: switch.kitchen_gfci_2
-        column_span: 1
+          - type: heading
+            heading: Master Bedroom
+            heading_style: subtitle
+          - type: custom:button-card
+            entity: climate.master_bedroom
+            name: Master Bedroom
+            icon: mdi:thermostat
+            show_label: true
+            label: '[[[ return entity.attributes.current_temperature + "°F" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: more-info
+            styles:
+              card:
+                - background: >-
+                    [[[ return entity.state === 'heat' || entity.state ===
+                    'cool' || entity.state === 'heat_cool' ? '#f5f5f5' :
+                    '#1e1e1e' ]]]
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: >-
+                    [[[ return entity.state === 'heat' ? '#b45309' :
+                    entity.state === 'cool' ? '#0369a1' : entity.state ===
+                    'heat_cool' ? '#7c3aed' : '#6b6b6b' ]]]
+                - width: 22px
+              name:
+                - color: >-
+                    [[[ return entity.state === 'off' ? '#ffffff' : '#111111'
+                    ]]]
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: >-
+                    [[[ return entity.state === 'heat' ? '#b45309' :
+                    entity.state === 'cool' ? '#0369a1' : '#9a9a9a' ]]]
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: >
+                <div style="font-size: 11px; color: [[[ entity.state === 'heat'
+                ? '#b45309' : entity.state === 'cool' ? '#0369a1' : '#6b6b6b'
+                ]]]; font-weight: 600; text-align: center; line-height: 1.2;">
+                  [[[ return entity.state === 'heat' ? 'Heat' : entity.state === 'cool' ? 'Cool' : entity.state === 'heat_cool' ? 'Auto' : 'Off' ]]]
+                </div>
+          - type: custom:button-card
+            entity: sensor.master_bedroom_temperature
+            name: Temperature
+            icon: mdi:thermometer
+            show_label: true
+            label: '[[[ return entity.state + "°F" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#b45309'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.master_bedroom_humidity
+            name: Humidity
+            icon: mdi:water-percent
+            show_label: true
+            label: '[[[ return entity.state + "%" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#0369a1'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: heading
+            heading: Media Room
+            heading_style: subtitle
+          - type: custom:button-card
+            entity: climate.media_room
+            name: Media Room
+            icon: mdi:thermostat
+            show_label: true
+            label: '[[[ return entity.attributes.current_temperature + "°F" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: more-info
+            styles:
+              card:
+                - background: >-
+                    [[[ return entity.state === 'heat' || entity.state ===
+                    'cool' || entity.state === 'heat_cool' ? '#f5f5f5' :
+                    '#1e1e1e' ]]]
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: >-
+                    [[[ return entity.state === 'heat' ? '#b45309' :
+                    entity.state === 'cool' ? '#0369a1' : entity.state ===
+                    'heat_cool' ? '#7c3aed' : '#6b6b6b' ]]]
+                - width: 22px
+              name:
+                - color: >-
+                    [[[ return entity.state === 'off' ? '#ffffff' : '#111111'
+                    ]]]
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: >-
+                    [[[ return entity.state === 'heat' ? '#b45309' :
+                    entity.state === 'cool' ? '#0369a1' : '#9a9a9a' ]]]
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: >
+                <div style="font-size: 11px; color: [[[ entity.state === 'heat'
+                ? '#b45309' : entity.state === 'cool' ? '#0369a1' : '#6b6b6b'
+                ]]]; font-weight: 600; text-align: center; line-height: 1.2;">
+                  [[[ return entity.state === 'heat' ? 'Heat' : entity.state === 'cool' ? 'Cool' : entity.state === 'heat_cool' ? 'Auto' : 'Off' ]]]
+                </div>
+          - type: custom:button-card
+            entity: sensor.media_room_temperature
+            name: Temperature
+            icon: mdi:thermometer
+            show_label: true
+            label: '[[[ return entity.state + "°F" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#b45309'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.media_room_humidity
+            name: Humidity
+            icon: mdi:water-percent
+            show_label: true
+            label: '[[[ return entity.state + "%" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#0369a1'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: heading
+            heading: South Side / Living Room
+            heading_style: subtitle
+          - type: custom:button-card
+            entity: climate.south_side_and_living_room
+            name: South Side / Living Room
+            icon: mdi:thermostat
+            show_label: true
+            label: '[[[ return entity.attributes.current_temperature + "°F" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: more-info
+            styles:
+              card:
+                - background: >-
+                    [[[ return entity.state === 'heat' || entity.state ===
+                    'cool' || entity.state === 'heat_cool' ? '#f5f5f5' :
+                    '#1e1e1e' ]]]
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: >-
+                    [[[ return entity.state === 'heat' ? '#b45309' :
+                    entity.state === 'cool' ? '#0369a1' : entity.state ===
+                    'heat_cool' ? '#7c3aed' : '#6b6b6b' ]]]
+                - width: 22px
+              name:
+                - color: >-
+                    [[[ return entity.state === 'off' ? '#ffffff' : '#111111'
+                    ]]]
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: >-
+                    [[[ return entity.state === 'heat' ? '#b45309' :
+                    entity.state === 'cool' ? '#0369a1' : '#9a9a9a' ]]]
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: >
+                <div style="font-size: 11px; color: [[[ entity.state === 'heat'
+                ? '#b45309' : entity.state === 'cool' ? '#0369a1' : '#6b6b6b'
+                ]]]; font-weight: 600; text-align: center; line-height: 1.2;">
+                  [[[ return entity.state === 'heat' ? 'Heat' : entity.state === 'cool' ? 'Cool' : entity.state === 'heat_cool' ? 'Auto' : 'Off' ]]]
+                </div>
+          - type: custom:button-card
+            entity: sensor.south_side_and_living_room_temperature
+            name: Temperature
+            icon: mdi:thermometer
+            show_label: true
+            label: '[[[ return entity.state + "°F" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#b45309'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+          - type: custom:button-card
+            entity: sensor.south_side_and_living_room_humidity
+            name: Humidity
+            icon: mdi:water-percent
+            show_label: true
+            label: '[[[ return entity.state + "%" ]]]'
+            layout: icon_label_card
+            tap_action:
+              action: none
+            styles:
+              card:
+                - background: '#1e1e1e'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n s'' ''i l s'''
+                - grid-template-columns: 36px 1fr 12px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '#0369a1'
+                - width: 22px
+              name:
+                - color: '#ffffff'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '#9a9a9a'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
       - type: grid
+        column_span: 1
         cards:
           - type: heading
             heading: Electronic Devices
@@ -55,18 +863,1389 @@ views:
             icon: mdi:television
             grid_options:
               rows: 1
-          - type: tile
+          - type: custom:button-card
             entity: switch.xbox
-          - type: tile
-            entity: switch.3
-          - type: tile
+            name: Xbox
+            icon: mdi:microsoft-xbox
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
             entity: switch.sp5
-          - type: tile
+            name: TV Living Room
+            icon: mdi:television
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
             entity: switch.sp6
-          - type: tile
+            name: TV Master Bedroom
+            icon: mdi:television
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
             entity: switch.sp7
-    header: {}
-    max_columns: 4
-    title: Control Center
-    cards: []
-    badges: []
+            name: Bedroom 1 Computer
+            icon: mdi:desktop-tower-monitor
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.plug_94
+            name: Bedroom 1 TV
+            icon: mdi:television
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.plug_fish_tank_light_socket_1
+            name: Bedroom 4 TV
+            icon: mdi:television
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.feit_smart_plug1_humidifier_socket_1
+            name: Bedroom 2 Humidifier
+            icon: mdi:air-humidifier
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.plug_93
+            name: Vacuum Cleaner
+            icon: mdi:robot-vacuum
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+      - type: grid
+        column_span: 1
+        cards:
+          - type: heading
+            heading: Kitchen / Utility
+            heading_style: title
+            icon: mdi:stove
+            grid_options:
+              rows: 1
+          - type: custom:button-card
+            entity: switch.sp8
+            name: Washer
+            icon: mdi:washing-machine
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.disposal
+            name: Dishwasher
+            icon: mdi:dishwasher
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.3
+            name: GFCI Kitchen 1
+            icon: mdi:blender
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.kitchen_gfci_2
+            name: Kitchen GFCI 2
+            icon: mdi:cup
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.plug_91
+            name: Coffee Maker
+            icon: mdi:coffee-maker
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+      - type: grid
+        column_span: 1
+        cards:
+          - type: heading
+            heading: Watering System
+            heading_style: title
+            icon: mdi:sprinkler-variant
+            grid_options:
+              rows: 1
+          - type: custom:button-card
+            entity: switch.plug_92
+            name: Hydrawise Monitor
+            icon: mdi:monitor
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.front_l_automatic_watering
+            name: Front Left
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.front_r_automatic_watering
+            name: Front Right
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.side_left_automatic_watering
+            name: Side Left
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.side_r_lawn_automatic_watering
+            name: Side Right
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.drip_line_front_garden_automatic_watering
+            name: Front Garden
+            icon: mdi:flower
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.drip_line_flowerbeds_automatic_watering
+            name: Flowerbeds
+            icon: mdi:flower-tulip
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.back_lawn_automatic_watering
+            name: Back Lawn
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.back_porch_lawn_automatic_watering
+            name: Back Porch
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.left_side_back_driveway_automatic_watering
+            name: Driveway Side
+            icon: mdi:sprinkler
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
+          - type: custom:button-card
+            entity: switch.vegetable_raised_beds_automatic_watering
+            name: Raised Beds
+            icon: mdi:sprout
+            show_label: true
+            label: '[[[ return entity.state === ''on'' ? ''On'' : ''Off'' ]]]'
+            layout: icon_label_card
+            styles:
+              card:
+                - background: '[[[ return entity.state === ''on'' ? ''#f5f5f5'' : ''#1e1e1e'' ]]]'
+                - border-radius: 16px
+                - padding: 12px 16px
+                - box-shadow: none
+                - height: 64px
+              grid:
+                - grid-template-areas: '''i n toggle'' ''i l toggle'''
+                - grid-template-columns: 36px 1fr 48px
+                - grid-template-rows: 1fr 1fr
+                - align-items: center
+              icon:
+                - color: '[[[ return entity.state === ''on'' ? ''#4d7c0f'' : ''#6b6b6b'' ]]]'
+                - width: 22px
+              name:
+                - color: '[[[ return entity.state === ''on'' ? ''#111111'' : ''#ffffff'' ]]]'
+                - font-size: 13px
+                - font-weight: '600'
+                - align-self: end
+                - justify-self: start
+                - margin-bottom: 1px
+              label:
+                - color: '[[[ return entity.state === ''on'' ? ''#333333'' : ''#9a9a9a'' ]]]'
+                - font-size: 11px
+                - align-self: start
+                - justify-self: start
+              custom_fields:
+                toggle:
+                  - align-self: center
+                  - justify-self: end
+            custom_fields:
+              toggle: |
+                <div style="
+                  width: 42px;
+                  height: 24px;
+                  border-radius: 12px;
+                  background: [[[ entity.state === 'on' ? '#4d7c0f' : '#3a3a3a' ]]];
+                  position: relative;
+                ">
+                  <div style="
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: [[[ entity.state === 'on' ? '#1e1e1e' : '#6b6b6b' ]]];
+                    position: absolute;
+                    top: 3px;
+                    left: [[[ entity.state === 'on' ? '21px' : '3px' ]]];
+                  "></div>
+                </div>
