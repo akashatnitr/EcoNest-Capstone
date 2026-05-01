@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from orchestrator.api import auth, devices, graph, mcp, ontology, users
 from orchestrator.config import get_settings
 from orchestrator.core.database import close_databases, init_databases
+from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
 
@@ -31,6 +32,7 @@ app.include_router(auth.router)
 app.include_router(devices.router)
 app.include_router(graph.router)
 app.include_router(mcp.router)
+app.include_router(mcp_server.router)
 app.include_router(ontology.router)
 app.include_router(users.router)
 
