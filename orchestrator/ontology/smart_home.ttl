@@ -1,0 +1,151 @@
+@prefix econest: <http://econest.example.org/ontology#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix saref: <https://w3id.org/saref#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# Classes
+# ============================================================
+
+econest:Room a owl:Class ;
+    rdfs:label "Room" ;
+    rdfs:comment "A physical room in the home." .
+
+econest:Bedroom a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Bedroom" .
+
+econest:Kitchen a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Kitchen" .
+
+econest:Garage a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Garage" .
+
+econest:LivingRoom a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "LivingRoom" .
+
+econest:MediaRoom a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "MediaRoom" .
+
+econest:Device a owl:Class ;
+    rdfs:label "Device" ;
+    rdfs:comment "A smart home device." .
+
+econest:SmartPlug a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "SmartPlug" .
+
+econest:SmartBulb a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "SmartBulb" .
+
+econest:MotionSensor a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:subClassOf sosa:Sensor ;
+    rdfs:label "MotionSensor" .
+
+econest:SoundSensor a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:subClassOf sosa:Sensor ;
+    rdfs:label "SoundSensor" .
+
+econest:Thermostat a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Thermostat" .
+
+econest:SmartSwitch a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "SmartSwitch" .
+
+econest:Capability a owl:Class ;
+    rdfs:label "Capability" ;
+    rdfs:comment "A capability that a device may have." .
+
+econest:OnOff a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "OnOff" .
+
+econest:Dimmable a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "Dimmable" .
+
+econest:ColorControl a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "ColorControl" .
+
+econest:PowerMonitoring a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "PowerMonitoring" .
+
+econest:MotionDetection a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "MotionDetection" .
+
+econest:SoundDetection a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "SoundDetection" .
+
+econest:User a owl:Class ;
+    rdfs:label "User" .
+
+econest:Action a owl:Class ;
+    rdfs:label "Action" .
+
+# ============================================================
+# Object Properties
+# ============================================================
+
+econest:hasCapability a owl:ObjectProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range econest:Capability ;
+    rdfs:label "has capability" .
+
+econest:requiresCapability a owl:ObjectProperty ;
+    rdfs:domain econest:Action ;
+    rdfs:range econest:Capability ;
+    rdfs:label "requires capability" .
+
+econest:locatedIn a owl:ObjectProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range econest:Room ;
+    rdfs:label "located in" .
+
+econest:monitors a owl:ObjectProperty ;
+    rdfs:domain sosa:Sensor ;
+    rdfs:range econest:Room ;
+    rdfs:label "monitors" .
+
+econest:canPerform a owl:ObjectProperty ;
+    rdfs:domain econest:User ;
+    rdfs:range econest:Action ;
+    rdfs:label "can perform" .
+
+econest:owns a owl:ObjectProperty ;
+    rdfs:domain econest:User ;
+    rdfs:range econest:Room ;
+    rdfs:label "owns" .
+
+# ============================================================
+# Data Properties
+# ============================================================
+
+econest:brightness a owl:DatatypeProperty ;
+    rdfs:domain econest:Dimmable ;
+    rdfs:range xsd:integer ;
+    rdfs:label "brightness level" .
+
+econest:colorTemperature a owl:DatatypeProperty ;
+    rdfs:domain econest:ColorControl ;
+    rdfs:range xsd:integer ;
+    rdfs:label "color temperature" .
+
+econest:ipAddress a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "IP address" .
