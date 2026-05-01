@@ -1,0 +1,87 @@
+[project]
+name = "econest-capstone"
+version = "0.1.0"
+description = "Smart Home Sensor With Reasoning - EcoNest Capstone Project"
+authors = [{ name = "akashatnitr", email = "akashatnitr@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.11,<4.0"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.34,<1.0",
+    "pydantic>=2.10,<3.0",
+    "pydantic-settings>=2.8,<3.0",
+    "arcadedb-python>=0.4,<1.0",
+    "aiomysql>=0.2,<1.0",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
+    "bcrypt>=4.3,<5.0",
+    "pyjwt>=2.10,<3.0",
+    "python-jose[cryptography]>=3.4,<4.0",
+    "passlib[bcrypt]>=1.7,<2.0",
+    "httpx>=0.28,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.25,<1.0",
+    "black>=25.1,<26.0",
+    "ruff>=0.11,<1.0",
+    "mypy>=1.15,<2.0",
+    "poethepoet>=0.33,<1.0",
+]
+
+[tool.poetry]
+packages = [{ include = "orchestrator" }]
+
+[tool.poe.tasks]
+format = "black orchestrator/"
+lint = "ruff check orchestrator/"
+test = "pytest"
+dev = "uvicorn orchestrator.main:app --reload --host 0.0.0.0 --port 8000"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # Pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "W",  # pycodestyle warnings
+]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["orchestrator/tests"]
