@@ -1,0 +1,89 @@
+version: "3.9"
+
+services:
+  arcadedb:
+    image: arcadedata/arcadedb:latest
+    container_name: econest-arcadedb
+    ports:
+      - "2480:2480"
+      - "2424:2424"
+    environment:
+      JAVA_OPTS: "-Darcadedb.server.rootPassword=playwithdata"
+    volumes:
+      - arcadedb-data:/home/arcadedb/databases
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2480/api/v1/server"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: econest-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: econest
+      MYSQL_DATABASE: econest
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./database_schema.txt:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./scripts/migrate_add_users.sql:/docker-entrypoint-initdb.d/02-users.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-peconest"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: econest-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Pre-pull gemma4 on first start (idempotent)
+    entrypoint: >
+      sh -c '
+        ollama serve &
+        sleep 5
+        ollama pull gemma4 || true
+        ollama pull mistral || true
+        wait
+      '
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: econest-orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      ARCADEDB_HOST: arcadedb
+      ARCADEDB_PORT: 2480
+      ARCADEDB_USER: root
+      ARCADEDB_PASSWORD: playwithdata
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: econest
+      MYSQL_DATABASE: econest
+      OLLAMA_URL: http://ollama:11434
+      HA_URL: http://host.docker.internal:8123
+    depends_on:
+      arcadedb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    volumes:
+      - .:/app
+    command: >
+      sh -c 'poetry install --no-interaction && poetry run poe dev'
+
+volumes:
+  arcadedb-data:
+  mysql-data:
+  ollama-data:
