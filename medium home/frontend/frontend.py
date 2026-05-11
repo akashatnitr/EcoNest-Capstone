@@ -20,6 +20,8 @@ if not HA_TOKEN:
 
 
 BACKEND_URL = "http://127.0.0.1:5000/readings/add"
+SERVICE_ACCOUNT_TOKEN = os.getenv("SERVICE_ACCOUNT_TOKEN")
+LEGACY_API_KEY = os.getenv("LEGACY_API_KEY")
 
 
 # Device IDs (home_id: 3 — Professor's House)
@@ -86,13 +88,25 @@ HA_HEADERS = {
 }
 
 
+BACKEND_HEADERS = {"Content-Type": "application/json"}
+if SERVICE_ACCOUNT_TOKEN:
+    BACKEND_HEADERS["Authorization"] = f"Bearer {SERVICE_ACCOUNT_TOKEN}"
+elif LEGACY_API_KEY:
+    BACKEND_HEADERS["X-API-Key"] = LEGACY_API_KEY
+
+
 last_motion_state = None
 
 
 # ── Helpers ────────────────────────────────────────────────────
 def post_readings(payload):
     try:
-        resp = requests.post(BACKEND_URL, json=payload, timeout=5)
+        resp = requests.post(
+            BACKEND_URL,
+            json=payload,
+            headers=BACKEND_HEADERS,
+            timeout=5,
+        )
         return resp.json()
     except requests.RequestException as e:
         print(f"  [ERROR] Backend unreachable: {e}")

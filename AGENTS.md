@@ -37,6 +37,24 @@ Common conventions:
 - Timeouts / TTLs: end with `_MINUTES`, `_DAYS`, or `_SECONDS`
 - Booleans: use `1`/`0` or `true`/`false` strings
 
+Sensor scripts that post readings to the backend should authenticate with a
+service-account JWT when the backend enforces auth:
+
+```env
+SERVICE_ACCOUNT_TOKEN=eyJ...
+```
+
+Create the token by registering or provisioning a user with the
+`service_account` role, then logging in through the orchestrator auth API. During
+the transition from the legacy backend, scripts may also send a long-lived API
+key fallback:
+
+```env
+LEGACY_API_KEY=your-long-lived-key
+```
+
+When both are set, scripts must prefer `SERVICE_ACCOUNT_TOKEN`.
+
 ## Database Access
 
 - **MySQL**: Use `sqlalchemy.ext.asyncio` (AsyncSession) via the shared engine/pool from `orchestrator/core/database.py`.

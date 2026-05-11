@@ -2,10 +2,16 @@ import sounddevice as sd
 import numpy as np
 import requests
 import time
+import os
 from collections import deque
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_URL = "http://127.0.0.1:5000/readings/add"
 DEVICE_ID = 6
+SERVICE_ACCOUNT_TOKEN = os.getenv("SERVICE_ACCOUNT_TOKEN")
+LEGACY_API_KEY = os.getenv("LEGACY_API_KEY")
 
 SAMPLE_RATE = 44100
 DURATION = 0.5
@@ -17,6 +23,12 @@ SPIKE_MARGIN_DB = 10.0    # how much louder than baseline counts as a spike
 MIN_SPIKE_LEVEL = -30.0   # optional floor so tiny changes in silence don't trigger
 
 recent_levels = deque(maxlen=BASELINE_WINDOW)
+
+API_HEADERS = {"Content-Type": "application/json"}
+if SERVICE_ACCOUNT_TOKEN:
+    API_HEADERS["Authorization"] = f"Bearer {SERVICE_ACCOUNT_TOKEN}"
+elif LEGACY_API_KEY:
+    API_HEADERS["X-API-Key"] = LEGACY_API_KEY
 
 
 def get_sound_level():
@@ -61,7 +73,7 @@ while True:
             }
         }
 
-        r = requests.post(API_URL, json=payload, timeout=5)
+        r = requests.post(API_URL, json=payload, headers=API_HEADERS, timeout=5)
         print(
             f"sound={sound_level} dB | baseline={baseline:.2f} dB | "
             f"spike={spike} | status={r.status_code}"
