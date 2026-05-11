@@ -1,6 +1,8 @@
 """Ontology API routes."""
 
 from typing import Annotated
+import tempfile
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
@@ -118,7 +120,9 @@ async def upload_ontology(
             detail="Only .ttl files are accepted",
         )
     content = await file.read()
-    temp_path = "/tmp/uploaded_ontology.ttl"
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, "uploaded_ontology.ttl")
+    # temp_path = "/tmp/uploaded_ontology.ttl"
     with open(temp_path, "wb") as f:
         f.write(content)
     result = await load_ontology(temp_path)
