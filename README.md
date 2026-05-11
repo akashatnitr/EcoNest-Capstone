@@ -1,87 +1,103 @@
-# EcoNest — Smart Home Energy Monitoring & Automation
+# EcoNest - Smart Home Energy Monitoring & Automation
 
-EcoNest is a capstone project that builds an intelligent smart home system focused on energy monitoring, anomaly detection, and AI-driven automation. It combines a Flask-based backend, real-time sensor polling, Home Assistant integration, and local LLM inference to provide actionable insights and alerts.
+EcoNest is a capstone smart home system for energy monitoring, anomaly
+detection, graph-based home context, and AI-assisted automation. The current
+architecture centers on a FastAPI orchestrator that coordinates MySQL,
+ArcadeDB, Home Assistant, MCP tools, sub-agents, and local Ollama models.
 
 ---
 
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Repository Structure](#repository-structure)
-3. [Quick Start](#quick-start)
-4. [Backend API](#backend-api)
-5. [Frontend / Sensor Polling](#frontend--sensor-polling)
-6. [Machine Learning & AI](#machine-learning--ai)
-7. [Home Assistant](#home-assistant)
-8. [Database Schema](#database-schema)
-9. [Hardware & Sensors](#hardware--sensors)
-10. [Documentation](#documentation)
-11. [Contributors](#contributors)
+2. [Architecture](#architecture)
+3. [Repository Structure](#repository-structure)
+4. [Quick Start](#quick-start)
+5. [Authentication](#authentication)
+6. [Orchestrator API](#orchestrator-api)
+7. [MCP Tools and Agents](#mcp-tools-and-agents)
+8. [Ontology and Graph](#ontology-and-graph)
+9. [Sensor Polling and ML Scripts](#sensor-polling-and-ml-scripts)
+10. [Home Assistant](#home-assistant)
+11. [Database Schema](#database-schema)
+12. [Documentation](#documentation)
 
 ---
 
 ## Project Overview
 
-EcoNest monitors energy consumption, motion, and sound across a home using smart plugs, breaker-level sensors, and GPIO-based microphones. Data is collected into a MySQL database, analyzed for anomalies, and processed by a local Mistral LLM (via Ollama) to generate efficiency recommendations and alerts. The system can send SMS notifications for high-severity events.
+EcoNest monitors energy consumption, motion, sound, and device state across a
+home. Sensor data is stored in MySQL, mapped into an ArcadeDB graph, interpreted
+through an RDF ontology, and routed through sub-agents for energy, security,
+sensor health, and device-control workflows.
 
 ### Key Features
 
-- **Real-time sensor polling** — Power, motion, and sound data from Home Assistant and Raspberry Pi GPIO
-- **RESTful backend** — Flask API for rooms, devices, and sensor readings
-- **Anomaly detection** — Power spikes, off-schedule usage, and security events
-- **AI-powered inference** — Local LLM reasoning for alerts, efficiency tips, and scheduled checks
-- **Home Assistant integration** — Automations for lighting, security, climate, and irrigation
-- **SMS alerts** — Gmail SMTP-to-SMS gateway for critical notifications
+- **FastAPI orchestrator** for auth, devices, graph access, ontology endpoints,
+  MCP tools, and agent task routing.
+- **MySQL storage** for users, sessions, devices, rooms, sensor readings,
+  snapshots, analytics, and profiles.
+- **ArcadeDB graph** for homes, rooms, devices, circuits, sensors, users,
+  permissions, capabilities, and relationships.
+- **MCP tool layer** for database queries, graph lookups, Home Assistant state,
+  and device actions.
+- **Sub-agents** for energy, security, sensor, and device workflows.
+- **Local LLM inference** through Ollama with Gemma4 as the primary model and
+  Mistral as fallback.
+- **Home Assistant integration** for live device state, automations, and
+  service calls.
+
+---
+
+## Architecture
+
+```text
+Sensor scripts / Home Assistant
+        |
+        v
+FastAPI orchestrator
+        |
+        +-- Auth and role-based permissions
+        +-- Device and graph APIs
+        +-- MCP tools
+        +-- Agent orchestrator
+        +-- Ontology loader, validator, and reasoner
+        |
+        +-- MySQL
+        +-- ArcadeDB
+        +-- Ollama (Gemma4, fallback Mistral)
+```
+
+Legacy Flask and standalone ML scripts are still present under `medium home/`
+and `Machine_learning/`. They are useful for sensor polling, analytics, demos,
+and migration support, while new orchestrator work should live under
+`orchestrator/`.
 
 ---
 
 ## Repository Structure
 
-```
+```text
 EcoNest-Capstone/
-├── medium home/                 # Main application code
-│   ├── backend/
-│   │   └── backend.py           # Flask REST API (rooms, devices, readings)
-│   ├── frontend/
-│   │   └── frontend.py          # Sensor poller: sound, motion, power → backend
-│   ├── sensors/
-│   │   ├── energy_sound_logger.py   # Raspberry Pi energy + sound logger
-│   │   ├── sound_logger.py
-│   │   ├── energy_test.py
-│   │   └── logger.py
-│   ├── tests/
-│   │   ├── read_all_devices.py
-│   │   ├── sound_test.py
-│   │   └── test_mic.py
-│   └── homeassistant/
-│       ├── configuration.yaml
-│       ├── automations.yaml
-│       └── scenes.yaml
-├── Machine_learning/            # AI/ML analytics & alerting
-│   ├── requirements.txt
-│   ├── updated_backend.py
-│   ├── archives/
-│   └── scripts/
-│       ├── conn_check.py        # DB connectivity sanity check
-│       ├── analytics.py         # Historical baseline computation
-│       ├── trigger.py           # Real-time anomaly detector
-│       ├── inference.py         # Mistral LLM inference daemon
-│       └── demo.py              # Interactive showcase
-├── homeassistant/               # Standalone HA configs
-│   ├── lights_configuration.yaml
-│   ├── security_configuration.yaml
-│   ├── cc_configuration.yaml
-│   ├── autoclosesingle_automation.yaml
-│   ├── autoclosedouble_automation.yaml
-│   ├── securityalert_automation.yaml
-│   ├── soundmotionspike_automation.yaml
-│   └── vegetablebeds_autowatering_automation.yaml
-├── Documentation/
-│   ├── Proposal/
-│   ├── CDR/
-│   ├── Hardware Manuals/
-│   └── Weekly Reports/
-└── database_schema.txt          # MySQL schema definition
+├── orchestrator/                 # FastAPI orchestrator package
+│   ├── main.py                    # Application entrypoint
+│   ├── config.py                  # Pydantic settings and env vars
+│   ├── api/                       # Auth, device, graph, MCP, ontology routes
+│   ├── agents/                    # Energy, Security, Sensor, Device agents
+│   ├── core/                      # Database, permissions, security helpers
+│   ├── graph/                     # ArcadeDB graph models, seeds, queries
+│   ├── llm/                       # Ollama client and memory helpers
+│   ├── mcp/                       # MCP protocol server and tools
+│   ├── ontology/                  # RDF/Turtle ontology and reasoning helpers
+│   └── tests/                     # pytest suite
+├── Machine_learning/              # Analytics, trigger, inference, demo scripts
+├── medium home/                   # Legacy backend, frontend, and sensor scripts
+├── homeassistant/                 # Home Assistant YAML snippets
+├── Documentation/                 # Reports, manuals, proposal, CDR
+├── docker-compose.yml             # MySQL, ArcadeDB, Ollama, orchestrator
+├── pyproject.toml                 # Python dependencies and poe tasks
+├── arcade_schema.sql              # ArcadeDB schema
+└── database_schema.txt            # MySQL schema
 ```
 
 ---
@@ -90,180 +106,265 @@ EcoNest-Capstone/
 
 ### Prerequisites
 
-| Component | Version | Notes |
-|-----------|---------|-------|
-| Python | 3.9+ | |
-| MySQL | 8.0+ | Schema in `database_schema.txt` |
-| Home Assistant | Any recent | Long-lived access token required |
-| Ollama | Any | `mistral` model pulled |
-| Gmail account | — | App password for SMS alerts |
+| Component | Notes |
+|-----------|-------|
+| Docker Desktop | Recommended for the orchestrator stack |
+| Python 3.11+ | Required for local orchestrator development |
+| Home Assistant | Optional for live device state and actions |
+| Ollama | Used for local Gemma4/Mistral inference |
 
-### 1. Database Setup
+### 1. Configure Environment
 
-```bash
-mysql -u root -p < database_schema.txt
-```
-
-### 2. Environment Configuration
-
-Create a `.env` file in the relevant directories:
+Create a `.env` file at the repository root when running locally:
 
 ```env
 # MySQL
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=econest
-DB_PORT=3306
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=econest
+MYSQL_DATABASE=econest
+
+# ArcadeDB
+ARCADEDB_HOST=localhost
+ARCADEDB_PORT=2480
+ARCADEDB_USER=root
+ARCADEDB_PASSWORD=playwithdata
+ARCADEDB_DATABASE=econest
+
+# Ollama
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=gemma4
+OLLAMA_FALLBACK_MODEL=mistral
 
 # Home Assistant
 HA_URL=http://localhost:8123
 HA_TOKEN=your_long_lived_access_token
 
-# Gmail SMTP (for SMS alerts)
-SMS_GMAIL=your-gmail@gmail.com
-SMS_GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-SMS_TO=5551234567@tmomail.net
+# Auth
+SECRET_KEY=replace-this-for-local-dev
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=7
 ```
 
-### 3. Install Python Dependencies
+### 2. Start the Stack
 
 ```bash
-cd Machine_learning
-pip install -r requirements.txt
-
-# Pull the Mistral model
-ollama pull mistral
+docker compose up --build
 ```
 
-### 4. Start the Backend
+This starts:
+
+- ArcadeDB on `http://localhost:2480`
+- MySQL on `localhost:3306`
+- Ollama on `http://localhost:11434`
+- Orchestrator on `http://localhost:8000`
+
+The orchestrator health check is:
 
 ```bash
-cd "medium home/backend"
-python backend.py
+curl http://localhost:8000/health
 ```
 
-The API will be available at `http://127.0.0.1:5000`.
+### 3. Local Development Commands
 
----
-
-## Backend API
-
-The Flask backend (`medium home/backend/backend.py`) provides REST endpoints for:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/rooms/add` | POST | Create a new room |
-| `/rooms/get_id` | POST | Get room ID by name |
-| `/rooms/list` | GET | List all rooms |
-| `/devices/add` | POST | Register a device |
-| `/devices/list/<room_id>` | GET | List devices in a room |
-| `/devices/toggle` | POST | Toggle device on/off |
-| `/devices/status` | GET | Get device active status |
-| `/readings/add` | POST | Submit sensor readings (batch or single) |
-
-### Example: Add a Reading
+The project defines `poethepoet` tasks in `pyproject.toml`:
 
 ```bash
-curl -X POST http://127.0.0.1:5000/readings/add \
-  -H "Content-Type: application/json" \
-  -d '{
-    "device_id": 1,
-    "data": {"power": 120.5}
-  }'
+poetry run poe format
+poetry run poe lint
+poetry run poe test
+poetry run poe dev
 ```
 
 ---
 
-## Frontend / Sensor Polling
+## Authentication
 
-`medium home/frontend/frontend.py` runs as a daemon polling three sensor types:
+The orchestrator uses JWT access and refresh tokens.
 
-- **Sound** — Microphone via `sounddevice`, detects spikes above a dB threshold
-- **Motion** — Home Assistant binary sensor (`binary_sensor.hobeian_zg_204zl`)
-- **Power** — Home Assistant entity states for Emporia Vue breakers and smart plugs
+Important endpoints:
 
-Data is POSTed in batches to the backend API every 30 seconds (power) or on state change (motion/sound spikes).
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/auth/register` | POST | Register a homeowner account |
+| `/auth/login` | POST | Get access and refresh tokens |
+| `/auth/refresh` | POST | Refresh an access token |
+| `/auth/logout` | POST | Revoke a refresh token |
+| `/auth/me` | GET | Read the current profile |
+
+Roles are defined in `orchestrator/core/permissions.py`:
+
+- `guest`
+- `family_member`
+- `homeowner`
+- `service_account`
+- `superadmin`
+
+Sensor scripts should use a `service_account` JWT through:
+
+```env
+SERVICE_ACCOUNT_TOKEN=eyJ...
+```
+
+During migration from legacy scripts, a long-lived fallback key may be supplied:
+
+```env
+LEGACY_API_KEY=your-long-lived-key
+```
 
 ---
 
-## Machine Learning & AI
+## Orchestrator API
 
-Located in `Machine_learning/scripts/`. See `Machine_learning/scripts/README.md` for full details.
+The FastAPI application is defined in `orchestrator/main.py` and includes:
 
-| Script | Purpose | Run Frequency |
-|--------|---------|---------------|
-| `conn_check.py` | Verify DB connectivity | On-demand |
-| `analytics.py` | Compute 7-day baselines per room | Cron (hourly) |
-| `trigger.py` | Detect anomalies in real time | Always-on daemon |
-| `inference.py` | LLM classification & SMS alerts | Always-on daemon |
-| `demo.py` | Interactive showcase of all scenarios | On-demand |
+- `/auth` for registration, login, refresh, logout, and profile lookup.
+- `/devices` for device listing, capabilities, actions, and basic control.
+- `/graph` for ArcadeDB-backed room/device graph access.
+- `/mcp` for task submission and MCP protocol routes.
+- `/ontology` for ontology listing, validation, reasoning, and upload.
+- `/users` for admin user management.
 
-### Production Setup
+---
 
-```bash
-# Terminal 1 — anomaly detector
-python trigger.py
+## MCP Tools and Agents
 
-# Terminal 2 — inference daemon
-python inference.py
+MCP tools are registered in `orchestrator/mcp/server.py`.
 
-# Cron — analytics refresh
-0 * * * * /usr/bin/python3 /path/to/scripts/analytics.py
+Current tool groups:
+
+- MySQL read helpers: `query_mysql`, `get_readings`
+- ArcadeDB graph helpers: `query_arcadedb`, `get_device_neighbors`
+- Home Assistant helpers: `ha_get_state`, `ha_call_service`
+- Device helpers: `device_turn_on`, `device_turn_off`,
+  `device_set_brightness`, `device_get_status`
+
+Agent routing is handled by `orchestrator/agents/orchestrator.py`.
+
+Current agents:
+
+- `EnergyAgent`
+- `SecurityAgent`
+- `SensorAgent`
+- `DeviceAgent`
+
+Submit work through:
+
+```http
+POST /mcp/task
 ```
+
+with a JSON body containing an `intent`, `payload`, and optional
+`timeout_seconds`.
+
+---
+
+## Ontology and Graph
+
+The ontology lives in:
+
+```text
+orchestrator/ontology/smart_home.ttl
+```
+
+The ontology API can:
+
+- list ontology classes/properties
+- validate graph consistency
+- run simple reasoning
+- upload replacement Turtle files
+
+ArcadeDB graph helpers live in `orchestrator/graph/` and model relationships
+such as:
+
+- home contains rooms
+- rooms contain devices
+- devices are powered by circuits
+- sensors monitor rooms
+- users own homes or have device access
+- devices expose capabilities and actions
+
+---
+
+## Sensor Polling and ML Scripts
+
+Legacy and migration scripts remain under `medium home/` and
+`Machine_learning/scripts/`.
+
+Important scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `analytics.py` | Computes hourly historical baselines |
+| `trigger.py` | Detects real-time anomalies |
+| `inference.py` | Runs LLM classification and recommendations |
+| `demo.py` | Interactive scenario showcase |
+| `frontend.py` / `logger.py` / `sound_logger.py` | Sensor polling and reading submission |
+
+`inference.py` can optionally use MCP tools for Home Assistant state:
+
+```env
+USE_MCP_TOOLS=true
+ORCHESTRATOR_URL=http://localhost:8000
+SERVICE_ACCOUNT_TOKEN=eyJ...
+```
+
+When MCP is disabled or unavailable, it falls back to direct Home Assistant
+HTTP calls.
 
 ---
 
 ## Home Assistant
 
-The `homeassistant/` directory contains YAML configurations for:
+The `homeassistant/` directory contains YAML snippets for:
 
-- **Lighting** — Scene-based control and automation
-- **Security** — Motion alerts, auto-locking, sound-spike detection
-- **Climate** — Thermostat scheduling
-- **Irrigation** — Vegetable bed auto-watering based on soil moisture
-- **Window Coverings** — Auto-close blinds based on time/temperature
+- lighting
+- security
+- climate
+- irrigation
+- garage/window covering automations
+- sound and motion alerts
 
-Copy the relevant YAML snippets into your Home Assistant `configuration.yaml` or use the UI automation editor.
+Copy the relevant snippets into Home Assistant or recreate them in the UI
+automation editor.
 
 ---
 
 ## Database Schema
 
-The MySQL schema defines six tables:
+MySQL schema:
 
-- **`rooms`** — Room registry
-- **`devices`** — Smart plugs, motion sensors, sound sensors
-- **`sensor_readings`** — Raw time-series sensor data (JSON)
-- **`home_snapshot`** — Current state + anomaly flags (updated by `trigger.py`)
-- **`home_analytics`** — Historical baselines per room per hour (updated by `analytics.py`)
-- **`device_profiles`** — Expected power ranges, active hours, thresholds
+```text
+database_schema.txt
+scripts/migrate_add_users.sql
+```
 
-Full schema: [`database_schema.txt`](database_schema.txt)
+ArcadeDB schema:
 
----
+```text
+arcade_schema.sql
+```
 
-## Hardware & Sensors
+Primary MySQL tables include:
 
-- **Emporia Vue Gen 3** — Whole-home energy monitoring (breaker-level)
-- **TP-Link Kasa Smart Plugs** — Per-device energy monitoring
-- **Raspberry Pi 4B** — Edge logger for GPIO sound sensor + smart plug polling
-- **Mac Mini / Home Assistant Green** — Home Assistant host
-- **Zigbee Motion Sensor** — Presence detection
-
-Hardware manuals are in `Documentation/Hardware Manuals/`.
+- `rooms`
+- `devices`
+- `sensor_readings`
+- `home_snapshot`
+- `home_analytics`
+- `device_profiles`
+- `users`
+- `user_sessions`
 
 ---
 
 ## Documentation
 
-- **Proposal** — Initial project pitch and scope
-- **CDR** — Critical Design Review presentation and report
-- **Weekly Reports** — Progress tracking across the semester
-- **Hardware Manuals** — Setup guides for Emporia Vue, Raspberry Pi, Kasa plugs, etc.
+Project documents are stored under `Documentation/`:
 
----
-
-## Contributors
-
-This project was developed as a senior capstone. See the proposal and weekly reports in `Documentation/` for contributor details.
+- Proposal
+- Critical Design Review
+- Weekly reports
+- Hardware manuals
+- Home Assistant and Docker setup notes
