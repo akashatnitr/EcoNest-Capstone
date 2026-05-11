@@ -16,8 +16,15 @@ load_dotenv(os.path.expanduser("~/Desktop/Econest/.env"))
 PAUSED = True  # set to False to re-enable
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "mistral"
+MODEL = os.environ.get("OLLAMA_MODEL", "gemma4")
+FALLBACK_MODEL = os.environ.get("OLLAMA_FALLBACK_MODEL", "mistral")
 LOG_FILE = os.path.expanduser("~/inference.log")
+USE_MCP_TOOLS = os.environ.get("USE_MCP_TOOLS", "").lower() in {"1", "true", "yes"}
+MCP_URL = (
+    os.environ.get("MCP_URL")
+    or os.environ.get("ORCHESTRATOR_URL", "http://localhost:8000")
+).rstrip("/")
+SERVICE_ACCOUNT_TOKEN = os.environ.get("SERVICE_ACCOUNT_TOKEN", "")
 
 logging.basicConfig(
     filename=LOG_FILE,
@@ -27,6 +34,55 @@ logging.basicConfig(
 
 def log(msg):
     logging.info(msg)
+
+def call_ollama(prompt):
+    """Generate text with Gemma4, falling back to Mistral if unavailable."""
+    for model in (MODEL, FALLBACK_MODEL):
+        try:
+            response = requests.post(OLLAMA_URL, json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False
+            })
+            if response.status_code == 404 and model != FALLBACK_MODEL:
+                log(f"Ollama model {model} unavailable; trying {FALLBACK_MODEL}")
+                continue
+            response.raise_for_status()
+            return response.json()["response"].strip()
+        except requests.RequestException as e:
+            if model == FALLBACK_MODEL:
+                raise
+            log(f"Ollama model {model} failed: {e}; trying {FALLBACK_MODEL}")
+    return ""
+
+def call_mcp_tool(name, arguments):
+    """Call an MCP tool through the orchestrator API."""
+    headers = {"Content-Type": "application/json"}
+    if SERVICE_ACCOUNT_TOKEN:
+        headers["Authorization"] = f"Bearer {SERVICE_ACCOUNT_TOKEN}"
+
+    response = requests.post(
+        f"{MCP_URL}/mcp/tools/{name}",
+        headers=headers,
+        json={"name": name, "arguments": arguments},
+        timeout=5,
+    )
+    response.raise_for_status()
+    return response.json().get("result")
+
+def get_ha_entity_state_via_mcp(entity_id):
+    """Read a Home Assistant entity via MCP. Return None on fallback-worthy errors."""
+    if not USE_MCP_TOOLS:
+        return None
+
+    try:
+        result = call_mcp_tool("ha_get_state", {"entity_id": entity_id})
+        if isinstance(result, dict) and "state" in result:
+            return str(result["state"]).lower()
+        log(f"MCP ha_get_state returned no state for {entity_id}: {result}")
+    except requests.RequestException as e:
+        log(f"MCP ha_get_state failed for {entity_id}: {e}")
+    return None
 
 def get_connection():
     return mysql.connector.connect(
@@ -110,6 +166,10 @@ def get_cheap_hours():
     }
 
 def get_ha_entity_state(entity_id):
+    mcp_state = get_ha_entity_state_via_mcp(entity_id)
+    if mcp_state is not None:
+        return mcp_state
+
     ha_url   = os.environ.get("HA_URL", "http://localhost:8123")
     ha_token = os.environ.get("HA_TOKEN")
     if not ha_token:
@@ -306,14 +366,8 @@ SMS: YES
 SMS_MESSAGE: [under 140 chars]
 """
 
-    log("Calling Mistral for security alert...")
-    response = requests.post(OLLAMA_URL, json={
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False
-    })
-
-    raw    = response.json()["response"].strip()
+    log("Calling Ollama for security alert...")
+    raw    = call_ollama(prompt)
     result = parse_response(raw)
 
     log(f"Security alert: {result.get('alert')}")
@@ -375,14 +429,8 @@ SMS: NO
 SMS_MESSAGE:
 """
 
-    log("Calling Mistral for laundry cheap hours recommendation...")
-    response = requests.post(OLLAMA_URL, json={
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False
-    })
-
-    raw = response.json()["response"].strip()
+    log("Calling Ollama for laundry cheap hours recommendation...")
+    raw = call_ollama(prompt)
     result = parse_response(raw)
 
     if result["recommendation"]:
@@ -504,14 +552,8 @@ SMS: NO
 SMS_MESSAGE:
 """
 
-    log("Calling Mistral for sprinkler recommendation...")
-    response = requests.post(OLLAMA_URL, json={
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False
-    })
-
-    raw    = response.json()["response"].strip()
+    log("Calling Ollama for sprinkler recommendation...")
+    raw    = call_ollama(prompt)
     result = parse_response(raw)
 
     if result["recommendation"]:
@@ -609,14 +651,8 @@ SMS: NO
 SMS_MESSAGE:
 """
 
-    log("Calling Mistral for wind-down recommendation...")
-    response = requests.post(OLLAMA_URL, json={
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False
-    })
-
-    raw    = response.json()["response"].strip()
+    log("Calling Ollama for wind-down recommendation...")
+    raw    = call_ollama(prompt)
     result = parse_response(raw)
 
     if result["recommendation"]:
@@ -990,15 +1026,9 @@ def run_inference(mode=None):
     cursor.close()
     conn.close()
 
-    log(f"Calling Mistral in {mode} mode...")
+    log(f"Calling Ollama in {mode} mode...")
 
-    response = requests.post(OLLAMA_URL, json={
-        "model": MODEL,
-        "prompt": prompt,
-        "stream": False
-    })
-
-    raw = response.json()["response"].strip()
+    raw = call_ollama(prompt)
     result = parse_response(raw)
 
     # Code-level severity override: off-schedule device at night is always HIGH
