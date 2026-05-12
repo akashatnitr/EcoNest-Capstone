@@ -16,6 +16,7 @@ from orchestrator.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    hash_refresh_token,
     hash_password,
     verify_password,
 )
@@ -30,6 +31,11 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     role: Role = Role.HOMEOWNER
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 
 class TokenResponse(BaseModel):
@@ -65,8 +71,8 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    payload = decode_token(token)
-    if payload is None or payload.get("type") != "access":
+    payload = decode_token(token, expected_type="access")
+    if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -141,7 +147,7 @@ async def register(
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
-    req: RegisterRequest,
+    req: LoginRequest,
     session: AsyncSession = Depends(get_mysql_session),
 ):
     """OAuth2 password flow — returns access + refresh tokens."""
@@ -167,6 +173,7 @@ async def login(
     user_id = str(row["id"])
     access_token = create_access_token({"sub": user_id, "role": row["role"]})
     refresh_token = create_refresh_token({"sub": user_id})
+    refresh_token_hash = hash_refresh_token(refresh_token)
 
     expires_at = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
@@ -178,7 +185,7 @@ async def login(
         ),
         {
             "user_id": row["id"],
-            "refresh_token": refresh_token,
+            "refresh_token": refresh_token_hash,
             "expires_at": expires_at,
         },
     )
@@ -193,8 +200,8 @@ async def refresh(
     session: AsyncSession = Depends(get_mysql_session),
 ):
     """Refresh access token using a valid refresh token."""
-    payload = decode_token(req.refresh_token)
-    if payload is None or payload.get("type") != "refresh":
+    payload = decode_token(req.refresh_token, expected_type="refresh")
+    if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -213,7 +220,10 @@ async def refresh(
             "WHERE user_id = :user_id AND refresh_token = :refresh_token "
             "AND expires_at > NOW()"
         ),
-        {"user_id": int(user_id), "refresh_token": req.refresh_token},
+        {
+            "user_id": int(user_id),
+            "refresh_token": hash_refresh_token(req.refresh_token),
+        },
     )
     if result.scalar() is None:
         raise HTTPException(
@@ -245,7 +255,7 @@ async def logout(
     if req.refresh_token:
         await session.execute(
             text("DELETE FROM user_sessions WHERE refresh_token = :token"),
-            {"token": req.refresh_token},
+            {"token": hash_refresh_token(req.refresh_token)},
         )
         await session.commit()
     return None

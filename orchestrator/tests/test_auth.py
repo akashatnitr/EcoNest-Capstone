@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orchestrator.core.security import (
     create_access_token,
     create_refresh_token,
+    hash_refresh_token,
     hash_password,
 )
 from orchestrator.main import app
@@ -109,6 +110,9 @@ async def test_login_success(client, mock_session):
     data = resp.json()
     assert "access_token" in data
     assert "refresh_token" in data
+    stored_session = mock_session.execute.await_args_list[1].args[1]
+    assert stored_session["refresh_token"] == hash_refresh_token(data["refresh_token"])
+    assert stored_session["refresh_token"] != data["refresh_token"]
 
 
 @pytest.mark.anyio
@@ -136,11 +140,21 @@ async def test_refresh_success(client, mock_session):
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
+    session_lookup = mock_session.execute.await_args_list[0].args[1]
+    assert session_lookup["refresh_token"] == hash_refresh_token(refresh)
+    assert session_lookup["refresh_token"] != refresh
 
 
 @pytest.mark.anyio
 async def test_refresh_invalid_token(client, mock_session):
     resp = client.post("/auth/refresh", json={"refresh_token": "invalid.token.here"})
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_refresh_rejects_access_token(client, mock_session):
+    access = create_access_token({"sub": "1", "role": "homeowner"})
+    resp = client.post("/auth/refresh", json={"refresh_token": access})
     assert resp.status_code == 401
 
 
@@ -151,8 +165,12 @@ async def test_refresh_invalid_token(client, mock_session):
 
 @pytest.mark.anyio
 async def test_logout_success(client, mock_session):
-    resp = client.post("/auth/logout", json={"refresh_token": "some_token"})
+    refresh = create_refresh_token({"sub": "1"})
+    resp = client.post("/auth/logout", json={"refresh_token": refresh})
     assert resp.status_code == 204
+    delete_params = mock_session.execute.await_args.args[1]
+    assert delete_params["token"] == hash_refresh_token(refresh)
+    assert delete_params["token"] != refresh
 
 
 # ------------------------------------------------------------------
@@ -179,6 +197,13 @@ async def test_me_success(client, mock_session):
 
 
 @pytest.mark.anyio
+async def test_me_rejects_refresh_token(client, mock_session):
+    token = create_refresh_token({"sub": "1"})
+    resp = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+
+
+@pytest.mark.anyio
 async def test_me_no_token(client):
     resp = client.get("/auth/me")
     assert resp.status_code == 401
@@ -191,7 +216,6 @@ async def test_me_no_token(client):
 
 @pytest.mark.anyio
 async def test_list_users_admin_only(client, mock_session):
-    # Guest token
     token = create_access_token({"sub": "2", "role": "guest"})
     mock_session.execute.return_value = _mock_result(
         {
