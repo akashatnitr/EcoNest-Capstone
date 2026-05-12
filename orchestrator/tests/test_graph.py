@@ -1,12 +1,13 @@
 """Tests for the graph layer."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.database import get_mysql_session
+from orchestrator.graph.builder import grant_access_to_graph
 from orchestrator.main import app
 
 
@@ -56,6 +57,12 @@ def _mock_queries_arcadedb(result_data: dict):
         "orchestrator.graph.queries.arcadedb_query",
         new=AsyncMock(return_value=result_data),
     )
+
+
+def _mock_mysql_row(row: dict | None):
+    result = MagicMock()
+    result.mappings.return_value.first.return_value = row
+    return result
 
 
 # ------------------------------------------------------------------
@@ -158,3 +165,34 @@ async def test_raw_query_non_admin(client, guest_user):
         json={"query": "g.V().valueMap()"},
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_grant_access_to_graph_creates_room_edge():
+    session = AsyncMock()
+    session.execute.side_effect = [
+        _mock_mysql_row({"email": "user@example.com"}),
+        _mock_mysql_row({"name": "Kitchen"}),
+    ]
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        await grant_access_to_graph(
+            mysql_session=session,
+            user_id=7,
+            room_id=10,
+            permission="room:read",
+            allowed_start_hour=8,
+            allowed_end_hour=20,
+        )
+
+    query.assert_awaited_once()
+    command = query.await_args.args[1]
+    assert "CREATE EDGE HAS_ACCESS" in command
+    assert "FROM (SELECT FROM User WHERE email = 'user@example.com')" in command
+    assert "TO (SELECT FROM Room WHERE name = 'Kitchen')" in command
+    assert "permission = 'room:read'" in command
+    assert "allowed_start_hour = 8" in command
+    assert "allowed_end_hour = 20" in command
