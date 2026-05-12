@@ -1,77 +1,138 @@
 # Agent Instructions for EcoNest Orchestrator
 
-This file contains coding conventions, environment variable standards, and testing requirements for the `orchestrator/` package.
+This file defines the coding conventions, environment variable standards,
+database boundaries, and testing expectations for work in the `orchestrator/`
+package.
 
 ## Project Structure
 
-```
+```text
 orchestrator/
-├── main.py              # FastAPI entrypoint with lifespan manager
-├── config.py            # Pydantic Settings with .env support
-├── api/                 # FastAPI route modules
-├── core/                # Security, permissions, database
-├── agents/              # Sub-agents (Energy, Security, Sensor, Device)
-├── graph/               # ArcadeDB graph operations
-├── ontology/            # RDF/Turtle ontology, loader, reasoner, validator
-├── mcp/                 # MCP protocol server and tools
-├── llm/                 # LLM client and memory
-└── tests/               # pytest suite
++-- main.py              # FastAPI entrypoint and lifespan manager
++-- config.py            # Pydantic Settings with .env support
++-- api/                 # FastAPI route modules
++-- core/                # Security, permissions, database clients
++-- agents/              # Energy, Security, Sensor, and Device agents
++-- graph/               # ArcadeDB graph models, seeds, queries, sync helpers
++-- ontology/            # RDF/Turtle ontology, loader, reasoner, validator
++-- mcp/                 # MCP protocol server and tools
++-- llm/                 # LLM client and memory helpers
++-- tests/               # pytest suite
 ```
 
 ## Coding Standards
 
-- **Python**: >= 3.11
-- **Type hints**: All public functions must have type hints (`disallow_untyped_defs = true` in mypy).
-- **Async first**: Database and HTTP operations must use `async`/`await`.
-- **Pydantic models**: Use Pydantic v2 for all request/response schemas and data models.
-- **Error handling**: Raise custom exceptions in core code; handle and return appropriate HTTP status codes in API layers.
-- **Logging**: Use the standard `logging` module. Log at `INFO` for normal operations and `WARNING`/`ERROR` for anomalies.
+- Python must target version 3.11 or newer.
+- Public functions must have type hints. The project enables
+  `disallow_untyped_defs = true` in mypy.
+- Database and HTTP operations in the orchestrator should be async.
+- Use Pydantic v2 models for request, response, and internal structured data.
+- Keep route-specific HTTP error handling in `orchestrator/api/`.
+- Keep reusable security, permissions, and database logic in `orchestrator/core/`.
+- Use the standard `logging` module. Log normal operations at `INFO` and
+  unexpected or unsafe behavior at `WARNING` or `ERROR`.
+- Prefer small, focused modules over large route handlers with embedded business
+  logic.
 
 ## Environment Variables
 
-All configuration lives in `orchestrator/config.py` via `pydantic-settings`. Add new env vars there.
+All orchestrator configuration must live in `orchestrator/config.py` through
+`pydantic-settings`. Add new orchestrator env vars there instead of reading
+directly from `os.environ` inside route or core modules.
 
-Common conventions:
-- Database vars: `{SERVICE}_HOST`, `{SERVICE}_PORT`, `{SERVICE}_USER`, `{SERVICE}_PASSWORD`
+Naming conventions:
+
+- Database vars: `{SERVICE}_HOST`, `{SERVICE}_PORT`, `{SERVICE}_USER`,
+  `{SERVICE}_PASSWORD`, `{SERVICE}_DATABASE`
 - Token secrets: end with `_TOKEN` or `_KEY`
-- Timeouts / TTLs: end with `_MINUTES`, `_DAYS`, or `_SECONDS`
-- Booleans: use `1`/`0` or `true`/`false` strings
+- Timeouts and TTLs: end with `_SECONDS`, `_MINUTES`, or `_DAYS`
+- Booleans: accept `1`/`0` or `true`/`false`
 
-Sensor scripts that post readings to the backend should authenticate with a
-service-account JWT when the backend enforces auth:
+Common orchestrator vars:
+
+```env
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=econest
+MYSQL_DATABASE=econest
+
+ARCADEDB_HOST=localhost
+ARCADEDB_PORT=2480
+ARCADEDB_USER=root
+ARCADEDB_PASSWORD=playwithdata
+ARCADEDB_DATABASE=econest
+
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=gemma4
+OLLAMA_FALLBACK_MODEL=mistral
+
+HA_URL=http://localhost:8123
+HA_TOKEN=your_home_assistant_token
+
+SECRET_KEY=replace-this-in-production
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=7
+```
+
+Sensor scripts that post readings to an authenticated backend should use a
+service-account JWT:
 
 ```env
 SERVICE_ACCOUNT_TOKEN=eyJ...
 ```
 
-Create the token by registering or provisioning a user with the
-`service_account` role, then logging in through the orchestrator auth API. During
-the transition from the legacy backend, scripts may also send a long-lived API
-key fallback:
+During migration from legacy scripts, a long-lived API key fallback may also be
+used:
 
 ```env
 LEGACY_API_KEY=your-long-lived-key
 ```
 
-When both are set, scripts must prefer `SERVICE_ACCOUNT_TOKEN`.
+When both values are set, scripts must prefer `SERVICE_ACCOUNT_TOKEN`.
 
 ## Database Access
 
-- **MySQL**: Use `sqlalchemy.ext.asyncio` (AsyncSession) via the shared engine/pool from `orchestrator/core/database.py`.
-- **ArcadeDB**: Use the async HTTP wrapper from `orchestrator/core/database.py`.
-- **Never** create ad-hoc connections outside of `database.py`.
+- MySQL access must go through the async SQLAlchemy session factory in
+  `orchestrator/core/database.py`.
+- ArcadeDB access must go through the async HTTP wrapper in
+  `orchestrator/core/database.py`.
+- Do not create ad-hoc MySQL, ArcadeDB, or HTTP clients in route handlers.
+- Keep schema migrations in `scripts/` and keep Docker init order in
+  `docker-compose.yml` aligned with those migrations.
+- Database changes must include focused tests or explicit migration notes.
+
+## Security and Permissions
+
+- Password hashing, token creation, token decoding, and token validation belong
+  in `orchestrator/core/security.py`.
+- Role definitions, permission constants, RBAC checks, and ABAC helpers belong
+  in `orchestrator/core/permissions.py`.
+- API routes should call shared permission helpers instead of duplicating role
+  logic.
+- Never log passwords, refresh tokens, access tokens, Home Assistant tokens, or
+  API keys.
+- Public registration should stay conservative. More privileged users and
+  service accounts should be provisioned through admin-controlled workflows.
 
 ## Testing Requirements
 
-- **Framework**: pytest with `pytest-asyncio` (`asyncio_mode = auto`).
-- **Test location**: `orchestrator/tests/`
-- **Fixtures**: Shared fixtures for `arcadedb_client`, `mysql_pool`, `test_user`, and `auth_headers` will live in `orchestrator/tests/conftest.py`.
-- **Mocking**: Mock external services (Ollama, Home Assistant) in unit tests.
-- **Database isolation**: Use separate ArcadeDB/MySQL instances or prefixes for tests.
+- Use pytest with `pytest-asyncio`; `asyncio_mode = auto` is configured in
+  `pyproject.toml`.
+- Tests live under `orchestrator/tests/`.
+- Mock external services such as Ollama and Home Assistant in unit tests.
+- Use mocked MySQL and ArcadeDB clients for route/unit tests unless the test is
+  explicitly an integration test.
+- Add tests for security-sensitive behavior:
+  - password hashing and verification
+  - access and refresh token validation
+  - revoked or expired refresh tokens
+  - role and permission boundaries
+  - auth-protected route behavior
 
-## Dev Scripts
+## Development Scripts
 
-Defined in `pyproject.toml` via `poethepoet`:
+Defined in `pyproject.toml` through `poethepoet`:
 
 ```bash
 poetry run poe format   # black orchestrator/
@@ -80,7 +141,7 @@ poetry run poe test     # pytest
 poetry run poe dev      # uvicorn orchestrator.main:app --reload
 ```
 
-Run all checks before committing:
+Run all checks before committing when the local environment supports it:
 
 ```bash
 poetry run poe format && poetry run poe lint && poetry run poe test
