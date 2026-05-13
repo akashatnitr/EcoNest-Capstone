@@ -102,6 +102,32 @@ When both values are set, scripts must prefer `SERVICE_ACCOUNT_TOKEN`.
   `docker-compose.yml` aligned with those migrations.
 - Database changes must include focused tests or explicit migration notes.
 
+## Home Assistant Inventory
+
+Home Assistant exports are useful for mapping the real home into EcoNest, but
+they contain private home metadata and must stay out of git.
+
+Do not commit these local analysis files:
+
+```text
+Device_list.txt
+ha_states.json
+ha_entity_registry.json
+ha_device_registry.json
+ha_area_registry.json
+```
+
+When building device, room, or graph seed data from Home Assistant, prefer the
+registry relationship:
+
+```text
+entity_id -> entity.device_id -> device.area_id -> area.name
+```
+
+Most entities do not have `area_id` directly set, while their parent devices
+often do. Use entity registry data for entity IDs, device registry data for
+manufacturer/model/device-level area, and area registry data for room names.
+
 ## Security and Permissions
 
 - Password hashing, token creation, token decoding, and token validation belong
