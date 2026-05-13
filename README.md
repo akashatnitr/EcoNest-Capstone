@@ -51,7 +51,119 @@ sensor health, and device-control workflows.
 
 ## Architecture
 
+EcoNest is being migrated from a static collection of scripts into an
+orchestrated, agentic smart-home platform. The current target architecture has
+one central FastAPI service, the `orchestrator`, that coordinates data storage,
+Home Assistant access, graph context, model inference, MCP tools, and agent
+workflows.
+
 ```text
+Home Assistant + sensor/analytics scripts
+        |
+        | device state, service calls, sensor readings, anomaly events
+        v
+FastAPI orchestrator
+        |
+        +-- Auth and security
+        |      - admin identity for human operators
+        |      - service identity for agents, MCP tools, and automation scripts
+        |      - JWT access/refresh tokens
+        |      - refresh-token hashing support
+        |
+        +-- MySQL relational storage
+        |      - households
+        |      - rooms mapped to Home Assistant areas
+        |      - devices mapped to Home Assistant devices/entities
+        |      - users and sessions
+        |      - room/device access grants
+        |      - sensor readings, snapshots, analytics, and device profiles
+        |
+        +-- ArcadeDB graph context
+        |      - homes, rooms, devices, sensors, circuits, users, capabilities
+        |      - relationship queries for neighborhood/context lookup
+        |      - graph-backed reasoning support for agent decisions
+        |
+        +-- Home Assistant integration
+        |      - live entity state lookup
+        |      - service calls for device control
+        |      - registry-derived mapping through entity, device, and area data
+        |
+        +-- MCP tool layer
+        |      - safe MySQL read tools
+        |      - ArcadeDB graph tools
+        |      - Home Assistant state/action tools
+        |      - device action wrappers
+        |
+        +-- Agent orchestrator
+        |      - routes tasks by intent
+        |      - delegates to energy, security, sensor, and device agents
+        |      - uses tool permissions before exposing actions
+        |
+        +-- Ontology and reasoning
+        |      - RDF/Turtle smart-home ontology
+        |      - validation helpers
+        |      - rule-style reasoning over known graph context
+        |
+        +-- Local LLM inference
+               - Ollama-backed model client
+               - optional MCP-assisted context gathering
+               - fallback behavior when MCP tools are disabled
+```
+
+### Runtime Flow
+
+1. Home Assistant and the legacy sensor scripts provide live smart-home inputs:
+   entity states, service-call targets, sensor readings, and anomaly events.
+2. The orchestrator receives API calls or MCP task requests and authenticates
+   the caller as either `admin` or `service`.
+3. For factual context, the orchestrator can read from MySQL, query ArcadeDB,
+   call Home Assistant, and load ontology data.
+4. For agentic work, the orchestrator routes the task to a specialized agent:
+   energy, security, sensor, or device.
+5. Agents use MCP tools instead of reaching directly into every backend. This
+   keeps tool access centralized and makes permissions easier to enforce.
+6. If an action is needed, such as turning on a light or checking a device
+   neighborhood, the orchestrator validates the request and calls the correct
+   Home Assistant or graph/database tool.
+
+### Data Model Direction
+
+The MySQL schema is the durable system-of-record for structured application
+data. It stores households, users, sessions, rooms, devices, Home Assistant
+entity mappings, access grants, readings, analytics, and profiles.
+
+ArcadeDB is the relationship layer. It is used for graph questions that are
+awkward in relational SQL, such as what devices are near a room, what sensors
+monitor an area, what circuit powers a device, or what capabilities a device
+exposes.
+
+Home Assistant remains the live device-control layer. EcoNest should not try to
+replace Home Assistant's device registry or automation runtime. Instead,
+EcoNest maps HA entities/devices/areas into its own schema and graph so agents
+can reason over them and call HA services safely.
+
+### Identity Model
+
+The current architecture intentionally keeps identities simple:
+
+- `admin`: a human operator or owner of the EcoNest system.
+- `service`: a non-human identity used by orchestrator internals, MCP tools,
+  agents, and trusted automation scripts.
+
+This is enough for the current dynamic/agentic migration. More user categories
+can be added later if the product needs resident, guest, or room-specific human
+accounts.
+
+### Legacy Code Status
+
+Legacy Flask and standalone ML scripts are still present under `medium home/`
+and `Machine_learning/`. They are useful for sensor polling, analytics, demos,
+and migration support. New orchestration, authentication, graph, MCP, and agent
+work should live under `orchestrator/`.
+
+<!--
+Older architecture note kept for reference:
+
 Sensor scripts / Home Assistant
         |
         v
@@ -66,12 +178,7 @@ FastAPI orchestrator
         +-- MySQL
         +-- ArcadeDB
         +-- Ollama (Gemma4, fallback Mistral)
-```
-
-Legacy Flask and standalone ML scripts are still present under `medium home/`
-and `Machine_learning/`. They are useful for sensor polling, analytics, demos,
-and migration support, while new orchestrator work should live under
-`orchestrator/`.
+-->
 
 ---
 
@@ -181,27 +288,27 @@ poetry run poe dev
 
 ## Authentication
 
-The orchestrator uses JWT access and refresh tokens.
+The orchestrator uses JWT access and refresh tokens. Access tokens identify the
+caller for API and MCP requests. Refresh tokens are used to issue new access
+tokens and are designed to be stored as hashes rather than plaintext.
 
 Important endpoints:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/auth/register` | POST | Register a homeowner account |
+| `/auth/register` | POST | Register an admin account |
 | `/auth/login` | POST | Get access and refresh tokens |
 | `/auth/refresh` | POST | Refresh an access token |
 | `/auth/logout` | POST | Revoke a refresh token |
 | `/auth/me` | GET | Read the current profile |
 
-Roles are defined in `orchestrator/core/permissions.py`:
+The active identity model is:
 
-- `guest`
-- `family_member`
-- `homeowner`
-- `service_account`
-- `superadmin`
+- `admin` for human operators.
+- `service` for orchestrator internals, MCP tools, agents, and trusted
+  automation scripts.
 
-Sensor scripts should use a `service_account` JWT through:
+Sensor scripts should use a `service` JWT through:
 
 ```env
 SERVICE_ACCOUNT_TOKEN=eyJ...
@@ -348,14 +455,18 @@ arcade_schema.sql
 
 Primary MySQL tables include:
 
+- `households`
 - `rooms`
 - `devices`
+- `home_assistant_entities`
 - `sensor_readings`
 - `home_snapshot`
 - `home_analytics`
 - `device_profiles`
 - `users`
 - `user_sessions`
+- `user_room_access`
+- `user_device_access`
 
 ---
 
