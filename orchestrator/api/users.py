@@ -3,7 +3,7 @@
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,9 @@ from orchestrator.core.permissions import (
     USER_ADMIN,
     USER_WRITE,
     has_permission,
+    normalize_role,
 )
+from orchestrator.graph.builder import grant_access_to_graph
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -27,6 +29,9 @@ class UserUpdate(BaseModel):
 class GrantAccessRequest(BaseModel):
     room_id: Optional[int] = None
     device_id: Optional[int] = None
+    permission: Optional[str] = None
+    allowed_start_hour: Optional[int] = Field(default=None, ge=0, le=23)
+    allowed_end_hour: Optional[int] = Field(default=None, ge=0, le=23)
 
 
 def require_admin(current_user: UserProfile) -> None:
@@ -106,6 +111,11 @@ async def update_user(
         fields.append("email = :email")
         params["email"] = req.email
     if req.role is not None:
+        if normalize_role(req.role) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid role",
+            )
         fields.append("role = :role")
         params["role"] = req.role
     if req.is_active is not None:
@@ -174,5 +184,52 @@ async def grant_access(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="room_id or device_id required",
         )
-    # TODO: implement access control graph insertion once graph layer is ready
+
+    permission = req.permission
+    if req.room_id is not None:
+        await session.execute(
+            text(
+                "INSERT INTO user_room_access "
+                "(user_id, room_id, permission, allowed_start_hour, allowed_end_hour) "
+                "VALUES (:user_id, :room_id, :permission, :allowed_start_hour, :allowed_end_hour) "
+                "ON DUPLICATE KEY UPDATE "
+                "allowed_start_hour = VALUES(allowed_start_hour), "
+                "allowed_end_hour = VALUES(allowed_end_hour)"
+            ),
+            {
+                "user_id": user_id,
+                "room_id": req.room_id,
+                "permission": permission or "room:read",
+                "allowed_start_hour": req.allowed_start_hour,
+                "allowed_end_hour": req.allowed_end_hour,
+            },
+        )
+    if req.device_id is not None:
+        await session.execute(
+            text(
+                "INSERT INTO user_device_access "
+                "(user_id, device_id, permission, allowed_start_hour, allowed_end_hour) "
+                "VALUES (:user_id, :device_id, :permission, :allowed_start_hour, :allowed_end_hour) "
+                "ON DUPLICATE KEY UPDATE "
+                "allowed_start_hour = VALUES(allowed_start_hour), "
+                "allowed_end_hour = VALUES(allowed_end_hour)"
+            ),
+            {
+                "user_id": user_id,
+                "device_id": req.device_id,
+                "permission": permission or "device:read",
+                "allowed_start_hour": req.allowed_start_hour,
+                "allowed_end_hour": req.allowed_end_hour,
+            },
+        )
+    await grant_access_to_graph(
+        mysql_session=session,
+        user_id=user_id,
+        room_id=req.room_id,
+        device_id=req.device_id,
+        permission=permission,
+        allowed_start_hour=req.allowed_start_hour,
+        allowed_end_hour=req.allowed_end_hour,
+    )
+    await session.commit()
     return None

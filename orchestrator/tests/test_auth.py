@@ -1,6 +1,6 @@
 """Tests for the auth system."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -204,3 +204,66 @@ async def test_list_users_admin_only(client, mock_session):
     )
     resp = client.get("/users", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_update_user_rejects_unknown_role(client, mock_session):
+    token = create_access_token({"sub": "1", "role": "superadmin"})
+    mock_session.execute.return_value = _mock_result(
+        {
+            "id": 1,
+            "email": "admin@example.com",
+            "role": "superadmin",
+            "household_id": None,
+            "is_active": True,
+        }
+    )
+
+    resp = client.put(
+        "/users/7",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"role": "unknown"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Invalid role"
+
+
+@pytest.mark.anyio
+async def test_grant_room_access_writes_access_table(client, mock_session):
+    token = create_access_token({"sub": "1", "role": "superadmin"})
+    mock_session.execute.side_effect = [
+        _mock_result(
+            {
+                "id": 1,
+                "email": "admin@example.com",
+                "role": "superadmin",
+                "household_id": None,
+                "is_active": True,
+            }
+        ),
+        _mock_result(None),
+    ]
+
+    with patch(
+        "orchestrator.api.users.grant_access_to_graph",
+        new=AsyncMock(),
+    ) as graph_grant:
+        resp = client.post(
+            "/users/7/grant-access",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"room_id": 10, "permission": "room:read"},
+        )
+
+    assert resp.status_code == 204
+    assert mock_session.execute.await_count == 2
+    assert mock_session.commit.await_count == 1
+    graph_grant.assert_awaited_once_with(
+        mysql_session=mock_session,
+        user_id=7,
+        room_id=10,
+        device_id=None,
+        permission="room:read",
+        allowed_start_hour=None,
+        allowed_end_hour=None,
+    )
