@@ -193,6 +193,7 @@ async def grant_access(
                 "(user_id, room_id, permission, allowed_start_hour, allowed_end_hour) "
                 "VALUES (:user_id, :room_id, :permission, :allowed_start_hour, :allowed_end_hour) "
                 "ON DUPLICATE KEY UPDATE "
+                "permission = VALUES(permission), "
                 "allowed_start_hour = VALUES(allowed_start_hour), "
                 "allowed_end_hour = VALUES(allowed_end_hour)"
             ),
@@ -211,6 +212,7 @@ async def grant_access(
                 "(user_id, device_id, permission, allowed_start_hour, allowed_end_hour) "
                 "VALUES (:user_id, :device_id, :permission, :allowed_start_hour, :allowed_end_hour) "
                 "ON DUPLICATE KEY UPDATE "
+                "permission = VALUES(permission), "
                 "allowed_start_hour = VALUES(allowed_start_hour), "
                 "allowed_end_hour = VALUES(allowed_end_hour)"
             ),

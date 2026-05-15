@@ -4,6 +4,7 @@ import os
 import time
 from datetime import datetime
 
+import requests
 from kasa import SmartPlug
 import RPi.GPIO as GPIO
 
@@ -20,6 +21,9 @@ DEVICES = {
 
 ENERGY_LOG_FILE = "energy_log.csv"
 SOUND_LOG_FILE = "sound_log.csv"
+BACKEND_URL = os.getenv("BACKEND_URL")
+SERVICE_ACCOUNT_TOKEN = os.getenv("SERVICE_ACCOUNT_TOKEN")
+LEGACY_API_KEY = os.getenv("LEGACY_API_KEY")
 
 INTERVAL_SECONDS = 30          # how often to log energy data
 SOUND_PIN = 17                 # BCM GPIO number (physical pin 11)
@@ -28,39 +32,35 @@ SOUND_SENSOR_ID = "front_door_sensor"
 SOUND_POLL_INTERVAL = 0.01     # seconds between GPIO polls (10 ms)
 DEBOUNCE_SECONDS = 2.0         # minimum time between logged sound events
 
+BACKEND_HEADERS = {"Content-Type": "application/json"}
+if SERVICE_ACCOUNT_TOKEN:
+    BACKEND_HEADERS["Authorization"] = f"Bearer {SERVICE_ACCOUNT_TOKEN}"
+elif LEGACY_API_KEY:
+    BACKEND_HEADERS["X-API-Key"] = LEGACY_API_KEY
+
 # =====================
 
 
 async def send_to_backend(event: dict):
-    """
-    Placeholder for your future database/API call.
+    """Send a sensor event to the configured backend endpoint."""
+    if not BACKEND_URL:
+        return None
 
-    Example event structures:
-      - Energy:
-          {
-              "type": "energy",
-              "timestamp": "...",
-              "name": "...",
-              "ip": "...",
-              "power": ...,
-              "voltage": ...,
-              "current": ...,
-              "total_kwh": ...
-          }
+    def _post():
+        return requests.post(
+            BACKEND_URL,
+            json=event,
+            headers=BACKEND_HEADERS,
+            timeout=5,
+        )
 
-      - Sound:
-          {
-              "type": "sound",
-              "timestamp": "...",
-              "sensor_id": "sound_sensor_1"
-          }
-
-    For now, this does nothing. Later you can:
-      - Use aiohttp / httpx to POST to your backend
-      - Or write to a message queue, etc.
-    """
-    # TODO: implement when you have an endpoint
-    return
+    try:
+        response = await asyncio.to_thread(_post)
+        print(f"[BACKEND] status={response.status_code}")
+        return response
+    except requests.RequestException as exc:
+        print(f"[BACKEND] unreachable: {exc}")
+        return None
 
 
 # ========= ENERGY LOGIC =========

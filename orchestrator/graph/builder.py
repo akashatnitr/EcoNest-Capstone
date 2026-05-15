@@ -25,9 +25,10 @@ async def sync_rooms_to_graph(mysql_session: AsyncSession) -> dict[int, str]:
             name=row["name"], room_type="LivingRoom", description=row["description"]
         )
         cmd = (
-            f"CREATE VERTEX Room SET name = '{room.name}', "
+            f"CREATE VERTEX Room SET mysql_id = {int(row['id'])}, "
+            f"name = {_sql_string(room.name)}, "
             f"room_type = '{room.room_type}', "
-            f"description = '{room.description or ''}', "
+            f"description = {_sql_string(room.description or '')}, "
             f"created_at = datetime()"
         )
         resp = await arcadedb_query("sql", cmd, readonly=False)
@@ -67,9 +68,10 @@ async def sync_devices_to_graph(
             is_active=bool(row["is_active"]),
         )
         cmd = (
-            f"CREATE VERTEX Device SET name = '{device.name}', "
-            f"device_type = '{device.device_type}', "
-            f"ip_address = '{device.ip_address or ''}', "
+            f"CREATE VERTEX Device SET mysql_id = {int(row['id'])}, "
+            f"name = {_sql_string(device.name)}, "
+            f"device_type = {_sql_string(device.device_type)}, "
+            f"ip_address = {_sql_string(device.ip_address or '')}, "
             f"is_active = {str(device.is_active).lower()}, "
             f"created_at = datetime()"
         )
@@ -93,26 +95,38 @@ async def incremental_sync(
     mysql_session: AsyncSession,
     last_sync: str = "1970-01-01 00:00:00",
 ) -> dict[str, Any]:
-    """Perform incremental sync of changed records since last_sync.
+    """Idempotently sync current MySQL room/device records into ArcadeDB.
 
     Returns summary statistics.
     """
-    # Find rooms updated since last_sync
     room_result = await mysql_session.execute(
-        text("SELECT id FROM rooms WHERE updated_at > :ts OR created_at > :ts"),
-        {"ts": last_sync},
+        text("SELECT id, name, description FROM rooms"),
     )
-    changed_rooms = room_result.scalars().all()
+    changed_rooms = room_result.mappings().all()
 
-    # Find devices updated since last_sync
+    user_result = await mysql_session.execute(
+        text("SELECT id, email, role, is_active FROM users"),
+    )
+    changed_users = user_result.mappings().all()
+
     device_result = await mysql_session.execute(
-        text("SELECT id FROM devices WHERE updated_at > :ts OR created_at > :ts"),
-        {"ts": last_sync},
+        text(
+            "SELECT d.id, d.name, d.ip_address, d.device_type, d.room_id, "
+            "d.is_active, r.name AS room_name "
+            "FROM devices d LEFT JOIN rooms r ON d.room_id = r.id"
+        ),
     )
-    changed_devices = device_result.scalars().all()
+    changed_devices = device_result.mappings().all()
 
-    # TODO: implement update logic for changed records
+    for row in changed_users:
+        await _upsert_user(row)
+    for row in changed_rooms:
+        await _upsert_room(row)
+    for row in changed_devices:
+        await _upsert_device(row)
+
     return {
+        "changed_users": len(changed_users),
         "changed_rooms": len(changed_rooms),
         "changed_devices": len(changed_devices),
         "last_sync": last_sync,
@@ -130,25 +144,26 @@ async def grant_access_to_graph(
 ) -> None:
     """Create HAS_ACCESS edges in ArcadeDB for room/device grants."""
     user_result = await mysql_session.execute(
-        text("SELECT email FROM users WHERE id = :id"),
+        text("SELECT id, email, role, is_active FROM users WHERE id = :id"),
         {"id": user_id},
     )
     user = user_result.mappings().first()
     if user is None:
         return
+    await _upsert_user(user)
 
     if room_id is not None:
         room_result = await mysql_session.execute(
-            text("SELECT name FROM rooms WHERE id = :id"),
+            text("SELECT id, name, description FROM rooms WHERE id = :id"),
             {"id": room_id},
         )
         room = room_result.mappings().first()
         if room is not None:
+            await _upsert_room(room)
             await _create_access_edge(
-                user_email=user["email"],
+                user_id=user_id,
                 target_label="Room",
-                target_property="name",
-                target_value=room["name"],
+                target_id=room_id,
                 permission=permission or "room:read",
                 allowed_start_hour=allowed_start_hour,
                 allowed_end_hour=allowed_end_hour,
@@ -156,27 +171,95 @@ async def grant_access_to_graph(
 
     if device_id is not None:
         device_result = await mysql_session.execute(
-            text("SELECT name FROM devices WHERE id = :id"),
+            text(
+                "SELECT d.id, d.name, d.ip_address, d.device_type, d.room_id, "
+                "d.is_active, r.name AS room_name "
+                "FROM devices d LEFT JOIN rooms r ON d.room_id = r.id "
+                "WHERE d.id = :id"
+            ),
             {"id": device_id},
         )
         device = device_result.mappings().first()
         if device is not None:
+            await _upsert_device(device)
             await _create_access_edge(
-                user_email=user["email"],
+                user_id=user_id,
                 target_label="Device",
-                target_property="name",
-                target_value=device["name"],
+                target_id=device_id,
                 permission=permission or "device:read",
                 allowed_start_hour=allowed_start_hour,
                 allowed_end_hour=allowed_end_hour,
             )
 
 
+async def _upsert_user(row: Any) -> None:
+    cmd = (
+        "UPDATE User SET "
+        f"mysql_id = {int(row['id'])}, "
+        f"email = {_sql_string(row['email'])}, "
+        f"role = {_sql_string(row['role'])}, "
+        f"is_active = {str(bool(row['is_active'])).lower()}, "
+        "created_at = datetime() "
+        f"UPSERT WHERE mysql_id = {int(row['id'])}"
+    )
+    await arcadedb_query("sql", cmd, readonly=False)
+
+
+async def _upsert_room(row: Any) -> None:
+    cmd = (
+        "UPDATE Room SET "
+        f"mysql_id = {int(row['id'])}, "
+        f"name = {_sql_string(row['name'])}, "
+        "room_type = 'LivingRoom', "
+        f"description = {_sql_string(row['description'] or '')}, "
+        "created_at = datetime() "
+        f"UPSERT WHERE mysql_id = {int(row['id'])}"
+    )
+    await arcadedb_query("sql", cmd, readonly=False)
+
+
+async def _upsert_device(row: Any) -> None:
+    type_map = {
+        "smart_plug": "SmartPlug",
+        "motion_sensor": "MotionSensor",
+        "sound_sensor": "SoundSensor",
+        "light": "SmartBulb",
+        "switch": "SmartSwitch",
+        "climate": "Thermostat",
+        "other": "SmartSwitch",
+    }
+    device_type = type_map.get(row["device_type"], "SmartSwitch")
+    cmd = (
+        "UPDATE Device SET "
+        f"mysql_id = {int(row['id'])}, "
+        f"name = {_sql_string(row['name'])}, "
+        f"device_type = {_sql_string(device_type)}, "
+        f"ip_address = {_sql_string(row['ip_address'] or '')}, "
+        f"is_active = {str(bool(row['is_active'])).lower()}, "
+        "created_at = datetime() "
+        f"UPSERT WHERE mysql_id = {int(row['id'])}"
+    )
+    await arcadedb_query("sql", cmd, readonly=False)
+
+    if row["room_id"] and row["room_name"]:
+        delete_edge_cmd = (
+            "DELETE EDGE LOCATED_IN "
+            f"FROM (SELECT FROM Device WHERE mysql_id = {int(row['id'])}) "
+            f"TO (SELECT FROM Room WHERE mysql_id = {int(row['room_id'])})"
+        )
+        await arcadedb_query("sql", delete_edge_cmd, readonly=False)
+        edge_cmd = (
+            "CREATE EDGE LOCATED_IN "
+            f"FROM (SELECT FROM Device WHERE mysql_id = {int(row['id'])}) "
+            f"TO (SELECT FROM Room WHERE mysql_id = {int(row['room_id'])})"
+        )
+        await arcadedb_query("sql", edge_cmd, readonly=False)
+
+
 async def _create_access_edge(
-    user_email: str,
+    user_id: int,
     target_label: str,
-    target_property: str,
-    target_value: str,
+    target_id: int,
     permission: str,
     allowed_start_hour: int | None,
     allowed_end_hour: int | None,
@@ -190,10 +273,16 @@ async def _create_access_edge(
     if allowed_end_hour is not None:
         fields.append(f"allowed_end_hour = {allowed_end_hour}")
 
+    delete_cmd = (
+        "DELETE EDGE HAS_ACCESS "
+        f"FROM (SELECT FROM User WHERE mysql_id = {int(user_id)}) "
+        f"TO (SELECT FROM {target_label} WHERE mysql_id = {int(target_id)})"
+    )
+    await arcadedb_query("sql", delete_cmd, readonly=False)
     cmd = (
         "CREATE EDGE HAS_ACCESS "
-        f"FROM (SELECT FROM User WHERE email = {_sql_string(user_email)}) "
-        f"TO (SELECT FROM {target_label} WHERE {target_property} = {_sql_string(target_value)}) "
+        f"FROM (SELECT FROM User WHERE mysql_id = {int(user_id)}) "
+        f"TO (SELECT FROM {target_label} WHERE mysql_id = {int(target_id)}) "
         f"SET {', '.join(fields)}"
     )
     await arcadedb_query("sql", cmd, readonly=False)

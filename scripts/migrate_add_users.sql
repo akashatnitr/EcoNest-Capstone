@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS user_room_access (
     allowed_start_hour TINYINT,
     allowed_end_hour TINYINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_user_room_permission (user_id, room_id, permission),
+    UNIQUE KEY unique_user_room_access (user_id, room_id),
     INDEX idx_user_room_access_room_id (room_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS user_device_access (
     allowed_start_hour TINYINT,
     allowed_end_hour TINYINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_user_device_permission (user_id, device_id, permission),
+    UNIQUE KEY unique_user_device_access (user_id, device_id),
     INDEX idx_user_device_access_device_id (device_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
