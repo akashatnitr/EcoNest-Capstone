@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.database import get_mysql_session
-from orchestrator.graph.builder import grant_access_to_graph
+from orchestrator.graph.builder import grant_access_to_graph, incremental_sync
 from orchestrator.main import app
 
 
@@ -62,6 +62,12 @@ def _mock_queries_arcadedb(result_data: dict):
 def _mock_mysql_row(row: dict | None):
     result = MagicMock()
     result.mappings.return_value.first.return_value = row
+    return result
+
+
+def _mock_mysql_rows(rows: list[dict]):
+    result = MagicMock()
+    result.mappings.return_value.all.return_value = rows
     return result
 
 
@@ -196,3 +202,43 @@ async def test_grant_access_to_graph_creates_room_edge():
     assert "permission = 'room:read'" in command
     assert "allowed_start_hour = 8" in command
     assert "allowed_end_hour = 20" in command
+
+
+@pytest.mark.anyio
+async def test_incremental_sync_upserts_rooms_and_devices():
+    session = AsyncMock()
+    session.execute.side_effect = [
+        _mock_mysql_rows([{"id": 10, "name": "Kitchen", "description": "Main room"}]),
+        _mock_mysql_rows(
+            [
+                {
+                    "id": 99,
+                    "name": "Kitchen Light",
+                    "ip_address": None,
+                    "device_type": "light",
+                    "room_id": 10,
+                    "room_name": "Kitchen",
+                    "is_active": True,
+                }
+            ]
+        ),
+    ]
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        result = await incremental_sync(session)
+
+    assert result["changed_rooms"] == 1
+    assert result["changed_devices"] == 1
+    commands = [call.args[1] for call in query.await_args_list]
+    assert any(
+        "UPDATE Room SET" in command and "UPSERT" in command
+        for command in commands
+    )
+    assert any(
+        "UPDATE Device SET" in command and "SmartBulb" in command
+        for command in commands
+    )
+    assert any("CREATE EDGE LOCATED_IN" in command for command in commands)

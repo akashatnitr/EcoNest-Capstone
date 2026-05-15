@@ -93,25 +93,29 @@ async def incremental_sync(
     mysql_session: AsyncSession,
     last_sync: str = "1970-01-01 00:00:00",
 ) -> dict[str, Any]:
-    """Perform incremental sync of changed records since last_sync.
+    """Idempotently sync current MySQL room/device records into ArcadeDB.
 
     Returns summary statistics.
     """
-    # Find rooms updated since last_sync
     room_result = await mysql_session.execute(
-        text("SELECT id FROM rooms WHERE updated_at > :ts OR created_at > :ts"),
-        {"ts": last_sync},
+        text("SELECT id, name, description FROM rooms"),
     )
-    changed_rooms = room_result.scalars().all()
+    changed_rooms = room_result.mappings().all()
 
-    # Find devices updated since last_sync
     device_result = await mysql_session.execute(
-        text("SELECT id FROM devices WHERE updated_at > :ts OR created_at > :ts"),
-        {"ts": last_sync},
+        text(
+            "SELECT d.id, d.name, d.ip_address, d.device_type, d.room_id, "
+            "d.is_active, r.name AS room_name "
+            "FROM devices d LEFT JOIN rooms r ON d.room_id = r.id"
+        ),
     )
-    changed_devices = device_result.scalars().all()
+    changed_devices = device_result.mappings().all()
 
-    # TODO: implement update logic for changed records
+    for row in changed_rooms:
+        await _upsert_room(row)
+    for row in changed_devices:
+        await _upsert_device(row)
+
     return {
         "changed_rooms": len(changed_rooms),
         "changed_devices": len(changed_devices),
@@ -170,6 +174,55 @@ async def grant_access_to_graph(
                 allowed_start_hour=allowed_start_hour,
                 allowed_end_hour=allowed_end_hour,
             )
+
+
+async def _upsert_room(row: Any) -> None:
+    cmd = (
+        "UPDATE Room SET "
+        f"name = {_sql_string(row['name'])}, "
+        "room_type = 'LivingRoom', "
+        f"description = {_sql_string(row['description'] or '')}, "
+        "created_at = datetime() "
+        f"UPSERT WHERE name = {_sql_string(row['name'])}"
+    )
+    await arcadedb_query("sql", cmd, readonly=False)
+
+
+async def _upsert_device(row: Any) -> None:
+    type_map = {
+        "smart_plug": "SmartPlug",
+        "motion_sensor": "MotionSensor",
+        "sound_sensor": "SoundSensor",
+        "light": "SmartBulb",
+        "switch": "SmartSwitch",
+        "climate": "Thermostat",
+        "other": "SmartSwitch",
+    }
+    device_type = type_map.get(row["device_type"], "SmartSwitch")
+    cmd = (
+        "UPDATE Device SET "
+        f"name = {_sql_string(row['name'])}, "
+        f"device_type = {_sql_string(device_type)}, "
+        f"ip_address = {_sql_string(row['ip_address'] or '')}, "
+        f"is_active = {str(bool(row['is_active'])).lower()}, "
+        "created_at = datetime() "
+        f"UPSERT WHERE name = {_sql_string(row['name'])}"
+    )
+    await arcadedb_query("sql", cmd, readonly=False)
+
+    if row["room_id"] and row["room_name"]:
+        delete_edge_cmd = (
+            "DELETE EDGE LOCATED_IN "
+            f"FROM (SELECT FROM Device WHERE name = {_sql_string(row['name'])}) "
+            f"TO (SELECT FROM Room WHERE name = {_sql_string(row['room_name'])})"
+        )
+        await arcadedb_query("sql", delete_edge_cmd, readonly=False)
+        edge_cmd = (
+            "CREATE EDGE LOCATED_IN "
+            f"FROM (SELECT FROM Device WHERE name = {_sql_string(row['name'])}) "
+            f"TO (SELECT FROM Room WHERE name = {_sql_string(row['room_name'])})"
+        )
+        await arcadedb_query("sql", edge_cmd, readonly=False)
 
 
 async def _create_access_edge(
