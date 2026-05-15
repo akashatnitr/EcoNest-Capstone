@@ -1,6 +1,7 @@
 """Async database clients for ArcadeDB and MySQL with lifespan management."""
 
 from typing import Optional
+from sqlalchemy import text
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -97,7 +98,7 @@ async def healthcheck_mysql() -> bool:
         return False
     try:
         async with _mysql_engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception:
         return False

@@ -37,7 +37,26 @@ app.include_router(ontology.router)
 app.include_router(users.router)
 
 
+from orchestrator.core.database import (
+    close_databases,
+    healthcheck_arcadedb,
+    healthcheck_mysql,
+    init_databases,
+)
+
 @app.get("/health")
 async def health_check():
-    """Liveness probe."""
-    return {"status": "ok", "version": settings.VERSION}
+    """Infrastructure health probe."""
+    mysql_ok = await healthcheck_mysql()
+    arcadedb_ok = await healthcheck_arcadedb()
+
+    overall = mysql_ok and arcadedb_ok
+
+    return {
+        "status": "ok" if overall else "degraded",
+        "version": settings.VERSION,
+        "services": {
+            "mysql": mysql_ok,
+            "arcadedb": arcadedb_ok,
+        },
+    }
