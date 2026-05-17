@@ -266,6 +266,8 @@ async def test_grant_room_access_writes_access_table(client, mock_session):
                 "is_active": True,
             }
         ),
+        _mock_result({"id": 7}),
+        _mock_result({"id": 10}),
         _mock_result(None),
     ]
 
@@ -280,9 +282,9 @@ async def test_grant_room_access_writes_access_table(client, mock_session):
         )
 
     assert resp.status_code == 204
-    assert mock_session.execute.await_count == 2
+    assert mock_session.execute.await_count == 4
     assert mock_session.commit.await_count == 1
-    access_query = str(mock_session.execute.await_args_list[1].args[0])
+    access_query = str(mock_session.execute.await_args_list[3].args[0])
     assert "permission = VALUES(permission)" in access_query
     graph_grant.assert_awaited_once_with(
         mysql_session=mock_session,

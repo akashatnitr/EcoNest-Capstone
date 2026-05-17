@@ -9,12 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.database import get_mysql_session
-from orchestrator.core.permissions import (
-    USER_ADMIN,
-    USER_WRITE,
-    has_permission,
-    normalize_role,
-)
+from orchestrator.core.permissions import USER_ADMIN, has_permission, normalize_role
 from orchestrator.graph.builder import grant_access_to_graph
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -92,17 +87,21 @@ async def update_user(
     session: AsyncSession = Depends(get_mysql_session),
 ):
     """Update user (self or admin)."""
-    if current_user.id != user_id and not has_permission(current_user.role, USER_WRITE):
+    is_admin = has_permission(current_user.role, USER_ADMIN)
+    if current_user.id != user_id and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot update other users",
         )
-
-    # Non-admins cannot change role
-    if req.role is not None and not has_permission(current_user.role, USER_ADMIN):
+    if req.role is not None and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can change roles",
+        )
+    if req.is_active is not None and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can change active status",
         )
 
     fields = []
@@ -162,6 +161,17 @@ async def deactivate_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot deactivate yourself",
         )
+
+    existing = await session.execute(
+        text("SELECT id FROM users WHERE id = :id"),
+        {"id": user_id},
+    )
+    if existing.scalar() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
     await session.execute(
         text("UPDATE users SET is_active = FALSE WHERE id = :id"),
         {"id": user_id},
@@ -185,8 +195,27 @@ async def grant_access(
             detail="room_id or device_id required",
         )
 
+    target_user = await session.execute(
+        text("SELECT id FROM users WHERE id = :id"),
+        {"id": user_id},
+    )
+    if target_user.scalar() is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
     permission = req.permission
     if req.room_id is not None:
+        room = await session.execute(
+            text("SELECT id FROM rooms WHERE id = :id"),
+            {"id": req.room_id},
+        )
+        if room.scalar() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found",
+            )
         await session.execute(
             text(
                 "INSERT INTO user_room_access "
@@ -206,6 +235,15 @@ async def grant_access(
             },
         )
     if req.device_id is not None:
+        device = await session.execute(
+            text("SELECT id FROM devices WHERE id = :id"),
+            {"id": req.device_id},
+        )
+        if device.scalar() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found",
+            )
         await session.execute(
             text(
                 "INSERT INTO user_device_access "
