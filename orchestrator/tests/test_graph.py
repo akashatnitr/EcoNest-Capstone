@@ -8,7 +8,11 @@ from pydantic import ValidationError
 
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.database import get_mysql_session
-from orchestrator.graph.builder import grant_access_to_graph, incremental_sync
+from orchestrator.graph.builder import (
+    grant_access_to_graph,
+    incremental_sync,
+    sync_sensor_readings_to_graph,
+)
 from orchestrator.graph.models import (
     Action,
     Capability,
@@ -82,6 +86,19 @@ def _mock_mysql_rows(rows: list[dict]):
     result = MagicMock()
     result.mappings.return_value.all.return_value = rows
     return result
+
+
+def _device_row(**overrides):
+    row = {
+        "id": 99,
+        "name": "Kitchen Light",
+        "device_type": "energy",
+        "room_id": 10,
+        "room_name": "Kitchen",
+        "is_active": True,
+    }
+    row.update(overrides)
+    return row
 
 
 # ------------------------------------------------------------------
@@ -353,19 +370,25 @@ async def test_grant_access_to_graph_creates_room_edge():
 async def test_incremental_sync_upserts_rooms_and_devices():
     session = AsyncMock()
     session.execute.side_effect = [
-        _mock_mysql_rows([{"id": 10, "name": "Kitchen", "description": "Main room"}]),
         _mock_mysql_rows(
             [
                 {
-                    "id": 99,
-                    "name": "Kitchen Light",
-                    "ip_address": None,
-                    "device_type": "light",
-                    "room_id": 10,
-                    "room_name": "Kitchen",
-                    "is_active": True,
+                    "id": 10,
+                    "name": "Kitchen",
                 }
-            ]
+            ],
+        ),
+        _mock_mysql_rows([_device_row()]),
+        _mock_mysql_rows(
+            [
+                {
+                    "id": 500,
+                    "device_id": 99,
+                    "room_id": 10,
+                    "timestamp": "2026-05-24 15:00:00",
+                    "data": {"power": 12.5},
+                }
+            ],
         ),
     ]
 
@@ -377,12 +400,113 @@ async def test_incremental_sync_upserts_rooms_and_devices():
 
     assert result["changed_rooms"] == 1
     assert result["changed_devices"] == 1
+    assert result["changed_sensor_readings"] == 1
+    assert result["conflict_policy"] == "update"
     commands = [call.args[1] for call in query.await_args_list]
+    assert commands[0] == "BEGIN"
+    assert commands[-1] == "COMMIT"
     assert any(
-        "UPDATE Room SET" in command and "UPSERT" in command for command in commands
+        "UPDATE Room SET" in command and "UPSERT WHERE mysql_id = 10" in command
+        for command in commands
     )
     assert any(
-        "UPDATE Device SET" in command and "SmartBulb" in command
+        "UPDATE Device SET" in command
+        and "EnergyMonitor" in command
+        and "ha_domain = null" in command
         for command in commands
     )
     assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
+    assert any("UPDATE SensorReading SET" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_incremental_sync_uses_skip_conflict_policy():
+    session = AsyncMock()
+    session.execute.side_effect = [
+        _mock_mysql_rows(
+            [
+                {
+                    "id": 10,
+                    "name": "Kitchen",
+                }
+            ],
+        ),
+        _mock_mysql_rows([_device_row()]),
+        _mock_mysql_rows([]),
+    ]
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        result = await incremental_sync(session, conflict_policy="skip")
+
+    assert result["conflict_policy"] == "skip"
+    commands = [call.args[1] for call in query.await_args_list]
+    assert any("CREATE VERTEX Room SET" in command for command in commands)
+    assert any("IF NOT EXISTS WHERE mysql_id = 10" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_sync_sensor_readings_filters_by_last_sync():
+    session = AsyncMock()
+    session.execute.return_value = _mock_mysql_rows(
+        [
+            {
+                "id": 501,
+                "device_id": 99,
+                "room_id": 10,
+                "timestamp": "2026-05-24 15:05:00",
+                "data": '{"motion": true}',
+            }
+        ]
+    )
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        result = await sync_sensor_readings_to_graph(
+            session,
+            last_sync="2026-05-24 15:00:00",
+        )
+
+    assert result["changed_sensor_readings"] == 1
+    session.execute.assert_awaited_once()
+    assert session.execute.await_args.args[1] == {"last_sync": "2026-05-24 15:00:00"}
+    commands = [call.args[1] for call in query.await_args_list]
+    assert any("UPDATE SensorReading SET" in command for command in commands)
+    assert any('"motion": true' in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_incremental_sync_rolls_back_on_arcadedb_error():
+    session = AsyncMock()
+    session.execute.side_effect = [
+        _mock_mysql_rows(
+            [
+                {
+                    "id": 10,
+                    "name": "Kitchen",
+                }
+            ],
+        ),
+        _mock_mysql_rows([]),
+        _mock_mysql_rows([]),
+    ]
+
+    async def failing_query(language, command, readonly=True):
+        if command.startswith("UPDATE Room"):
+            raise RuntimeError("arcadedb failed")
+        return {"result": []}
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(side_effect=failing_query),
+    ) as query:
+        with pytest.raises(RuntimeError):
+            await incremental_sync(session)
+
+    commands = [call.args[1] for call in query.await_args_list]
+    assert commands[0] == "BEGIN"
+    assert commands[-1] == "ROLLBACK"
