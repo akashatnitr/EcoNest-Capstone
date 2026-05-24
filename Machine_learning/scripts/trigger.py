@@ -1,5 +1,6 @@
 import mysql.connector
 import json
+import requests
 import time
 import subprocess
 from datetime import datetime
@@ -11,6 +12,10 @@ DRY_RUN = False  # set to False when ready to write to DB
 
 NIGHT_START = 23  # 11pm
 NIGHT_END = 6     # 6am
+
+ORCHESTRATOR_URL = os.environ.get("ORCHESTRATOR_URL", "").rstrip("/")
+SERVICE_ACCOUNT_TOKEN = os.environ.get("SERVICE_ACCOUNT_TOKEN", "")
+ORCHESTRATOR_TIMEOUT_SECONDS = int(os.environ.get("ORCHESTRATOR_TIMEOUT_SECONDS", "5"))
 
 def get_connection():
     return mysql.connector.connect(
@@ -226,6 +231,51 @@ def update_snapshot(cursor, conn, room_id, signals):
         ))
     conn.commit()
 
+def run_inference_fallback():
+    """Run the legacy inference subprocess path."""
+    subprocess.Popen([
+        "/opt/homebrew/bin/python3",
+        "/Users/econest/scripts/inference.py",
+        "--mode", "alert"
+    ])
+
+def submit_orchestrator_task(intent, payload):
+    """Submit an anomaly task to the orchestrator. Return True on success."""
+    if not ORCHESTRATOR_URL:
+        return False
+
+    headers = {"Content-Type": "application/json"}
+    if SERVICE_ACCOUNT_TOKEN:
+        headers["Authorization"] = f"Bearer {SERVICE_ACCOUNT_TOKEN}"
+
+    try:
+        response = requests.post(
+            f"{ORCHESTRATOR_URL}/mcp/task",
+            headers=headers,
+            json={
+                "intent": intent,
+                "payload": payload,
+                "timeout_seconds": 30,
+            },
+            timeout=ORCHESTRATOR_TIMEOUT_SECONDS,
+        )
+        if 200 <= response.status_code < 300:
+            print(f"[{datetime.now()}] Orchestrator task submitted: {response.json()}")
+            return True
+        print(
+            f"[{datetime.now()}] Orchestrator task failed "
+            f"status={response.status_code}: {response.text}"
+        )
+    except requests.RequestException as e:
+        print(f"[{datetime.now()}] Orchestrator unreachable: {e}")
+
+    return False
+
+def handle_anomaly(intent, payload):
+    """Route anomaly handling through orchestrator, falling back to inference."""
+    if not submit_orchestrator_task(intent, payload):
+        run_inference_fallback()
+
 def run():
     print(f"[{datetime.now()}] Trigger check started — DRY_RUN={DRY_RUN}")
 
@@ -241,11 +291,14 @@ def run():
             if security_anomaly:
                 print(f"[{datetime.now()}] SECURITY ANOMALY: {security_reason}")
                 if not DRY_RUN:
-                    subprocess.Popen([
-                        "/opt/homebrew/bin/python3",
-                        "/Users/econest/scripts/inference.py",
-                        "--mode", "alert"
-                    ])
+                    handle_anomaly(
+                        "security alert",
+                        {
+                            "type": "security",
+                            "reason": security_reason,
+                            "current_hour": current_hour,
+                        },
+                    )
 
             # Get all rooms with active devices
             cursor.execute("""
@@ -266,11 +319,16 @@ def run():
                 if signals["anomaly_detected"]:
                     print(f"[{datetime.now()}] ANOMALY room_id={room_id}: {signals['anomaly_reason']}")
                     if not DRY_RUN:
-                        subprocess.Popen([
-                            "/opt/homebrew/bin/python3",
-                            "/Users/econest/scripts/inference.py",
-                            "--mode", "alert"
-                        ])
+                        handle_anomaly(
+                            "energy anomaly",
+                            {
+                                "type": "energy",
+                                "room_id": room_id,
+                                "reason": signals["anomaly_reason"],
+                                "current_hour": current_hour,
+                                "signals": signals,
+                            },
+                        )
                 else:
                     print(f"[{datetime.now()}] room_id={room_id} OK — power={signals['power_trend']}W")
 
