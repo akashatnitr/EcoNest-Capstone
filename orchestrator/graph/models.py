@@ -268,6 +268,16 @@ class Sensor(VertexModel):
     state_class: str | None = Field(default=None, max_length=100)
 
 
+class SensorReading(GraphModel):
+    """A point-in-time reading mirrored from MySQL sensor_readings."""
+
+    mysql_id: int = Field(ge=1)
+    device_id: int = Field(ge=1)
+    room_id: int = Field(ge=1)
+    timestamp: datetime
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
 class User(VertexModel):
     """A user vertex mirrored into the graph access model."""
 
