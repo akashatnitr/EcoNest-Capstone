@@ -295,3 +295,84 @@ async def test_grant_room_access_writes_access_table(client, mock_session):
         allowed_start_hour=None,
         allowed_end_hour=None,
     )
+
+
+# ------------------------------------------------------------------
+# Service account authentication
+# ------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_service_account_login_success(client, mock_session):
+    hashed = hash_password("service-secret")
+    mock_session.execute.return_value = _mock_result(
+        {
+            "id": 10,
+            "email": "service@example.com",
+            "hashed_password": hashed,
+            "role": "service_account",
+            "is_active": True,
+        }
+    )
+
+    resp = client.post(
+        "/auth/login",
+        json={"email": "service@example.com", "password": "service-secret"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    assert "refresh_token" in data
+    stored_session = mock_session.execute.await_args_list[1].args[1]
+    assert stored_session["refresh_token"] == hash_refresh_token(data["refresh_token"])
+
+
+@pytest.mark.anyio
+async def test_service_account_can_submit_mcp_task(client, mock_session):
+    token = create_access_token({"sub": "10", "role": "service_account"})
+    mock_session.execute.return_value = _mock_result(
+        {
+            "id": 10,
+            "email": "service@example.com",
+            "role": "service_account",
+            "household_id": None,
+            "is_active": True,
+        }
+    )
+
+    with patch("orchestrator.api.mcp._orchestrator.submit", new=AsyncMock(return_value="task-1")):
+        resp = client.post(
+            "/mcp/task",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"intent": "sensor_health", "payload": {}},
+        )
+
+    assert resp.status_code == 202
+    assert resp.json() == {"task_id": "task-1", "status": "submitted"}
+
+
+@pytest.mark.anyio
+async def test_service_account_cannot_write_devices(client, mock_session):
+    token = create_access_token({"sub": "10", "role": "service_account"})
+    mock_session.execute.return_value = _mock_result(
+        {
+            "id": 10,
+            "email": "service@example.com",
+            "role": "service_account",
+            "household_id": None,
+            "is_active": True,
+        }
+    )
+
+    resp = client.post("/devices/1/on", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 403
+    assert mock_session.commit.await_count == 0
+
+
+@pytest.mark.anyio
+async def test_protected_endpoint_requires_token(client):
+    resp = client.post("/mcp/task", json={"intent": "sensor_health", "payload": {}})
+
+    assert resp.status_code == 401
