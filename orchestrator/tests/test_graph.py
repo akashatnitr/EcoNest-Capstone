@@ -93,6 +93,14 @@ def _mock_queries_arcadedb(result_data: dict):
     )
 
 
+def _mock_builder_sync(result_data: dict):
+    """Helper to patch incremental graph sync in api.graph module."""
+    return patch(
+        "orchestrator.api.graph.incremental_sync",
+        new=AsyncMock(return_value=result_data),
+    )
+
+
 def _mock_mysql_row(row: dict | None):
     result = MagicMock()
     result.mappings.return_value.first.return_value = row
@@ -288,17 +296,21 @@ async def test_list_rooms(client):
     with _mock_arcadedb_result(
         {
             "result": [
-                {"room": {"name": "Kitchen"}, "count": 3},
-                {"room": {"name": "Garage"}, "count": 1},
+                {"room": {"@rid": "#1:0", "name": ["Kitchen"]}, "count": 3},
+                {"room": {"@rid": "#1:1", "name": ["Garage"]}, "count": 1},
             ]
         }
-    ):
+    ) as query:
         resp = client.get("/graph/rooms")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 2
+    assert data[0]["id"] == "#1:0"
     assert data[0]["name"] == "Kitchen"
     assert data[0]["device_count"] == 3
+    command = query.await_args.args[1]
+    assert ".project('room','count')" in command
+    assert ".by(__.in('LOCATED_IN').hasLabel('Device').count())" in command
 
 
 # ------------------------------------------------------------------
@@ -383,10 +395,22 @@ async def test_get_sensor_coverage_uses_monitors_edge():
 
 @pytest.mark.anyio
 async def test_device_neighbors(client):
-    with _mock_arcadedb_result({"result": [{"name": ["Kitchen"]}]}):
+    with _mock_arcadedb_result({"result": [{"name": ["Kitchen"]}]}) as query:
         resp = client.get("/graph/devices/%232:0/neighbors")
     assert resp.status_code == 200
     assert len(resp.json()["neighbors"]) == 1
+    command = query.await_args.args[1]
+    assert ".bothE().otherV().valueMap(true)" in command
+
+
+@pytest.mark.anyio
+async def test_device_neighbors_escapes_rid_literals(client):
+    with _mock_arcadedb_result({"result": []}) as query:
+        resp = client.get("/graph/devices/%232:%27bad/neighbors")
+
+    assert resp.status_code == 200
+    command = query.await_args.args[1]
+    assert "#2:\\'bad" in command
 
 
 # ------------------------------------------------------------------
@@ -411,7 +435,17 @@ async def test_raw_query_forbidden_words(client):
         json={"query": "g.V().drop()"},
     )
     assert resp.status_code == 400
-    assert "Destructive" in resp.json()["detail"]
+    assert "mutating" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_raw_query_requires_gremlin_traversal(client):
+    resp = client.post(
+        "/graph/query",
+        json={"query": "SELECT FROM Room"},
+    )
+    assert resp.status_code == 400
+    assert "g." in resp.json()["detail"]
 
 
 @pytest.mark.anyio
@@ -422,6 +456,48 @@ async def test_raw_query_non_admin(client, guest_user):
         json={"query": "g.V().valueMap()"},
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_graph_sync_admin(client):
+    session = AsyncMock()
+    app.dependency_overrides[get_mysql_session] = lambda: session
+    sync_result = {
+        "changed_rooms": 1,
+        "changed_devices": 2,
+        "changed_sensor_readings": 3,
+        "last_sync": "2026-05-24 15:00:00",
+        "conflict_policy": "skip",
+    }
+
+    with _mock_builder_sync(sync_result) as sync:
+        resp = client.post(
+            "/graph/sync",
+            json={
+                "last_sync": "2026-05-24 15:00:00",
+                "conflict_policy": "skip",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == sync_result
+    sync.assert_awaited_once_with(
+        mysql_session=session,
+        last_sync="2026-05-24 15:00:00",
+        conflict_policy="skip",
+    )
+
+
+@pytest.mark.anyio
+async def test_graph_sync_non_admin_forbidden(client, guest_user):
+    app.dependency_overrides[get_current_user] = lambda: guest_user
+    app.dependency_overrides[get_mysql_session] = lambda: AsyncMock()
+
+    with _mock_builder_sync({}) as sync:
+        resp = client.post("/graph/sync", json={})
+
+    assert resp.status_code == 403
+    sync.assert_not_awaited()
 
 
 @pytest.mark.anyio
