@@ -1,7 +1,7 @@
 """ArcadeDB-backed conversation memory for the LLM."""
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from orchestrator.core.database import arcadedb_query
 
@@ -67,25 +67,31 @@ async def store_interaction(
     return query_rid or ""
 
 
-async def get_recent_interactions(user_id: str, n: int = 5) -> list[dict]:
+async def get_recent_interactions(user_id: str, n: int = 5) -> list[dict[str, Any]]:
     """Return the most recent N interactions for a user."""
+    escaped_user_id = _escape(user_id)
     result = await arcadedb_query(
         "gremlin",
         (
-            f"g.V('{user_id}').out('ASKED').order().by('timestamp', desc).limit({n})"
+            f"g.V('{escaped_user_id}').out('ASKED')"
+            f".order().by('timestamp', desc).limit({n})"
             f".as('query').out('GENERATED').as('response')"
             f".select('query','response').by(valueMap())"
         ),
     )
-    return result.get("result", [])
+    return _result_rows(result)
 
 
-async def get_similar_queries(user_id: str, query_text: str, n: int = 3) -> list[dict]:
+async def get_similar_queries(
+    user_id: str,
+    query_text: str,
+    n: int = 3,
+) -> list[dict[str, Any]]:
     """Return past queries that contain similar keywords.
 
     Simple keyword overlap; can be upgraded to vector similarity.
     """
-    keywords = [k.lower() for k in query_text.split() if len(k) > 3]
+    keywords = [_escape(k.lower()) for k in query_text.split() if len(k) > 3]
     if not keywords:
         return []
 
@@ -94,14 +100,15 @@ async def get_similar_queries(user_id: str, query_text: str, n: int = 3) -> list
         f"it.get().property('text').value().toLowerCase().contains('{k}')"
         for k in keywords
     )
+    escaped_user_id = _escape(user_id)
     result = await arcadedb_query(
         "gremlin",
         (
-            f"g.V('{user_id}').out('ASKED').filter{{{conditions}}}"
+            f"g.V('{escaped_user_id}').out('ASKED').filter{{{conditions}}}"
             f".order().by('timestamp', desc).limit({n}).valueMap()"
         ),
     )
-    return result.get("result", [])
+    return _result_rows(result)
 
 
 async def summarize_thread(user_id: str) -> str:
@@ -113,7 +120,7 @@ async def summarize_thread(user_id: str) -> str:
     recent = await get_recent_interactions(user_id, n=10)
     if not recent:
         return "No prior conversation."
-    lines = []
+    lines: list[str] = []
     for item in recent:
         q = item.get("query", {}).get("text", ["?"])[0]
         r = item.get("response", {}).get("text", ["?"])[0]
@@ -123,11 +130,19 @@ async def summarize_thread(user_id: str) -> str:
 
 def _escape(text: str) -> str:
     """Basic escaping for ArcadeDB string literals."""
-    return text.replace("'", "\\'").replace("\n", " ")
+    return text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
 
 
-def _extract_rid(response: dict) -> Optional[str]:
+def _result_rows(response: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = response.get("result", [])
+    if not isinstance(rows, list):
+        return [{"result": rows}]
+    return [row if isinstance(row, dict) else {"result": row} for row in rows]
+
+
+def _extract_rid(response: dict[str, Any]) -> Optional[str]:
     results = response.get("result", [])
     if results and isinstance(results[0], dict):
-        return results[0].get("@rid")
+        rid = results[0].get("@rid")
+        return str(rid) if rid is not None else None
     return None

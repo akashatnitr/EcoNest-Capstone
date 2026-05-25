@@ -125,7 +125,7 @@ async def get_current_user(
 async def register(
     req: RegisterRequest,
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> UserProfile:
     """Register a new user (homeowner only for now)."""
 
     if req.role != Role.HOMEOWNER:
@@ -173,7 +173,12 @@ async def register(
 
     await session.commit()
 
-    user_id = result.lastrowid
+    user_id = getattr(result, "lastrowid", None)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User was created but no insert id was returned",
+        )
 
     return UserProfile(
         id=user_id,
@@ -188,7 +193,7 @@ async def register(
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> TokenResponse:
     """OAuth2 password flow."""
 
     result = await session.execute(
@@ -277,7 +282,7 @@ async def login(
 async def refresh(
     req: RefreshRequest,
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> TokenResponse:
     """Refresh access token."""
 
     payload = decode_token(req.refresh_token)
@@ -310,12 +315,9 @@ async def refresh(
 
     stored = result.mappings().first()
 
-    if (
-        stored is None
-        or not verify_refresh_token(
-            req.refresh_token,
-            stored["refresh_token"],
-        )
+    if stored is None or not verify_refresh_token(
+        req.refresh_token,
+        stored["refresh_token"],
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -359,7 +361,7 @@ async def refresh(
 async def logout(
     req: LogoutRequest,
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> None:
     """Invalidate refresh token."""
 
     if req.refresh_token:
@@ -386,7 +388,7 @@ async def me(
         UserProfile,
         Depends(get_current_user),
     ],
-):
+) -> UserProfile:
     """Return current user profile."""
 
     return current_user

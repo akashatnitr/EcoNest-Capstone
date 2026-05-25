@@ -10,7 +10,9 @@ from orchestrator.core.database import arcadedb_query
 ECONEST = Namespace("http://econest.example.org/ontology#")
 
 
-async def load_ontology(turtle_path: Optional[str] = None) -> dict:
+async def load_ontology(
+    turtle_path: Optional[str] = None,
+) -> dict[str, list[str] | str]:
     """Parse a Turtle file and sync its ontology into ArcadeDB.
 
     Returns a summary of created classes and properties.
@@ -19,15 +21,15 @@ async def load_ontology(turtle_path: Optional[str] = None) -> dict:
     g = Graph()
     g.parse(path, format="turtle")
 
-    created_classes = []
-    created_edges = []
+    created_classes: list[str] = []
+    created_edges: list[str] = []
 
     # Create Class vertices and SUBCLASS_OF edges
     for cls in g.subjects(RDF.type, OWL.Class):
-        local_name = cls.split("#")[-1]
+        local_name = str(cls).split("#")[-1]
         parent = None
         for p in g.objects(cls, RDFS.subClassOf):
-            parent = p.split("#")[-1]
+            parent = str(p).split("#")[-1]
 
         # Upsert Class vertex
         await arcadedb_query(
@@ -50,7 +52,7 @@ async def load_ontology(turtle_path: Optional[str] = None) -> dict:
 
     # Map object properties to edge types
     for prop in g.subjects(RDF.type, OWL.ObjectProperty):
-        local_name = prop.split("#")[-1]
+        local_name = str(prop).split("#")[-1]
         await arcadedb_query(
             "sql",
             f"CREATE EDGE TYPE {local_name} IF NOT EXISTS",
@@ -60,7 +62,7 @@ async def load_ontology(turtle_path: Optional[str] = None) -> dict:
 
     # Map data properties to vertex properties (document as schema metadata)
     for prop in g.subjects(RDF.type, OWL.DatatypeProperty):
-        local_name = prop.split("#")[-1]
+        local_name = str(prop).split("#")[-1]
         # Store as metadata on a Property vertex
         await arcadedb_query(
             "sql",
