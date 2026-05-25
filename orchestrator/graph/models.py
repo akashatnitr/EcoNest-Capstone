@@ -329,6 +329,8 @@ class PoweredBy(EdgeModel):
 class Monitors(EdgeModel):
     """Sensor -> Room."""
 
+    confidence_score: float | None = Field(default=None, ge=0, le=1)
+
 
 class Owns(EdgeModel):
     """User -> Home."""
