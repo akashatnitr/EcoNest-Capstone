@@ -1,6 +1,7 @@
 """MCP tools for Home Assistant operations."""
 
 import os
+from typing import Any
 
 import httpx
 from pydantic import BaseModel
@@ -21,7 +22,14 @@ class HACallServiceInput(BaseModel):
     service_data: dict | None = None
 
 
-async def ha_get_state_handler(input_data: HAGetStateInput) -> dict:
+def _json_object(response: httpx.Response) -> dict[str, Any]:
+    data = response.json()
+    if isinstance(data, dict):
+        return data
+    return {"result": data}
+
+
+async def ha_get_state_handler(input_data: HAGetStateInput) -> dict[str, Any]:
     """Get current state of a Home Assistant entity."""
     token = settings.HA_TOKEN or os.getenv("HA_TOKEN", "")
     if not token:
@@ -32,11 +40,11 @@ async def ha_get_state_handler(input_data: HAGetStateInput) -> dict:
             headers={"Authorization": f"Bearer {token}"},
         )
         if response.status_code == 200:
-            return response.json()
+            return _json_object(response)
         return {"error": f"HA API returned {response.status_code}"}
 
 
-async def ha_call_service_handler(input_data: HACallServiceInput) -> dict:
+async def ha_call_service_handler(input_data: HACallServiceInput) -> dict[str, Any]:
     """Call a Home Assistant service."""
     token = settings.HA_TOKEN or os.getenv("HA_TOKEN", "")
     if not token:
@@ -54,5 +62,5 @@ async def ha_call_service_handler(input_data: HACallServiceInput) -> dict:
             json=payload,
         )
         if response.status_code in (200, 201):
-            return {"status": "ok", "response": response.json()}
+            return {"status": "ok", "response": _json_object(response)}
         return {"error": f"HA API returned {response.status_code}"}

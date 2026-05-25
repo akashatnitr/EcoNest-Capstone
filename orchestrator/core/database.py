@@ -1,9 +1,11 @@
 """Async database clients for ArcadeDB and MySQL with lifespan management."""
 
-from typing import Optional
-from sqlalchemy import text
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any, Optional
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from orchestrator.config import Settings, get_settings
@@ -60,11 +62,18 @@ async def close_databases() -> None:
         _mysql_engine = None
 
 
-async def get_mysql_session() -> AsyncSession:
-    """Yield an async MySQL session."""
+@asynccontextmanager
+async def mysql_session_context() -> AsyncIterator[AsyncSession]:
+    """Provide an async MySQL session outside FastAPI dependency injection."""
     if _mysql_session_factory is None:
         raise RuntimeError("Database not initialized. Call init_databases() first.")
     async with _mysql_session_factory() as session:
+        yield session
+
+
+async def get_mysql_session() -> AsyncGenerator[AsyncSession, None]:
+    """Yield an async MySQL session for FastAPI dependency injection."""
+    async with mysql_session_context() as session:
         yield session
 
 
@@ -73,9 +82,9 @@ async def arcadedb_query(
     command: str,
     database: Optional[str] = None,
     readonly: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Execute a query/command against ArcadeDB via HTTP."""
-    if _arcadedb_client is None:
+    if _arcadedb_client is None or _settings is None:
         raise RuntimeError(
             "ArcadeDB client not initialized. Call init_databases() first."
         )
@@ -89,7 +98,10 @@ async def arcadedb_query(
     }
     response = await _arcadedb_client.post(url, json=payload)
     response.raise_for_status()
-    return response.json()
+    data = response.json()
+    if isinstance(data, dict):
+        return data
+    return {"result": data}
 
 
 async def healthcheck_mysql() -> bool:

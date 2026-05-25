@@ -6,6 +6,7 @@ import time
 from unittest.mock import AsyncMock, patch
 
 import orchestrator.core.database as db
+
 TOTAL_QUERIES = 1000
 CONCURRENT_WORKERS = 50
 
@@ -21,12 +22,7 @@ DEVICE_TYPES = [
 def generate_query(device_id: int) -> str:
     """Generate synthetic Gremlin neighborhood query."""
 
-    return (
-        f"g.V('device-{device_id}')"
-        ".bothE()"
-        ".otherV()"
-        ".valueMap()"
-    )
+    return f"g.V('device-{device_id}')" ".bothE()" ".otherV()" ".valueMap()"
 
 
 async def execute_graph_query(device_id: int):

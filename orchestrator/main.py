@@ -1,19 +1,26 @@
 """FastAPI entrypoint for the EcoNest orchestrator."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 
 from orchestrator.api import auth, devices, graph, mcp, ontology, users
 from orchestrator.config import get_settings
-from orchestrator.core.database import close_databases, init_databases
+from orchestrator.core.database import (
+    close_databases,
+    healthcheck_arcadedb,
+    healthcheck_mysql,
+    init_databases,
+)
 from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage database connections across the application lifespan."""
     await init_databases()
     yield
@@ -37,15 +44,8 @@ app.include_router(ontology.router)
 app.include_router(users.router)
 
 
-from orchestrator.core.database import (
-    close_databases,
-    healthcheck_arcadedb,
-    healthcheck_mysql,
-    init_databases,
-)
-
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, Any]:
     """Infrastructure health probe."""
     mysql_ok = await healthcheck_mysql()
     arcadedb_ok = await healthcheck_arcadedb()

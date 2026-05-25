@@ -1,8 +1,8 @@
 """Ontology API routes."""
 
-from typing import Annotated
-import tempfile
 import os
+import tempfile
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/ontology", tags=["ontology"])
 @router.get("")
 async def list_ontology(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """List ontology classes and properties."""
     # Return static summary from smart_home.ttl
     return {
@@ -66,9 +66,9 @@ async def list_ontology(
 async def get_class(
     name: str,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Class details with restrictions."""
-    class_details = {
+    class_details: dict[str, dict[str, Any]] = {
         "SmartBulb": {
             "superclass": "Device",
             "inferred_capabilities": ["Dimmable"],
@@ -90,7 +90,7 @@ async def get_class(
 @router.get("/validate")
 async def validate(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Run validation on current graph."""
     return await validate_graph()
 
@@ -98,7 +98,7 @@ async def validate(
 @router.post("/reason")
 async def reason(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Run reasoner and return inferred triples."""
     return await run_reasoner()
 
@@ -107,7 +107,7 @@ async def reason(
 async def upload_ontology(
     file: UploadFile,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Upload new Turtle file (admin only)."""
     if not has_permission(current_user.role, USER_ADMIN):
         raise HTTPException(

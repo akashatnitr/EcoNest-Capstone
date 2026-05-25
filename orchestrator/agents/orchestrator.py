@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from typing import Any, Dict
+from typing import Any
 
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.agents.device_agent import DeviceAgent
@@ -14,15 +14,15 @@ from orchestrator.agents.sensor_agent import SensorAgent
 class AgentOrchestrator:
     """Routes incoming tasks to the correct agent and manages lifecycle."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.agents: list[BaseAgent] = [
             EnergyAgent(),
             SecurityAgent(),
             SensorAgent(),
             DeviceAgent(),
         ]
-        self._tasks: Dict[str, asyncio.Task] = {}
-        self._results: Dict[str, Result] = {}
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
+        self._results: dict[str, Result] = {}
 
     async def submit(self, task: Task) -> str:
         """Submit a task and return a task ID."""

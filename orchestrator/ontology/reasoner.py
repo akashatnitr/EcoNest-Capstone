@@ -1,9 +1,11 @@
 """Forward chaining reasoner using Gremlin traversals."""
 
+from typing import Any
+
 from orchestrator.core.database import arcadedb_query
 
 
-async def run_reasoner() -> dict:
+async def run_reasoner() -> dict[str, Any]:
     """Run forward chaining rules and return inferred triples summary.
 
     Rules:
@@ -11,7 +13,7 @@ async def run_reasoner() -> dict:
     2. If device type is MotionSensor and locatedIn Room, infer monitors Room.
     3. If user role is family_member and room_type is Bedroom, infer CAN_PERFORM TurnOn.
     """
-    inferred: list[dict] = []
+    inferred: list[dict[str, Any]] = []
 
     # Rule 1: SmartBulb -> hasCapability Dimmable
     result = await arcadedb_query(
@@ -22,7 +24,7 @@ async def run_reasoner() -> dict:
             ".select('device').values('@rid')"
         ),
     )
-    for rid in result.get("result", []):
+    for rid in _result_values(result):
         await arcadedb_query(
             "sql",
             (
@@ -42,7 +44,7 @@ async def run_reasoner() -> dict:
             ".select('room').path().by(values('@rid'))"
         ),
     )
-    for path in result.get("result", []):
+    for path in _result_values(result):
         if isinstance(path, dict) and "objects" in path:
             objects = path["objects"]
             if len(objects) >= 2:
@@ -65,7 +67,9 @@ async def run_reasoner() -> dict:
             ".select('user','device').by(values('@rid'))"
         ),
     )
-    for pair in result.get("result", []):
+    for pair in _result_values(result):
+        if not isinstance(pair, dict):
+            continue
         user_rid = pair.get("user")
         device_rid = pair.get("device")
         if user_rid and device_rid:
@@ -77,3 +81,8 @@ async def run_reasoner() -> dict:
             inferred.append({"rule": 3, "user": user_rid, "device": device_rid})
 
     return {"inferred": inferred, "total": len(inferred)}
+
+
+def _result_values(result: dict[str, Any]) -> list[Any]:
+    rows = result.get("result", [])
+    return rows if isinstance(rows, list) else [rows]

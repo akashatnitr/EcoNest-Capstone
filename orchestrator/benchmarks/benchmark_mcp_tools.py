@@ -17,9 +17,7 @@ async def execute_graph_tool(task_id: int):
     """Execute a real MCP graph tool handler."""
 
     result = await get_device_neighbors_handler(
-        GetDeviceNeighborsInput(
-            device_id=f"device-{task_id}"
-        )
+        GetDeviceNeighborsInput(device_id=f"device-{task_id}")
     )
 
     return result

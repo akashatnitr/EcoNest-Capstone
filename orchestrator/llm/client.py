@@ -1,7 +1,7 @@
 """Unified async client for Ollama HTTP API."""
 
 import json
-from typing import Optional, Type, TypeVar
+from typing import Any, Optional, Type, TypeVar
 
 import httpx
 from pydantic import BaseModel
@@ -49,7 +49,10 @@ class LLMClient:
                     json=payload,
                 )
                 response.raise_for_status()
-                return response.json()["response"]
+                data = response.json()
+                if isinstance(data, dict):
+                    return str(data.get("response", ""))
+                return ""
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404 and attempt == 0:
                     # Try fallback model
@@ -62,7 +65,7 @@ class LLMClient:
                     raise
         return ""
 
-    async def _stream_generate(self, payload: dict) -> str:
+    async def _stream_generate(self, payload: dict[str, Any]) -> str:
         """Collect a streaming response into a single string."""
         parts: list[str] = []
         async with self.client.stream(
@@ -75,7 +78,8 @@ class LLMClient:
                 if line.strip():
                     try:
                         data = json.loads(line)
-                        parts.append(data.get("response", ""))
+                        if isinstance(data, dict):
+                            parts.append(str(data.get("response", "")))
                     except json.JSONDecodeError:
                         continue
         return "".join(parts)
@@ -128,7 +132,13 @@ class LLMClient:
             json=payload,
         )
         response.raise_for_status()
-        return response.json()["message"]["content"]
+        data = response.json()
+        if not isinstance(data, dict):
+            return ""
+        message = data.get("message")
+        if not isinstance(message, dict):
+            return ""
+        return str(message.get("content", ""))
 
     async def close(self) -> None:
         await self.client.aclose()

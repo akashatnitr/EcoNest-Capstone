@@ -1,6 +1,13 @@
-from unittest.mock import AsyncMock, patch, MagicMock
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest, os
+import pytest
+
+from orchestrator.llm.client import LLMClient
+from orchestrator.mcp.tools.ha_tools import (
+    HAGetStateInput,
+    ha_get_state_handler,
+)
 
 
 @pytest.mark.anyio
@@ -24,16 +31,16 @@ async def test_full_device_monitoring_flow(
     mock_result = MagicMock()
 
     mock_result.mappings.return_value.all.return_value = [
-    {
-        "id": 1,
-        "name": "Living Room Lamp",
-        "device_type": "SmartBulb",
-        "room_id": 1,
-        "is_active": True,
-    }
+        {
+            "id": 1,
+            "name": "Living Room Lamp",
+            "device_type": "SmartBulb",
+            "room_id": 1,
+            "is_active": True,
+        }
     ]
 
-    mock_session.execute = AsyncMock(return_value=mock_result)    
+    mock_session.execute = AsyncMock(return_value=mock_result)
     # ==========================================
     # STEP 1 — LIST DEVICES
     # ==========================================
@@ -85,12 +92,6 @@ async def test_full_device_monitoring_flow(
         assert body["status"] == "submitted"
 
 
-from orchestrator.mcp.tools.ha_tools import (
-    HAGetStateInput,
-    ha_get_state_handler,
-)
-
-
 @pytest.mark.anyio
 async def test_mocked_homeassistant_state():
 
@@ -99,9 +100,7 @@ async def test_mocked_homeassistant_state():
     mock_response.json.return_value = {
         "entity_id": "light.living_room",
         "state": "on",
-        "attributes": {
-            "brightness": 255
-        },
+        "attributes": {"brightness": 255},
     }
 
     mock_client = AsyncMock()
@@ -112,22 +111,15 @@ async def test_mocked_homeassistant_state():
         patch("httpx.AsyncClient") as mock_async_client,
     ):
 
-        mock_async_client.return_value.__aenter__.return_value = (
-            mock_client
-        )
+        mock_async_client.return_value.__aenter__.return_value = mock_client
 
         result = await ha_get_state_handler(
-            HAGetStateInput(
-                entity_id="light.living_room"
-            )
+            HAGetStateInput(entity_id="light.living_room")
         )
 
         assert result["state"] == "on"
 
         assert result["attributes"]["brightness"] == 255
-
-
-from orchestrator.llm.client import LLMClient
 
 
 @pytest.mark.anyio
@@ -137,8 +129,7 @@ async def test_mocked_ollama_response():
 
     mock_response.json.return_value = {
         "response": (
-            "High energy usage detected. "
-            "Recommend turning off idle devices."
+            "High energy usage detected. " "Recommend turning off idle devices."
         )
     }
 

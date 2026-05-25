@@ -1,6 +1,6 @@
 """Device control API routes."""
 
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -31,7 +31,7 @@ class DeviceCapabilities(BaseModel):
 async def list_devices(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> list[DeviceOut]:
     """List devices filtered by user access."""
     if not has_permission(current_user.role, DEVICE_READ):
         raise HTTPException(
@@ -51,7 +51,7 @@ async def get_device(
     device_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> dict[str, Any]:
     """Get device details with capabilities."""
     if not has_permission(current_user.role, DEVICE_READ):
         raise HTTPException(
@@ -75,7 +75,7 @@ async def get_device(
 async def get_capabilities(
     device_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """List what actions are possible for a device."""
     if not has_permission(current_user.role, DEVICE_READ):
         raise HTTPException(
@@ -97,7 +97,7 @@ async def get_capabilities(
 async def get_permitted_actions(
     device_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """List permitted actions for the current user on this device."""
     actions = ["read"]
     if has_permission(current_user.role, DEVICE_WRITE):
@@ -110,7 +110,7 @@ async def turn_on(
     device_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> dict[str, Any]:
     """Turn on a device."""
     if not has_permission(current_user.role, DEVICE_WRITE):
         raise HTTPException(
@@ -129,7 +129,7 @@ async def turn_off(
     device_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> dict[str, Any]:
     """Turn off a device."""
     if not has_permission(current_user.role, DEVICE_WRITE):
         raise HTTPException(
@@ -149,7 +149,7 @@ async def set_brightness(
     brightness: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> dict[str, Any]:
     """Set brightness (requires Dimmable capability)."""
     if not has_permission(current_user.role, DEVICE_WRITE):
         raise HTTPException(
@@ -169,7 +169,7 @@ async def set_color_temp(
     device_id: int,
     color_temp: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Set color temperature (requires ColorControl capability)."""
     if not has_permission(current_user.role, DEVICE_WRITE):
         raise HTTPException(

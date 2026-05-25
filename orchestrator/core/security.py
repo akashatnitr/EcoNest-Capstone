@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import bcrypt
 from jose import JWTError, jwt
@@ -47,7 +47,9 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     )
 
 
-def decode_token(token: str, expected_type: Optional[str] = None) -> Optional[dict[str, Any]]:
+def decode_token(
+    token: str, expected_type: Optional[str] = None
+) -> Optional[dict[str, Any]]:
     """Decode and validate a JWT token. Returns None if invalid."""
     try:
         payload = jwt.decode(
@@ -60,7 +62,9 @@ def decode_token(token: str, expected_type: Optional[str] = None) -> Optional[di
 
     if expected_type is not None and payload.get("type") != expected_type:
         return None
-    return payload
+    if not isinstance(payload, dict):
+        return None
+    return cast(dict[str, Any], payload)
 
 
 def hash_refresh_token(token: str) -> str:
@@ -86,4 +90,4 @@ def _create_token(data: dict, token_type: str, expires_delta: timedelta) -> str:
             "type": token_type,
         }
     )
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return str(jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM))

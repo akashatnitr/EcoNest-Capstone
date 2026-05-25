@@ -7,7 +7,6 @@ from pathlib import Path
 
 from orchestrator.llm.client import LLMClient
 
-
 PROMPT = """
 Analyze the following smart home event:
 

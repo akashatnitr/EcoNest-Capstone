@@ -1,6 +1,6 @@
 """User management API routes."""
 
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -47,7 +47,7 @@ def require_admin(current_user: UserProfile) -> None:
 async def list_users(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> list[UserProfile]:
     """List all users (admin only)."""
     require_admin(current_user)
     result = await session.execute(
@@ -62,7 +62,7 @@ async def get_user(
     user_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> UserProfile:
     """Get user by ID (self or admin)."""
     if current_user.id != user_id and not has_permission(current_user.role, USER_ADMIN):
         raise HTTPException(
@@ -90,7 +90,7 @@ async def update_user(
     req: UserUpdate,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> UserProfile:
     """Update user (self or admin)."""
     if current_user.id != user_id and not has_permission(current_user.role, USER_WRITE):
         raise HTTPException(
@@ -106,7 +106,7 @@ async def update_user(
         )
 
     fields = []
-    params: dict = {"id": user_id}
+    params: dict[str, Any] = {"id": user_id}
     if req.email is not None:
         fields.append("email = :email")
         params["email"] = req.email
@@ -154,7 +154,7 @@ async def deactivate_user(
     user_id: int,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> None:
     """Deactivate user (admin only)."""
     require_admin(current_user)
     if user_id == current_user.id:
@@ -176,7 +176,7 @@ async def grant_access(
     req: GrantAccessRequest,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
     session: AsyncSession = Depends(get_mysql_session),
-):
+) -> None:
     """Grant room or device access to a user (admin only)."""
     require_admin(current_user)
     if req.room_id is None and req.device_id is None:

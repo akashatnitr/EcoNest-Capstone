@@ -1,6 +1,7 @@
 """MCP protocol implementation (tools/resources/prompts)."""
 
-from typing import Annotated, Any, Callable, Dict, List
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/mcp", tags=["mcp"])
 # Registry
 # ------------------------------------------------------------------
 
-ToolHandler = Callable[..., Any]
+ToolHandler = Callable[..., Awaitable[Any]]
 _tool_registry: Dict[str, Dict[str, Any]] = {}
 
 
@@ -127,7 +128,7 @@ register_tool(
 
 class ToolInvokeRequest(BaseModel):
     name: str
-    arguments: dict = Field(default_factory=dict)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResourceRequest(BaseModel):
@@ -142,7 +143,7 @@ class ResourceRequest(BaseModel):
 @router.get("/tools")
 async def list_tools(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """List available MCP tools filtered by user permissions."""
     tools = []
     for name, meta in _tool_registry.items():
@@ -162,7 +163,7 @@ async def invoke_tool(
     name: str,
     req: ToolInvokeRequest,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Invoke an MCP tool directly (with auth)."""
     if name not in _tool_registry:
         raise HTTPException(
@@ -191,7 +192,7 @@ async def invoke_tool(
 async def get_resource(
     uri: str,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Get resource snapshot by URI."""
     if uri == "home://snapshot":
         return {"type": "snapshot", "rooms": [], "active_devices": []}
@@ -211,7 +212,7 @@ async def get_resource(
 async def get_prompt(
     name: str,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Return a prompt template by name."""
     prompts = {
         "energy_review": "Review the last 24h of energy usage and highlight any off-schedule devices.",

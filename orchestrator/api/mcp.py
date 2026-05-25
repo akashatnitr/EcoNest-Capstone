@@ -1,6 +1,6 @@
 """MCP orchestrator API routes."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ class TaskResponse(BaseModel):
 async def submit_task(
     req: SubmitTaskRequest,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> TaskResponse:
     """Submit a task to the orchestrator."""
     if not has_permission(current_user.role, AGENT_RUN):
         raise HTTPException(
@@ -53,7 +53,7 @@ async def submit_task(
 async def get_task_status(
     task_id: str,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """Get task status and result."""
     result = await _orchestrator.get_result(task_id)
     if result is None:
@@ -69,7 +69,7 @@ async def get_task_status(
 @router.get("/agents")
 async def list_agents(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
-):
+) -> dict[str, Any]:
     """List registered agents and their health."""
     health = await _orchestrator.healthcheck()
     return {"agents": health}

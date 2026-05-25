@@ -3,7 +3,6 @@
 import asyncio
 import time
 
-
 TOTAL_TASKS = 1000
 CONCURRENT_WORKERS = 50
 
@@ -49,8 +48,7 @@ async def main():
     start_total = time.perf_counter()
 
     workers = [
-        asyncio.create_task(worker(queue, results))
-        for _ in range(CONCURRENT_WORKERS)
+        asyncio.create_task(worker(queue, results)) for _ in range(CONCURRENT_WORKERS)
     ]
 
     await queue.join()
