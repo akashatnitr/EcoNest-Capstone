@@ -20,10 +20,19 @@ from orchestrator.graph.models import (
     HasAccess,
     Home,
     HomeAssistantDomain,
+    Monitors,
     PermissionName,
     Room,
     User,
     device_type_for_ha_domain,
+)
+from orchestrator.graph.queries import (
+    get_affected_rooms,
+    get_devices_in_room,
+    get_room_power_consumption,
+    get_room_sensor_confidence,
+    get_sensor_coverage,
+    get_user_accessible_devices,
 )
 from orchestrator.main import app
 
@@ -216,6 +225,18 @@ def test_graph_edge_accepts_arcadedb_endpoint_aliases():
     assert edge.model_dump(by_alias=True)["from"] == "#1:0"
 
 
+def test_graph_monitors_accepts_confidence_score():
+    edge = Monitors(
+        **{
+            "from": "#1:0",
+            "to": "#2:0",
+            "confidence_score": 0.82,
+        }
+    )
+
+    assert edge.confidence_score == 0.82
+
+
 def test_graph_access_edge_requires_complete_time_window():
     with pytest.raises(ValidationError):
         HasAccess(
@@ -281,10 +302,70 @@ async def test_list_rooms(client):
 async def test_room_devices(client):
     with _mock_queries_arcadedb(
         {"result": [{"name": ["Washer"], "device_type": ["SmartPlug"]}]}
-    ):
+    ) as query:
         resp = client.get("/graph/rooms/%231:0/devices")
     assert resp.status_code == 200
     assert resp.json()["devices"][0]["name"] == ["Washer"]
+    command = query.await_args.args[1]
+    assert "in('LOCATED_IN')" in command
+    assert "out('CONTAINS')" in command
+    assert ".valueMap(true)" in command
+
+
+@pytest.mark.anyio
+async def test_get_devices_in_room_escapes_rid_literals():
+    with _mock_queries_arcadedb({"result": []}) as query:
+        await get_devices_in_room("#1:'bad")
+
+    command = query.await_args.args[1]
+    assert "#1:\\'bad" in command
+
+
+@pytest.mark.anyio
+async def test_get_room_power_consumption_uses_synced_sensor_readings():
+    with _mock_queries_arcadedb({"result": [42.5]}) as query:
+        total = await get_room_power_consumption("#1:0")
+
+    assert total == 42.5
+    command = query.await_args.args[1]
+    assert ".hasLabel('SensorReading')" in command
+    assert ".where(eq('room')).by('room_id').by('mysql_id')" in command
+    assert ".values('data').select('power').sum()" in command
+    assert "power_usage" not in command
+
+
+@pytest.mark.anyio
+async def test_get_room_power_consumption_defaults_empty_result_to_zero():
+    with _mock_queries_arcadedb({"result": []}):
+        total = await get_room_power_consumption("#1:0")
+
+    assert total == 0.0
+
+
+@pytest.mark.anyio
+async def test_get_user_accessible_devices_uses_room_and_home_paths():
+    with _mock_queries_arcadedb({"result": [{"name": ["Washer"]}]}) as query:
+        devices = await get_user_accessible_devices("#9:0")
+
+    assert devices == [{"name": ["Washer"]}]
+    command = query.await_args.args[1]
+    assert "out('HAS_ACCESS').hasLabel('Device')" in command
+    assert "out('HAS_ACCESS').hasLabel('Room').in('LOCATED_IN')" in command
+    assert "out('HAS_ACCESS').hasLabel('Room').out('CONTAINS')" in command
+    assert "out('OWNS').out('CONTAINS').hasLabel('Room').in('LOCATED_IN')" in command
+    assert "out('OWNS').out('CONTAINS').hasLabel('Room').out('CONTAINS')" in command
+    assert ".dedup().valueMap(true)" in command
+
+
+@pytest.mark.anyio
+async def test_get_sensor_coverage_uses_monitors_edge():
+    with _mock_queries_arcadedb({"result": [{"name": ["Motion Sensor"]}]}) as query:
+        sensors = await get_sensor_coverage("#4:0")
+
+    assert sensors == [{"name": ["Motion Sensor"]}]
+    command = query.await_args.args[1]
+    assert ".in('MONITORS')" in command
+    assert ".valueMap(true)" in command
 
 
 # ------------------------------------------------------------------
@@ -514,7 +595,6 @@ async def test_incremental_sync_rolls_back_on_arcadedb_error():
 
 @pytest.mark.anyio
 async def test_get_affected_rooms():
-
     with _mock_queries_arcadedb(
         {
             "result": [
@@ -522,16 +602,19 @@ async def test_get_affected_rooms():
                 {"name": ["Garage"]},
             ]
         }
-    ):
-        from orchestrator.graph.queries import get_affected_rooms
-
+    ) as query:
         result = await get_affected_rooms("#12:0")
 
     assert len(result) == 2
+    command = query.await_args.args[1]
+    assert "out('LOCATED_IN')" in command
+    assert "in('DEPENDS_ON').out('LOCATED_IN')" in command
+    assert "out('POWERED_BY').in('POWERED_BY').out('LOCATED_IN')" in command
+    assert ".dedup().valueMap(true)" in command
+
 
 @pytest.mark.anyio
 async def test_get_room_sensor_confidence():
-
     with _mock_queries_arcadedb(
         {
             "result": [
@@ -541,11 +624,11 @@ async def test_get_room_sensor_confidence():
                 }
             ]
         }
-    ):
-        from orchestrator.graph.queries import (
-            get_room_sensor_confidence,
-        )
-
+    ) as query:
         result = await get_room_sensor_confidence("#10:0")
 
     assert result[0]["confidence"] == 0.82
+    command = query.await_args.args[1]
+    assert ".inE('MONITORS')" in command
+    assert ".by(valueMap(true))" in command
+    assert ".by(select('edge').values('confidence_score'))" in command
