@@ -353,7 +353,34 @@ async def test_load_ontology_upserts_metadata_idempotently():
 async def test_get_class_smartbulb(client):
     resp = client.get("/ontology/classes/SmartBulb")
     assert resp.status_code == 200
-    assert resp.json()["inferred_capabilities"] == ["Dimmable"]
+    data = resp.json()
+    assert data["inferred_capabilities"] == ["Dimmable"]
+    assert data["superclasses"] == ["Device"]
+    assert {
+        "property": "hasCapability",
+        "restriction_type": "someValuesFrom",
+        "value": "Dimmable",
+        "target_class": None,
+    } in data["restrictions"]
+
+
+@pytest.mark.anyio
+async def test_get_class_motion_sensor_returns_cardinality_restriction(client):
+    resp = client.get("/ontology/classes/MotionSensor")
+    assert resp.status_code == 200
+    assert {
+        "property": "monitors",
+        "restriction_type": "qualifiedCardinality",
+        "value": 1,
+        "target_class": "Room",
+    } in resp.json()["restrictions"]
+
+
+@pytest.mark.anyio
+async def test_get_class_action_returns_required_capability(client):
+    resp = client.get("/ontology/classes/SetBrightness")
+    assert resp.status_code == 200
+    assert resp.json()["required_capabilities"] == ["Dimmable"]
 
 
 @pytest.mark.anyio
@@ -694,3 +721,21 @@ async def test_upload_non_ttl_rejected(client):
         files={"file": ("test.xml", b"<xml/>", "text/xml")},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_upload_ttl_requires_admin(client):
+    app.dependency_overrides[get_current_user] = lambda: UserProfile(
+        id=2,
+        email="homeowner@example.com",
+        role="homeowner",
+        household_id=None,
+        is_active=True,
+    )
+
+    resp = client.post(
+        "/ontology/upload",
+        files={"file": ("test.ttl", b"@prefix : <http://test#> .", "text/turtle")},
+    )
+
+    assert resp.status_code == 403
