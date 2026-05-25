@@ -117,9 +117,9 @@ async def test_mocked_homeassistant_state():
             HAGetStateInput(entity_id="light.living_room")
         )
 
-        assert result["state"] == "on"
+        assert result.result["state"] == "on"
 
-        assert result["attributes"]["brightness"] == 255
+        assert result.result["attributes"]["brightness"] == 255
 
 
 @pytest.mark.anyio

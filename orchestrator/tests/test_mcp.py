@@ -51,7 +51,13 @@ async def test_invoke_query_mysql(client):
             "query_mysql": {
                 "description": "Test",
                 "input_schema": QueryInput,
-                "handler": AsyncMock(return_value=[{"id": 1}]),
+                "handler": AsyncMock(
+                    return_value={
+                        "success": True,
+                        "capability": "query_mysql",
+                        "result": [{"id": 1}],
+                    }
+                ),
                 "permissions": ["device:read"],
             }
         },
@@ -61,7 +67,7 @@ async def test_invoke_query_mysql(client):
             json={"name": "query_mysql", "arguments": {"sql": "SELECT 1"}},
         )
     assert resp.status_code == 200
-    assert resp.json()["result"] == [{"id": 1}]
+    assert resp.json()["execution"]["result"] == [{"id": 1}]
 
 
 @pytest.mark.anyio
