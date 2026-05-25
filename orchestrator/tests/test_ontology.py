@@ -265,11 +265,74 @@ async def test_load_ontology_ignores_restriction_blank_nodes():
     ]
 
     assert "SmartBulb" in result["classes"]
+    assert "Room" in result["vertex_types"]
+    assert "Device" in result["vertex_types"]
     assert any("SmartBulb" in command and "Device" in command for command in commands)
     assert not any(
         "] TO" in command or "WHERE name = 'n" in command
         for command in subclass_commands
     )
+
+
+@pytest.mark.anyio
+async def test_load_ontology_uses_arcadedb_graph_names():
+    with patch(
+        "orchestrator.ontology.loader.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as mock_query:
+        result = await load_ontology(str(SMART_HOME_TTL))
+
+    commands = [call.args[1] for call in mock_query.await_args_list]
+
+    assert "HAS_CAPABILITY" in result["edges"]
+    assert "POWERED_BY" in result["edges"]
+    assert "hasCapability" not in result["edges"]
+    assert any("CREATE EDGE TYPE HAS_CAPABILITY IF NOT EXISTS" in c for c in commands)
+    assert not any("CREATE EDGE TYPE hasCapability" in c for c in commands)
+
+
+@pytest.mark.anyio
+async def test_load_ontology_maps_data_properties_to_existing_schema_names():
+    with patch(
+        "orchestrator.ontology.loader.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as mock_query:
+        result = await load_ontology(str(SMART_HOME_TTL))
+
+    commands = [call.args[1] for call in mock_query.await_args_list]
+
+    assert "Device.ha_entity_id" in result["properties"]
+    assert "Device.power_rating" in result["properties"]
+    assert "Circuit.breaker_id" in result["properties"]
+    assert "MONITORS.confidence_score" in result["properties"]
+    assert any(
+        "CREATE PROPERTY Device.ha_entity_id IF NOT EXISTS STRING" in c
+        for c in commands
+    )
+    assert any(
+        "CREATE PROPERTY Circuit.breaker_id IF NOT EXISTS STRING" in c for c in commands
+    )
+    assert any(
+        "CREATE PROPERTY MONITORS.confidence_score IF NOT EXISTS FLOAT" in c
+        for c in commands
+    )
+
+
+@pytest.mark.anyio
+async def test_load_ontology_upserts_metadata_idempotently():
+    with patch(
+        "orchestrator.ontology.loader.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as mock_query:
+        await load_ontology(str(SMART_HOME_TTL))
+
+    commands = [call.args[1] for call in mock_query.await_args_list]
+
+    assert any(command.startswith("UPDATE Class SET") for command in commands)
+    assert any(command.startswith("UPDATE Property SET") for command in commands)
+    assert any("UPSERT WHERE name = 'SmartBulb'" in command for command in commands)
+    assert any("DELETE EDGE SUBCLASS_OF" in command for command in commands)
+    assert any("CREATE EDGE SUBCLASS_OF" in command for command in commands)
 
 
 # ------------------------------------------------------------------
