@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from rdflib import OWL, RDF, RDFS, Graph, Namespace
 
 from orchestrator.api.auth import UserProfile, get_current_user
@@ -344,6 +345,63 @@ async def test_load_ontology_upserts_metadata_idempotently():
     assert any("CREATE EDGE SUBCLASS_OF" in command for command in commands)
 
 
+@pytest.mark.anyio
+async def test_load_ontology_maps_custom_turtle_without_static_lists(tmp_path):
+    turtle_path = tmp_path / "custom.ttl"
+    turtle_path.write_text(
+        """
+        @prefix econest: <http://econest.example.org/ontology#> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+        econest:Device a owl:Class .
+        econest:SmartPlug a owl:Class ;
+            rdfs:subClassOf econest:Device .
+
+        econest:feedsMetric a owl:ObjectProperty ;
+            rdfs:domain econest:Device ;
+            rdfs:range econest:Device .
+
+        econest:customMetric a owl:DatatypeProperty ;
+            rdfs:domain econest:Device ;
+            rdfs:range xsd:integer .
+        """,
+        encoding="utf-8",
+    )
+
+    with patch(
+        "orchestrator.ontology.loader.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as mock_query:
+        result = await load_ontology(str(turtle_path))
+
+    commands = [call.args[1] for call in mock_query.await_args_list]
+
+    assert result["classes"] == ["Device", "SmartPlug"]
+    assert "FEEDS_METRIC" in result["edges"]
+    assert "Device.custom_metric" in result["properties"]
+    assert any("CREATE EDGE TYPE FEEDS_METRIC IF NOT EXISTS" in c for c in commands)
+    assert any(
+        "CREATE PROPERTY Device.custom_metric IF NOT EXISTS INTEGER" in c
+        for c in commands
+    )
+
+
+@pytest.mark.anyio
+async def test_load_ontology_observation_properties_target_observation_schema():
+    with patch(
+        "orchestrator.ontology.loader.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ):
+        result = await load_ontology(str(SMART_HOME_TTL))
+
+    assert "Observation" in result["vertex_types"]
+    assert "Observation.confidence" in result["properties"]
+    assert "Observation.value" in result["properties"]
+    assert "Observation.timestamp" in result["properties"]
+
+
 # ------------------------------------------------------------------
 # Class details
 # ------------------------------------------------------------------
@@ -519,6 +577,43 @@ async def test_validate_graph_accepts_consistent_graph():
 
 
 @pytest.mark.anyio
+async def test_validate_graph_reports_missing_room_properties():
+    responses = [
+        {"result": []},
+        {"result": []},
+        {"result": []},
+        {"result": [{"@rid": "#20:0", "name": []}]},
+        {"result": []},
+        {"result": []},
+        {"result": []},
+    ]
+
+    with patch(
+        "orchestrator.ontology.validator.arcadedb_query",
+        new=AsyncMock(side_effect=responses),
+    ):
+        report = await validate_graph()
+
+    assert report["valid"] is False
+    assert report["error_count"] == 1
+    assert report["errors"][0]["type"] == "MISSING_ROOM_PROPERTY"
+    assert "name" in report["errors"][0]["detail"]
+    assert "room_type" in report["errors"][0]["detail"]
+    assert report["errors"][0]["vertex"] == "#20:0"
+
+
+@pytest.mark.anyio
+async def test_validate_graph_ignores_non_list_arcadedb_results():
+    with patch(
+        "orchestrator.ontology.validator.arcadedb_query",
+        new=AsyncMock(return_value={"result": {"unexpected": "shape"}}),
+    ):
+        report = await validate_graph()
+
+    assert report == {"valid": True, "errors": [], "error_count": 0}
+
+
+@pytest.mark.anyio
 async def test_validate_graph_uses_real_graph_labels():
     with patch(
         "orchestrator.ontology.validator.arcadedb_query",
@@ -569,6 +664,22 @@ def test_load_reasoner_rules_from_json(tmp_path):
     assert rules.capability_rules[0].capabilities == ["PowerMonitoring"]
 
 
+def test_load_reasoner_rules_rejects_unknown_device_type(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [
+                {"device_type": "ImaginaryDevice", "capabilities": ["OnOff"]}
+            ],
+            "monitor_rules": [],
+            "access_rules": [],
+        },
+    )
+
+    with pytest.raises(ValidationError):
+        load_rules(rules_path)
+
+
 @pytest.mark.anyio
 async def test_reasoner_infers_device_capability_edges(tmp_path):
     rules_path = write_rules(
@@ -602,6 +713,37 @@ async def test_reasoner_infers_device_capability_edges(tmp_path):
         "CREATE EDGE HAS_CAPABILITY FROM #12:0" in command for command in commands
     )
     assert any("WHERE name = 'PowerMonitoring'" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_reasoner_does_not_create_capability_edges_for_existing_matches(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [
+                {"device_type": "SmartPlug", "capabilities": ["OnOff"]}
+            ],
+            "monitor_rules": [],
+            "access_rules": [],
+        },
+    )
+
+    async def fake_query(language, command, database=None, readonly=True):
+        if language == "gremlin":
+            return {"result": []}
+        return {"result": []}
+
+    with patch(
+        "orchestrator.ontology.reasoner.arcadedb_query",
+        new=AsyncMock(side_effect=fake_query),
+    ) as query:
+        result = await run_reasoner(rules_path)
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert result["total"] == 0
+    assert any("UPDATE Capability SET" in command for command in commands)
+    assert not any("CREATE EDGE HAS_CAPABILITY" in command for command in commands)
 
 
 @pytest.mark.anyio
@@ -651,6 +793,48 @@ async def test_reasoner_infers_sensor_monitor_edges(tmp_path):
     assert any("DELETE EDGE MONITORS" in command for command in commands)
     assert any("CREATE EDGE MONITORS" in command for command in commands)
     assert any("confidence_score = 0.9" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_reasoner_skips_monitor_rows_without_room_rid(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [],
+            "monitor_rules": [
+                {
+                    "device_type": "MotionSensor",
+                    "sensor_type": "motion",
+                    "confidence_score": 0.9,
+                }
+            ],
+            "access_rules": [],
+        },
+    )
+
+    async def fake_query(language, command, database=None, readonly=True):
+        if language == "gremlin":
+            return {
+                "result": [
+                    {
+                        "device": {"name": ["Motion Sensor"]},
+                        "room": {"name": ["Front Door"]},
+                    }
+                ]
+            }
+        return {"result": []}
+
+    with patch(
+        "orchestrator.ontology.reasoner.arcadedb_query",
+        new=AsyncMock(side_effect=fake_query),
+    ) as query:
+        result = await run_reasoner(rules_path)
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert result["total"] == 0
+    assert not any("UPDATE Sensor SET" in command for command in commands)
+    assert not any("CREATE EDGE MONITORS" in command for command in commands)
 
 
 @pytest.mark.anyio
