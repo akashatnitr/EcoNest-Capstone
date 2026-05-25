@@ -97,6 +97,29 @@ econest:User a owl:Class ;
 econest:Action a owl:Class ;
     rdfs:label "Action" .
 
+### ============================================================
+### Observation & Semantic Reasoning Classes
+### ============================================================
+
+:Observation rdf:type owl:Class ;
+    rdfs:label "Observation" ;
+    rdfs:comment "A semantic interpretation derived from one or more sensor readings." .
+
+:OccupancyObservation rdf:type owl:Class ;
+    rdfs:subClassOf :Observation ;
+    rdfs:label "Occupancy Observation" ;
+    rdfs:comment "Represents inferred room occupancy from multiple sensor signals." .
+
+:EnergyObservation rdf:type owl:Class ;
+    rdfs:subClassOf :Observation ;
+    rdfs:label "Energy Observation" ;
+    rdfs:comment "Represents inferred energy usage or consumption behavior." .
+
+:AnomalyObservation rdf:type owl:Class ;
+    rdfs:subClassOf :Observation ;
+    rdfs:label "Anomaly Observation" ;
+    rdfs:comment "Represents unusual or suspicious home behavior patterns." .
+
 # ============================================================
 # Object Properties
 # ============================================================
@@ -131,6 +154,20 @@ econest:owns a owl:ObjectProperty ;
     rdfs:range econest:Room ;
     rdfs:label "owns" .
 
+### ============================================================
+### Observation Relationships
+### ============================================================
+
+:OBSERVED_IN rdf:type owl:ObjectProperty ;
+    rdfs:domain :Observation ;
+    rdfs:range :Room ;
+    rdfs:label "observed in" .
+
+:DERIVED_FROM rdf:type owl:ObjectProperty ;
+    rdfs:domain :Observation ;
+    rdfs:range :Sensor ;
+    rdfs:label "derived from" .
+
 # ============================================================
 # Data Properties
 # ============================================================
@@ -149,3 +186,15 @@ econest:ipAddress a owl:DatatypeProperty ;
     rdfs:domain econest:Device ;
     rdfs:range xsd:string ;
     rdfs:label "IP address" .
+
+:confidence rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Observation ;
+    rdfs:range xsd:float .
+
+:observationValue rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Observation ;
+    rdfs:range xsd:string .
+
+:observationTimestamp rdf:type owl:DatatypeProperty ;
+    rdfs:domain :Observation ;
+    rdfs:range xsd:dateTime .
