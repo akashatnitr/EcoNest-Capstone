@@ -1,5 +1,6 @@
 """Unified async client for Ollama HTTP API."""
 
+import asyncio
 import json
 from typing import Any, Optional, Type, TypeVar
 
@@ -7,6 +8,7 @@ import httpx
 from pydantic import BaseModel
 
 from orchestrator.config import get_settings
+from orchestrator.llm.models import LLMMessage
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -63,6 +65,7 @@ class LLMClient:
             except Exception:
                 if attempt == max_retries - 1:
                     raise
+                await asyncio.sleep(2**attempt)
         return ""
 
     async def _stream_generate(self, payload: dict[str, Any]) -> str:
@@ -86,21 +89,24 @@ class LLMClient:
 
     async def generate_structured(
         self,
-        prompt: str,
+        messages: list[LLMMessage],
         output_model: Type[T],
         system: Optional[str] = None,
         temperature: float = 0.7,
     ) -> T:
         """Generate structured output validated by a Pydantic model."""
-        structured_prompt = (
-            f"{prompt}\n\n"
-            f"Respond with valid JSON that matches this schema:\n"
+        schema_prompt = (
+            "Respond with valid JSON matching this schema:\n"
             f"{output_model.model_json_schema()}\n"
-            f"Output ONLY the JSON object, no other text."
+            "Output ONLY JSON."
         )
-        raw = await self.generate(
-            structured_prompt,
-            system=system,
+
+        full_messages = [
+            *messages,
+            LLMMessage(role="system", content=schema_prompt),
+        ]
+        raw = await self.chat(
+            full_messages,
             temperature=temperature,
         )
         # Clean up potential markdown fences
@@ -116,14 +122,14 @@ class LLMClient:
 
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[LLMMessage],
         temperature: float = 0.7,
         stream: bool = False,
     ) -> str:
         """Chat completion using Ollama's /api/chat endpoint."""
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": [m.model_dump() for m in messages],
             "temperature": temperature,
             "stream": stream,
         }
@@ -139,6 +145,14 @@ class LLMClient:
         if not isinstance(message, dict):
             return ""
         return str(message.get("content", ""))
+
+    async def healthcheck(self) -> bool:
+        """Return True if Ollama API is reachable."""
+        try:
+            response = await self.client.get(f"{self.base_url}/api/tags")
+            return response.status_code == 200
+        except Exception:
+            return False
 
     async def close(self) -> None:
         await self.client.aclose()
