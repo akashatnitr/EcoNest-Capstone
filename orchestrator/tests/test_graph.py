@@ -11,23 +11,34 @@ from orchestrator.core.database import get_mysql_session
 from orchestrator.graph.builder import (
     grant_access_to_graph,
     incremental_sync,
+    sync_devices_to_graph,
+    sync_rooms_to_graph,
     sync_sensor_readings_to_graph,
 )
 from orchestrator.graph.models import (
     Action,
+    CanPerform,
     Capability,
+    Contains,
+    DependsOn,
     Device,
     HasAccess,
+    HasCapability,
     Home,
     HomeAssistantDomain,
+    LocatedIn,
     Monitors,
+    Owns,
     PermissionName,
+    PoweredBy,
+    RequiresCapability,
     Room,
     User,
     device_type_for_ha_domain,
 )
 from orchestrator.graph.queries import (
     get_affected_rooms,
+    get_circuit_devices,
     get_devices_in_room,
     get_room_power_consumption,
     get_room_sensor_confidence,
@@ -111,6 +122,10 @@ def _mock_mysql_rows(rows: list[dict]):
     result = MagicMock()
     result.mappings.return_value.all.return_value = rows
     return result
+
+
+def _mock_arcadedb_rid(rid: str):
+    return {"result": [{"@rid": rid}]}
 
 
 def _device_row(**overrides):
@@ -241,6 +256,25 @@ def test_graph_edge_accepts_arcadedb_endpoint_aliases():
     assert edge.model_dump(by_alias=True)["from"] == "#1:0"
 
 
+def test_graph_edge_models_validate_relationship_payloads():
+    edge_types = [
+        Contains,
+        PoweredBy,
+        Monitors,
+        Owns,
+        CanPerform,
+        HasCapability,
+        RequiresCapability,
+        DependsOn,
+        LocatedIn,
+    ]
+
+    for edge_type in edge_types:
+        edge = edge_type(**{"from": "#1:0", "to": "#2:0"})
+        assert edge.from_id == "#1:0"
+        assert edge.to_id == "#2:0"
+
+
 def test_graph_monitors_accepts_confidence_score():
     edge = Monitors(
         **{
@@ -268,6 +302,11 @@ def test_graph_access_edge_requires_complete_time_window():
 def test_graph_action_rejects_empty_parameter_names():
     with pytest.raises(ValidationError):
         Action(name="SetBrightness", parameters={"": 80})
+
+
+def test_graph_model_forbids_unknown_fields():
+    with pytest.raises(ValidationError):
+        Room(name="Kitchen", room_type="Kitchen", unexpected="value")
 
 
 # ------------------------------------------------------------------
@@ -385,6 +424,18 @@ async def test_get_sensor_coverage_uses_monitors_edge():
     assert sensors == [{"name": ["Motion Sensor"]}]
     command = query.await_args.args[1]
     assert ".in('MONITORS')" in command
+    assert ".valueMap(true)" in command
+
+
+@pytest.mark.anyio
+async def test_get_circuit_devices_uses_powered_by_edge():
+    with _mock_queries_arcadedb({"result": [{"name": ["Oven Breaker"]}]}) as query:
+        devices = await get_circuit_devices("#3:0")
+
+    assert devices == [{"name": ["Oven Breaker"]}]
+    command = query.await_args.args[1]
+    assert ".in('POWERED_BY')" in command
+    assert ".hasLabel('Device')" in command
     assert ".valueMap(true)" in command
 
 
@@ -532,6 +583,70 @@ async def test_grant_access_to_graph_creates_room_edge():
 
 
 @pytest.mark.anyio
+async def test_sync_rooms_to_graph_returns_rid_map_and_uses_upserts():
+    session = AsyncMock()
+    session.execute.return_value = _mock_mysql_rows(
+        [
+            {"id": 1, "name": "Kitchen"},
+            {"id": 2, "name": "Garage"},
+        ]
+    )
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(
+            side_effect=[
+                {"result": []},
+                _mock_arcadedb_rid("#1:0"),
+                _mock_arcadedb_rid("#1:1"),
+                {"result": []},
+            ]
+        ),
+    ) as query:
+        rid_map = await sync_rooms_to_graph(session)
+
+    assert rid_map == {1: "#1:0", 2: "#1:1"}
+    commands = [call.args[1] for call in query.await_args_list]
+    assert commands[0] == "BEGIN"
+    assert commands[-1] == "COMMIT"
+    assert any("UPDATE Room SET" in command for command in commands)
+    assert any("UPSERT WHERE mysql_id = 1" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_sync_devices_to_graph_returns_rids_and_repairs_location_edges():
+    session = AsyncMock()
+    session.execute.return_value = _mock_mysql_rows(
+        [
+            _device_row(id=99, room_id=10, room_name="Kitchen"),
+        ]
+    )
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(
+            side_effect=[
+                {"result": []},
+                _mock_arcadedb_rid("#2:0"),
+                {"result": []},
+                {"result": []},
+                {"result": []},
+            ]
+        ),
+    ) as query:
+        rid_map = await sync_devices_to_graph(session)
+
+    assert rid_map == {99: "#2:0"}
+    commands = [call.args[1] for call in query.await_args_list]
+    assert commands[0] == "BEGIN"
+    assert commands[-1] == "COMMIT"
+    assert any("UPDATE Device SET" in command for command in commands)
+    assert any("UPSERT WHERE mysql_id = 99" in command for command in commands)
+    assert any("DELETE EDGE LOCATED_IN" in command for command in commands)
+    assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
+
+
+@pytest.mark.anyio
 async def test_incremental_sync_upserts_rooms_and_devices():
     session = AsyncMock()
     session.execute.side_effect = [
@@ -642,6 +757,21 @@ async def test_sync_sensor_readings_filters_by_last_sync():
     commands = [call.args[1] for call in query.await_args_list]
     assert any("UPDATE SensorReading SET" in command for command in commands)
     assert any('"motion": true' in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_sync_sensor_readings_skips_arcadedb_when_no_rows_changed():
+    session = AsyncMock()
+    session.execute.return_value = _mock_mysql_rows([])
+
+    with patch(
+        "orchestrator.graph.builder.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        result = await sync_sensor_readings_to_graph(session)
+
+    assert result["changed_sensor_readings"] == 0
+    query.assert_not_awaited()
 
 
 @pytest.mark.anyio
