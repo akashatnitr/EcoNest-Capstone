@@ -46,7 +46,7 @@ async def test_invoke_query_mysql(client):
         sql: str
 
     with patch(
-        "orchestrator.mcp.server._tool_registry",
+        "orchestrator.mcp.server.tool_registry",
         {
             "query_mysql": {
                 "description": "Test",
@@ -82,14 +82,14 @@ async def test_invoke_unknown_tool(client):
 async def test_get_resource_snapshot(client):
     resp = client.get("/mcp/resources/home://snapshot")
     assert resp.status_code == 200
-    assert resp.json()["type"] == "snapshot"
+    assert resp.json()["resource"]["type"] == "snapshot"
 
 
 @pytest.mark.anyio
 async def test_get_resource_devices(client):
     resp = client.get("/mcp/resources/home://devices")
     assert resp.status_code == 200
-    assert resp.json()["type"] == "devices"
+    assert resp.json()["resource"]["type"] == "devices"
 
 
 @pytest.mark.anyio
