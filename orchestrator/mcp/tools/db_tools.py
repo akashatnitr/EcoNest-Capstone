@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from orchestrator.mcp.models import ToolExecutionResult
 from orchestrator.core.database import mysql_session_context
 
 READ_ONLY_SQL_COMMANDS = {"select", "show", "describe", "explain"}
@@ -37,12 +38,23 @@ async def query_mysql_handler(input_data: QueryMySQLInput) -> list[dict[str, Any
     """Execute a read-only SQL query."""
     sql = _normalize_readonly_sql(input_data.sql)
     if sql is None:
-        return [{"error": "Only single read-only SQL statements are allowed"}]
+        return ToolExecutionResult(
+            success=False,
+            capability="query_mysql",
+            warnings=["Only single read-only SQL statements are allowed"],
+        )
 
     async with mysql_session_context() as session:
         result = await session.execute(text(sql))
         rows = result.mappings().all()
-        return [dict(row) for row in rows]
+        return ToolExecutionResult(
+            capability="query_mysql",
+            result=[dict(row) for row in rows],
+            metadata={
+                "readonly": True,
+                "row_count": len(rows),
+            },
+        )
 
 
 async def get_readings_handler(input_data: GetReadingsInput) -> list[dict[str, Any]]:
@@ -56,4 +68,11 @@ async def get_readings_handler(input_data: GetReadingsInput) -> list[dict[str, A
             {"device_id": input_data.device_id, "limit": input_data.limit},
         )
         rows = result.mappings().all()
-        return [dict(row) for row in rows]
+        return ToolExecutionResult(
+            capability="get_readings",
+            result=[dict(row) for row in rows],
+            metadata={
+                "device_id": input_data.device_id,
+                "reading_count": len(rows),
+            },
+        )

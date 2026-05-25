@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from orchestrator.mcp.models import ToolExecutionResult
 from orchestrator.core.database import arcadedb_query
 
 READ_ONLY_GRAPH_PREFIXES = {"g.", "select", "match", "traverse"}
@@ -58,9 +59,22 @@ async def query_arcadedb_handler(
 ) -> list[dict[str, Any]]:
     """Execute a read-only ArcadeDB query."""
     if not _is_readonly_graph_query(input_data.query):
-        return [{"error": "Only read-only graph queries are allowed"}]
+        return ToolExecutionResult(
+            success=False,
+            capability="query_arcadedb",
+            warnings=["Only read-only graph queries are allowed"],
+        )
     result = await arcadedb_query(input_data.language, input_data.query)
-    return _result_rows(result)
+    rows = _result_rows(result)
+    return ToolExecutionResult(
+        capability="query_arcadedb",
+        result=rows,
+        metadata={
+            "language": input_data.language,
+            "row_count": len(rows),
+            "readonly": True,
+        },
+    )
 
 
 async def get_device_neighbors_handler(
@@ -72,4 +86,12 @@ async def get_device_neighbors_handler(
         "gremlin",
         f"g.V('{device_id}').bothE().otherV().valueMap(true)",
     )
-    return _result_rows(result)
+    rows = _result_rows(result)
+    return ToolExecutionResult(
+        capability="get_device_neighbors",
+        result=rows,
+        metadata={
+            "device_id": input_data.device_id,
+            "neighbor_count": len(rows),
+        },
+    )

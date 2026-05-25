@@ -238,7 +238,10 @@ async def invoke_tool(
             detail=f"Invalid arguments: {exc}",
         )
     result = await meta["handler"](parsed)
-    return {"tool": name, "result": result}
+    return {
+        "tool": name,
+        "execution": (result.model_dump() if hasattr(result, "model_dump") else result),
+    }
 
 
 @router.get("/resources/{uri:path}")
