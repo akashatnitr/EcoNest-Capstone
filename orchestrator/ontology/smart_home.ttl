@@ -5,13 +5,17 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+econest:SmartHomeOntology a owl:Ontology ;
+    rdfs:label "EcoNest smart home ontology" ;
+    rdfs:comment "Core ontology for EcoNest rooms, devices, capabilities, actions, and reasoning constraints." .
+
 # ============================================================
 # Classes
 # ============================================================
 
 econest:Room a owl:Class ;
     rdfs:label "Room" ;
-    rdfs:comment "A physical room in the home." .
+    rdfs:comment "A physical room or area in the home." .
 
 econest:Bedroom a owl:Class ;
     rdfs:subClassOf econest:Room ;
@@ -33,9 +37,42 @@ econest:MediaRoom a owl:Class ;
     rdfs:subClassOf econest:Room ;
     rdfs:label "MediaRoom" .
 
+econest:Bathroom a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Bathroom" .
+
+econest:Office a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Office" ;
+    rdfs:comment "Study-room or office-like areas in the EcoNest inventory." .
+
+econest:Laundry a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Laundry" .
+
+econest:Outdoor a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Outdoor" ;
+    rdfs:comment "Exterior or entry-adjacent areas such as the Front Door room." .
+
+econest:Utility a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Utility" ;
+    rdfs:comment "Mechanical or infrastructure areas such as HVAC." .
+
+econest:OtherRoom a owl:Class ;
+    rdfs:subClassOf econest:Room ;
+    rdfs:label "Other" .
+
 econest:Device a owl:Class ;
+    rdfs:subClassOf saref:Device ;
     rdfs:label "Device" ;
-    rdfs:comment "A smart home device." .
+    rdfs:comment "A controllable or observable smart home device." .
+
+econest:EnergyMonitor a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "EnergyMonitor" ;
+    rdfs:comment "Energy-monitoring devices and breaker-like loads from the EcoNest MySQL device table." .
 
 econest:SmartPlug a owl:Class ;
     rdfs:subClassOf econest:Device ;
@@ -43,11 +80,22 @@ econest:SmartPlug a owl:Class ;
 
 econest:SmartBulb a owl:Class ;
     rdfs:subClassOf econest:Device ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty econest:hasCapability ;
+        owl:someValuesFrom econest:Dimmable
+    ] ;
     rdfs:label "SmartBulb" .
 
 econest:MotionSensor a owl:Class ;
     rdfs:subClassOf econest:Device ;
     rdfs:subClassOf sosa:Sensor ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty econest:monitors ;
+        owl:qualifiedCardinality "1"^^xsd:nonNegativeInteger ;
+        owl:onClass econest:Room
+    ] ;
     rdfs:label "MotionSensor" .
 
 econest:SoundSensor a owl:Class ;
@@ -63,9 +111,82 @@ econest:SmartSwitch a owl:Class ;
     rdfs:subClassOf econest:Device ;
     rdfs:label "SmartSwitch" .
 
+econest:Cover a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Cover" .
+
+econest:Climate a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Climate" .
+
+econest:Valve a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Valve" .
+
+econest:Fan a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Fan" .
+
+econest:MediaPlayer a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "MediaPlayer" .
+
+econest:Automation a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Automation" .
+
+econest:Button a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Button" .
+
+econest:DeviceTracker a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "DeviceTracker" .
+
+econest:Event a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Event" .
+
+econest:InputBoolean a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "InputBoolean" .
+
+econest:Number a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Number" .
+
+econest:PersonDevice a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Person" ;
+    rdfs:comment "Home Assistant person-domain entries when mirrored as device-like graph records." .
+
+econest:Select a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Select" .
+
+econest:Todo a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Todo" .
+
+econest:TTS a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "TTS" .
+
+econest:Update a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Update" .
+
+econest:Weather a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Weather" .
+
+econest:OtherDevice a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:label "Other" .
+
 econest:Capability a owl:Class ;
     rdfs:label "Capability" ;
-    rdfs:comment "A capability that a device may have." .
+    rdfs:comment "A capability that a device may provide or an action may require." .
 
 econest:OnOff a owl:Class ;
     rdfs:subClassOf econest:Capability ;
@@ -91,34 +212,89 @@ econest:SoundDetection a owl:Class ;
     rdfs:subClassOf econest:Capability ;
     rdfs:label "SoundDetection" .
 
+econest:TemperatureControl a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "TemperatureControl" .
+
+econest:CoverControl a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "CoverControl" .
+
+econest:WaterControl a owl:Class ;
+    rdfs:subClassOf econest:Capability ;
+    rdfs:label "WaterControl" .
+
 econest:User a owl:Class ;
     rdfs:label "User" .
 
 econest:Action a owl:Class ;
-    rdfs:label "Action" .
+    rdfs:label "Action" ;
+    rdfs:comment "An action that EcoNest can authorize or execute." .
 
-### ============================================================
-### Observation & Semantic Reasoning Classes
-### ============================================================
+econest:TurnOn a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "TurnOn" .
 
-:Observation rdf:type owl:Class ;
+econest:TurnOff a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "TurnOff" .
+
+econest:SetBrightness a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "SetBrightness" .
+
+econest:SetColorTemp a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "SetColorTemp" .
+
+econest:SetTemperature a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "SetTemperature" .
+
+econest:Open a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "Open" .
+
+econest:Close a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "Close" .
+
+econest:ReadState a owl:Class ;
+    rdfs:subClassOf econest:Action ;
+    rdfs:label "ReadState" .
+
+econest:Circuit a owl:Class ;
+    rdfs:label "Circuit" ;
+    rdfs:comment "Electrical circuit or breaker grouping used by POWERED_BY edges." .
+
+econest:Sensor a owl:Class ;
+    rdfs:subClassOf econest:Device ;
+    rdfs:subClassOf sosa:Sensor ;
+    rdfs:label "Sensor" ;
+    rdfs:comment "Sensor-like devices and sensor metadata nodes used for motion, sound, power, and environmental readings." .
+
+econest:SensorReading a owl:Class ;
+    rdfs:label "SensorReading" ;
+    rdfs:comment "Point-in-time sensor reading mirrored from MySQL sensor_readings." .
+
+econest:Observation a owl:Class ;
     rdfs:label "Observation" ;
     rdfs:comment "A semantic interpretation derived from one or more sensor readings." .
 
-:OccupancyObservation rdf:type owl:Class ;
-    rdfs:subClassOf :Observation ;
-    rdfs:label "Occupancy Observation" ;
-    rdfs:comment "Represents inferred room occupancy from multiple sensor signals." .
+econest:OccupancyObservation a owl:Class ;
+    rdfs:subClassOf econest:Observation ;
+    rdfs:label "OccupancyObservation" ;
+    rdfs:comment "Inferred room occupancy from multiple sensor signals." .
 
-:EnergyObservation rdf:type owl:Class ;
-    rdfs:subClassOf :Observation ;
-    rdfs:label "Energy Observation" ;
-    rdfs:comment "Represents inferred energy usage or consumption behavior." .
+econest:EnergyObservation a owl:Class ;
+    rdfs:subClassOf econest:Observation ;
+    rdfs:label "EnergyObservation" ;
+    rdfs:comment "Inferred energy usage or consumption behavior." .
 
-:AnomalyObservation rdf:type owl:Class ;
-    rdfs:subClassOf :Observation ;
-    rdfs:label "Anomaly Observation" ;
-    rdfs:comment "Represents unusual or suspicious home behavior patterns." .
+econest:AnomalyObservation a owl:Class ;
+    rdfs:subClassOf econest:Observation ;
+    rdfs:label "AnomalyObservation" ;
+    rdfs:comment "Unusual or suspicious home behavior patterns." .
 
 # ============================================================
 # Object Properties
@@ -127,74 +303,260 @@ econest:Action a owl:Class ;
 econest:hasCapability a owl:ObjectProperty ;
     rdfs:domain econest:Device ;
     rdfs:range econest:Capability ;
-    rdfs:label "has capability" .
+    rdfs:label "hasCapability" .
 
 econest:requiresCapability a owl:ObjectProperty ;
     rdfs:domain econest:Action ;
     rdfs:range econest:Capability ;
-    rdfs:label "requires capability" .
+    rdfs:label "requiresCapability" .
 
 econest:locatedIn a owl:ObjectProperty ;
     rdfs:domain econest:Device ;
     rdfs:range econest:Room ;
-    rdfs:label "located in" .
+    rdfs:label "locatedIn" .
+
+econest:contains a owl:ObjectProperty ;
+    rdfs:domain econest:Room ;
+    rdfs:range econest:Device ;
+    rdfs:label "contains" .
 
 econest:monitors a owl:ObjectProperty ;
     rdfs:domain sosa:Sensor ;
     rdfs:range econest:Room ;
     rdfs:label "monitors" .
 
+econest:poweredBy a owl:ObjectProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range econest:Circuit ;
+    rdfs:label "poweredBy" .
+
+econest:dependsOn a owl:ObjectProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range econest:Device ;
+    rdfs:label "dependsOn" .
+
 econest:canPerform a owl:ObjectProperty ;
     rdfs:domain econest:User ;
     rdfs:range econest:Action ;
-    rdfs:label "can perform" .
+    rdfs:label "canPerform" .
 
 econest:owns a owl:ObjectProperty ;
     rdfs:domain econest:User ;
-    rdfs:range econest:Room ;
+    rdfs:range econest:SmartHomeOntology ;
     rdfs:label "owns" .
 
-### ============================================================
-### Observation Relationships
-### ============================================================
+econest:hasAccess a owl:ObjectProperty ;
+    rdfs:domain econest:User ;
+    rdfs:range owl:Thing ;
+    rdfs:label "hasAccess" .
 
-:OBSERVED_IN rdf:type owl:ObjectProperty ;
-    rdfs:domain :Observation ;
-    rdfs:range :Room ;
-    rdfs:label "observed in" .
+econest:observedIn a owl:ObjectProperty ;
+    rdfs:domain econest:Observation ;
+    rdfs:range econest:Room ;
+    rdfs:label "observedIn" .
 
-:DERIVED_FROM rdf:type owl:ObjectProperty ;
-    rdfs:domain :Observation ;
-    rdfs:range :Sensor ;
-    rdfs:label "derived from" .
+econest:derivedFrom a owl:ObjectProperty ;
+    rdfs:domain econest:Observation ;
+    rdfs:range sosa:Sensor ;
+    rdfs:label "derivedFrom" .
 
 # ============================================================
 # Data Properties
 # ============================================================
 
+econest:hasName a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range xsd:string ;
+    rdfs:label "hasName" .
+
+econest:mysqlId a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range xsd:integer ;
+    rdfs:label "mysqlId" .
+
+econest:roomType a owl:DatatypeProperty ;
+    rdfs:domain econest:Room ;
+    rdfs:range xsd:string ;
+    rdfs:label "roomType" .
+
+econest:haAreaId a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range xsd:string ;
+    rdfs:label "haAreaId" .
+
+econest:floorId a owl:DatatypeProperty ;
+    rdfs:domain econest:Room ;
+    rdfs:range xsd:string ;
+    rdfs:label "floorId" .
+
+econest:hasManufacturer a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "hasManufacturer" .
+
+econest:hasModel a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "hasModel" .
+
+econest:hasPowerRating a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "hasPowerRating" .
+
+econest:hasWattage a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "hasWattage" .
+
+econest:haDomain a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "haDomain" .
+
+econest:haEntityId a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "haEntityId" .
+
+econest:haDeviceId a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "haDeviceId" .
+
+econest:haPlatform a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "haPlatform" .
+
+econest:viaDeviceId a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:string ;
+    rdfs:label "viaDeviceId" .
+
+econest:isActive a owl:DatatypeProperty ;
+    rdfs:domain econest:Device ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "isActive" .
+
 econest:brightness a owl:DatatypeProperty ;
     rdfs:domain econest:Dimmable ;
     rdfs:range xsd:integer ;
-    rdfs:label "brightness level" .
+    rdfs:label "brightness" .
 
 econest:colorTemperature a owl:DatatypeProperty ;
     rdfs:domain econest:ColorControl ;
     rdfs:range xsd:integer ;
-    rdfs:label "color temperature" .
+    rdfs:label "colorTemperature" .
 
 econest:ipAddress a owl:DatatypeProperty ;
     rdfs:domain econest:Device ;
     rdfs:range xsd:string ;
-    rdfs:label "IP address" .
+    rdfs:label "ipAddress" .
 
-:confidence rdf:type owl:DatatypeProperty ;
-    rdfs:domain :Observation ;
-    rdfs:range xsd:float .
+econest:breakerId a owl:DatatypeProperty ;
+    rdfs:domain econest:Circuit ;
+    rdfs:range xsd:string ;
+    rdfs:label "breakerId" .
 
-:observationValue rdf:type owl:DatatypeProperty ;
-    rdfs:domain :Observation ;
-    rdfs:range xsd:string .
+econest:maxAmperage a owl:DatatypeProperty ;
+    rdfs:domain econest:Circuit ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "maxAmperage" .
 
-:observationTimestamp rdf:type owl:DatatypeProperty ;
-    rdfs:domain :Observation ;
-    rdfs:range xsd:dateTime .
+econest:sensorType a owl:DatatypeProperty ;
+    rdfs:domain econest:Sensor ;
+    rdfs:range xsd:string ;
+    rdfs:label "sensorType" .
+
+econest:unit a owl:DatatypeProperty ;
+    rdfs:domain econest:Sensor ;
+    rdfs:range xsd:string ;
+    rdfs:label "unit" .
+
+econest:deviceClass a owl:DatatypeProperty ;
+    rdfs:domain econest:Sensor ;
+    rdfs:range xsd:string ;
+    rdfs:label "deviceClass" .
+
+econest:stateClass a owl:DatatypeProperty ;
+    rdfs:domain econest:Sensor ;
+    rdfs:range xsd:string ;
+    rdfs:label "stateClass" .
+
+econest:timestamp a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "timestamp" .
+
+econest:confidenceScore a owl:DatatypeProperty ;
+    rdfs:domain econest:Sensor ;
+    rdfs:range xsd:float ;
+    rdfs:label "confidenceScore" .
+
+econest:confidence a owl:DatatypeProperty ;
+    rdfs:domain econest:Observation ;
+    rdfs:range xsd:float ;
+    rdfs:label "confidence" .
+
+econest:observationValue a owl:DatatypeProperty ;
+    rdfs:domain econest:Observation ;
+    rdfs:range xsd:string ;
+    rdfs:label "observationValue" .
+
+econest:observationTimestamp a owl:DatatypeProperty ;
+    rdfs:domain econest:Observation ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "observationTimestamp" .
+
+# ============================================================
+# Action capability requirements
+# ============================================================
+
+econest:TurnOn rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:OnOff
+] .
+
+econest:TurnOff rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:OnOff
+] .
+
+econest:SetBrightness rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:Dimmable
+] .
+
+econest:SetColorTemp rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:ColorControl
+] .
+
+econest:SetTemperature rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:TemperatureControl
+] .
+
+econest:Open rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:CoverControl
+] .
+
+econest:Close rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:CoverControl
+] .
+
+econest:ReadState rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty econest:requiresCapability ;
+    owl:someValuesFrom econest:OnOff
+] .
