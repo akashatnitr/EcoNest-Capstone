@@ -242,3 +242,42 @@ async def test_incremental_sync_upserts_rooms_and_devices():
         for command in commands
     )
     assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_get_affected_rooms():
+
+    with _mock_queries_arcadedb(
+        {
+            "result": [
+                {"name": ["Kitchen"]},
+                {"name": ["Garage"]},
+            ]
+        }
+    ):
+        from orchestrator.graph.queries import get_affected_rooms
+
+        result = await get_affected_rooms("#12:0")
+
+    assert len(result) == 2
+
+@pytest.mark.anyio
+async def test_get_room_sensor_confidence():
+
+    with _mock_queries_arcadedb(
+        {
+            "result": [
+                {
+                    "sensor": {"name": ["Hallway Motion"]},
+                    "confidence": 0.82,
+                }
+            ]
+        }
+    ):
+        from orchestrator.graph.queries import (
+            get_room_sensor_confidence,
+        )
+
+        result = await get_room_sensor_confidence("#10:0")
+
+    assert result[0]["confidence"] == 0.82
