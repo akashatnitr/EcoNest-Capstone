@@ -95,13 +95,11 @@ async def get_current_user(
         )
 
     result = await session.execute(
-        text(
-            """
+        text("""
             SELECT id, email, role, household_id, is_active
             FROM users
             WHERE id = :id
-            """
-        ),
+            """),
         {"id": int(user_id)},
     )
 
@@ -148,8 +146,7 @@ async def register(
     hashed = hash_password(req.password)
 
     result = await session.execute(
-        text(
-            """
+        text("""
             INSERT INTO users (
                 email,
                 hashed_password,
@@ -162,8 +159,7 @@ async def register(
                 :role,
                 TRUE
             )
-            """
-        ),
+            """),
         {
             "email": req.email,
             "hashed_password": hashed,
@@ -197,8 +193,7 @@ async def login(
     """OAuth2 password flow."""
 
     result = await session.execute(
-        text(
-            """
+        text("""
             SELECT
                 id,
                 email,
@@ -207,8 +202,7 @@ async def login(
                 is_active
             FROM users
             WHERE email = :email
-            """
-        ),
+            """),
         {"email": form_data.username},
     )
 
@@ -249,8 +243,7 @@ async def login(
     )
 
     await session.execute(
-        text(
-            """
+        text("""
             INSERT INTO user_sessions (
                 user_id,
                 refresh_token,
@@ -261,8 +254,7 @@ async def login(
                 :refresh_token,
                 :expires_at
             )
-            """
-        ),
+            """),
         {
             "user_id": row["id"],
             "refresh_token": hash_refresh_token(refresh_token),
@@ -302,14 +294,12 @@ async def refresh(
         )
 
     result = await session.execute(
-        text(
-            """
+        text("""
             SELECT refresh_token
             FROM user_sessions
             WHERE user_id = :user_id
             AND expires_at > NOW()
-            """
-        ),
+            """),
         {"user_id": int(user_id)},
     )
 
@@ -325,14 +315,12 @@ async def refresh(
         )
 
     user_result = await session.execute(
-        text(
-            """
+        text("""
             SELECT role
             FROM users
             WHERE id = :id
             AND is_active = TRUE
-            """
-        ),
+            """),
         {"id": int(user_id)},
     )
 
@@ -366,12 +354,10 @@ async def logout(
 
     if req.refresh_token:
         await session.execute(
-            text(
-                """
+            text("""
                 DELETE FROM user_sessions
                 WHERE refresh_token = :token
-                """
-            ),
+                """),
             {
                 "token": hash_refresh_token(req.refresh_token),
             },
