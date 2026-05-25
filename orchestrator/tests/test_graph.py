@@ -34,6 +34,14 @@ from orchestrator.graph.queries import (
     get_sensor_coverage,
     get_user_accessible_devices,
 )
+from orchestrator.graph.seeds import (
+    GraphSeedInventory,
+    SeedDevice,
+    SeedRoom,
+    build_inventory_from_records,
+    default_seed_inventory,
+    seed_graph,
+)
 from orchestrator.main import app
 
 
@@ -591,6 +599,121 @@ async def test_incremental_sync_rolls_back_on_arcadedb_error():
     commands = [call.args[1] for call in query.await_args_list]
     assert commands[0] == "BEGIN"
     assert commands[-1] == "ROLLBACK"
+
+
+def test_default_seed_inventory_uses_real_room_and_device_inventory():
+    inventory = default_seed_inventory()
+
+    assert len(inventory.rooms) == 14
+    assert len(inventory.devices) == 33
+    assert any(
+        room.name == "Kitchen" and room.mysql_id == 1 for room in inventory.rooms
+    )
+    assert any(
+        device.name == "Balance" and device.device_type == "EnergyMonitor"
+        for device in inventory.devices
+    )
+    assert any(sensor.name == "Motion Sensor Garage" for sensor in inventory.sensors)
+    assert any(
+        circuit.breaker_id == "kitchen_lights_breaker" for circuit in inventory.circuits
+    )
+
+
+def test_build_inventory_from_records_uses_home_assistant_device_area_mapping():
+    inventory = build_inventory_from_records(
+        rooms=[
+            {"id": 1, "name": "Kitchen"},
+        ],
+        devices=[
+            {
+                "id": 10,
+                "name": "Counter Light",
+                "device_type": "light",
+                "room_id": 1,
+            }
+        ],
+        ha_entities=[
+            {
+                "entity_id": "light.counter_light",
+                "device_id": "device-1",
+                "area_id": None,
+                "platform": "kasa",
+            }
+        ],
+        ha_devices=[
+            {
+                "id": "device-1",
+                "area_id": "kitchen",
+                "manufacturer": "Kasa",
+                "model": "KL125",
+                "via_device_id": "hub-1",
+            }
+        ],
+        ha_areas=[
+            {
+                "area_id": "kitchen",
+                "floor_id": "1st_floor",
+                "name": "Kitchen",
+            }
+        ],
+    )
+
+    room = inventory.rooms[0]
+    device = inventory.devices[0]
+    assert room.ha_area_id == "kitchen"
+    assert room.floor_id == "1st_floor"
+    assert device.ha_entity_id == "light.counter_light"
+    assert device.ha_device_id == "device-1"
+    assert device.ha_area_id == "kitchen"
+    assert device.ha_domain == "light"
+    assert device.device_type == "SmartBulb"
+    assert device.manufacturer == "Kasa"
+    assert device.model == "KL125"
+    assert device.via_device_id == "hub-1"
+
+
+@pytest.mark.anyio
+async def test_seed_graph_upserts_vertices_and_repairs_edges():
+    inventory = GraphSeedInventory(
+        rooms=[SeedRoom(mysql_id=1, name="Kitchen", room_type="Kitchen")],
+        devices=[
+            SeedDevice(
+                mysql_id=10,
+                name="Counter Light",
+                device_type="SmartBulb",
+                room_mysql_id=1,
+                ha_domain="light",
+                ha_entity_id="light.counter_light",
+            )
+        ],
+    )
+
+    with patch(
+        "orchestrator.graph.seeds.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        result = await seed_graph(inventory)
+
+    assert result.rooms == 1
+    assert result.devices == 1
+    assert result.edges == 2
+    commands = [call.args[1] for call in query.await_args_list]
+    assert any(
+        "UPDATE Home SET" in command and "UPSERT WHERE name" in command
+        for command in commands
+    )
+    assert any(
+        "UPDATE Room SET" in command and "UPSERT WHERE mysql_id = 1" in command
+        for command in commands
+    )
+    assert any(
+        "UPDATE Device SET" in command and "UPSERT WHERE mysql_id = 10" in command
+        for command in commands
+    )
+    assert any("DELETE EDGE CONTAINS" in command for command in commands)
+    assert any("CREATE EDGE CONTAINS" in command for command in commands)
+    assert any("DELETE EDGE LOCATED_IN" in command for command in commands)
+    assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
 
 
 @pytest.mark.anyio
