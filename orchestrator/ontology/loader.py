@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Optional
 
-from rdflib import OWL, RDF, RDFS, Graph, Namespace
+from rdflib import OWL, RDF, RDFS, Graph, Namespace, URIRef
 
 from orchestrator.core.database import arcadedb_query
 
@@ -26,10 +26,15 @@ async def load_ontology(
 
     # Create Class vertices and SUBCLASS_OF edges
     for cls in g.subjects(RDF.type, OWL.Class):
-        local_name = str(cls).split("#")[-1]
-        parent = None
-        for p in g.objects(cls, RDFS.subClassOf):
-            parent = str(p).split("#")[-1]
+        if not isinstance(cls, URIRef):
+            continue
+
+        local_name = _local_name(cls)
+        parents = [
+            _local_name(parent)
+            for parent in g.objects(cls, RDFS.subClassOf)
+            if isinstance(parent, URIRef)
+        ]
 
         # Upsert Class vertex
         await arcadedb_query(
@@ -39,7 +44,7 @@ async def load_ontology(
         )
         created_classes.append(local_name)
 
-        if parent:
+        for parent in parents:
             await arcadedb_query(
                 "sql",
                 (
@@ -52,7 +57,9 @@ async def load_ontology(
 
     # Map object properties to edge types
     for prop in g.subjects(RDF.type, OWL.ObjectProperty):
-        local_name = str(prop).split("#")[-1]
+        if not isinstance(prop, URIRef):
+            continue
+        local_name = _local_name(prop)
         await arcadedb_query(
             "sql",
             f"CREATE EDGE TYPE {local_name} IF NOT EXISTS",
@@ -62,7 +69,9 @@ async def load_ontology(
 
     # Map data properties to vertex properties (document as schema metadata)
     for prop in g.subjects(RDF.type, OWL.DatatypeProperty):
-        local_name = str(prop).split("#")[-1]
+        if not isinstance(prop, URIRef):
+            continue
+        local_name = _local_name(prop)
         # Store as metadata on a Property vertex
         await arcadedb_query(
             "sql",
@@ -75,3 +84,10 @@ async def load_ontology(
         "edges": created_edges,
         "file": path,
     }
+
+
+def _local_name(uri: URIRef) -> str:
+    value = str(uri)
+    if "#" in value:
+        return value.rsplit("#", maxsplit=1)[-1]
+    return value.rstrip("/").rsplit("/", maxsplit=1)[-1]
