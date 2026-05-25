@@ -15,6 +15,7 @@ from orchestrator.graph.seeds import default_seed_inventory
 from orchestrator.main import app
 from orchestrator.ontology.loader import load_ontology
 from orchestrator.ontology.reasoner import load_rules, run_reasoner
+from orchestrator.ontology.validator import validate_graph
 
 ECONEST = Namespace("http://econest.example.org/ontology#")
 SMART_HOME_TTL = Path(__file__).parents[1] / "ontology" / "smart_home.ttl"
@@ -352,7 +353,34 @@ async def test_load_ontology_upserts_metadata_idempotently():
 async def test_get_class_smartbulb(client):
     resp = client.get("/ontology/classes/SmartBulb")
     assert resp.status_code == 200
-    assert resp.json()["inferred_capabilities"] == ["Dimmable"]
+    data = resp.json()
+    assert data["inferred_capabilities"] == ["Dimmable"]
+    assert data["superclasses"] == ["Device"]
+    assert {
+        "property": "hasCapability",
+        "restriction_type": "someValuesFrom",
+        "value": "Dimmable",
+        "target_class": None,
+    } in data["restrictions"]
+
+
+@pytest.mark.anyio
+async def test_get_class_motion_sensor_returns_cardinality_restriction(client):
+    resp = client.get("/ontology/classes/MotionSensor")
+    assert resp.status_code == 200
+    assert {
+        "property": "monitors",
+        "restriction_type": "qualifiedCardinality",
+        "value": 1,
+        "target_class": "Room",
+    } in resp.json()["restrictions"]
+
+
+@pytest.mark.anyio
+async def test_get_class_action_returns_required_capability(client):
+    resp = client.get("/ontology/classes/SetBrightness")
+    assert resp.status_code == 200
+    assert resp.json()["required_capabilities"] == ["Dimmable"]
 
 
 @pytest.mark.anyio
@@ -375,6 +403,136 @@ async def test_validate(client):
         resp = client.get("/ontology/validate")
     assert resp.status_code == 200
     assert resp.json()["valid"] is True
+
+
+@pytest.mark.anyio
+async def test_validate_graph_reports_schema_consistency_errors():
+    responses = [
+        {
+            "result": [
+                {
+                    "@rid": "#10:0",
+                    "name": ["Mystery Device"],
+                    "is_active": [True],
+                }
+            ]
+        },
+        {
+            "result": [
+                {
+                    "@rid": "#11:0",
+                    "name": ["Odd Device"],
+                    "device_type": ["MysteryType"],
+                    "is_active": [True],
+                }
+            ]
+        },
+        {
+            "result": [
+                {
+                    "device": {"name": ["Floating Device"]},
+                    "room_count": 0,
+                }
+            ]
+        },
+        {
+            "result": [
+                {
+                    "name": ["Unknown Room"],
+                    "room_type": ["Pantry"],
+                }
+            ]
+        },
+        {"result": [{"name": ["UnknownCapability"]}]},
+        {"result": [{"name": ["Dimmable Lamp"]}]},
+        {
+            "result": [
+                {
+                    "sensor": {"name": ["Motion Sensor"]},
+                    "room_count": 2,
+                }
+            ]
+        },
+    ]
+
+    with patch(
+        "orchestrator.ontology.validator.arcadedb_query",
+        new=AsyncMock(side_effect=responses),
+    ):
+        report = await validate_graph()
+
+    error_types = {error["type"] for error in report["errors"]}
+
+    assert report["valid"] is False
+    assert report["error_count"] == 7
+    assert "MISSING_DEVICE_PROPERTY" in error_types
+    assert "UNKNOWN_DEVICE_TYPE" in error_types
+    assert "DEVICE_ROOM_CARDINALITY" in error_types
+    assert "UNKNOWN_ROOM_TYPE" in error_types
+    assert "UNKNOWN_CAPABILITY" in error_types
+    assert "CAPABILITY_CONSISTENCY" in error_types
+    assert "MONITORS_CARDINALITY" in error_types
+    assert all(error["suggestion"] for error in report["errors"])
+
+
+@pytest.mark.anyio
+async def test_validate_graph_accepts_consistent_graph():
+    responses = [
+        {"result": []},
+        {
+            "result": [
+                {
+                    "name": ["Coffee Maker"],
+                    "device_type": ["EnergyMonitor"],
+                    "is_active": [True],
+                }
+            ]
+        },
+        {
+            "result": [
+                {
+                    "device": {"name": ["Coffee Maker"]},
+                    "room_count": 1,
+                }
+            ]
+        },
+        {"result": [{"name": ["Kitchen"], "room_type": ["Kitchen"]}]},
+        {"result": [{"name": ["PowerMonitoring"]}]},
+        {"result": []},
+        {
+            "result": [
+                {
+                    "sensor": {"name": ["Motion Sensor"]},
+                    "room_count": 1,
+                }
+            ]
+        },
+    ]
+
+    with patch(
+        "orchestrator.ontology.validator.arcadedb_query",
+        new=AsyncMock(side_effect=responses),
+    ):
+        report = await validate_graph()
+
+    assert report == {"valid": True, "errors": [], "error_count": 0}
+
+
+@pytest.mark.anyio
+async def test_validate_graph_uses_real_graph_labels():
+    with patch(
+        "orchestrator.ontology.validator.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        await validate_graph()
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert any("hasLabel('Device')" in command for command in commands)
+    assert any("out('LOCATED_IN')" in command for command in commands)
+    assert any("out('HAS_CAPABILITY')" in command for command in commands)
+    assert any("out('MONITORS')" in command for command in commands)
+    assert not any("ip_address" in command for command in commands)
 
 
 # ------------------------------------------------------------------
@@ -563,3 +721,21 @@ async def test_upload_non_ttl_rejected(client):
         files={"file": ("test.xml", b"<xml/>", "text/xml")},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_upload_ttl_requires_admin(client):
+    app.dependency_overrides[get_current_user] = lambda: UserProfile(
+        id=2,
+        email="homeowner@example.com",
+        role="homeowner",
+        household_id=None,
+        is_active=True,
+    )
+
+    resp = client.post(
+        "/ontology/upload",
+        files={"file": ("test.ttl", b"@prefix : <http://test#> .", "text/turtle")},
+    )
+
+    assert resp.status_code == 403
