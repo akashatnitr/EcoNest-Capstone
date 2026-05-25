@@ -1,0 +1,68 @@
+{
+  "capability_rules": [
+    {
+      "device_type": "EnergyMonitor",
+      "capabilities": ["PowerMonitoring"]
+    },
+    {
+      "device_type": "SmartPlug",
+      "capabilities": ["OnOff", "PowerMonitoring"]
+    },
+    {
+      "device_type": "SmartBulb",
+      "capabilities": ["OnOff", "Dimmable", "ColorControl"]
+    },
+    {
+      "device_type": "MotionSensor",
+      "capabilities": ["MotionDetection"]
+    },
+    {
+      "device_type": "SoundSensor",
+      "capabilities": ["SoundDetection"]
+    },
+    {
+      "device_type": "Thermostat",
+      "capabilities": ["TemperatureControl"]
+    },
+    {
+      "device_type": "SmartSwitch",
+      "capabilities": ["OnOff"]
+    },
+    {
+      "device_type": "Cover",
+      "capabilities": ["CoverControl"]
+    },
+    {
+      "device_type": "Valve",
+      "capabilities": ["WaterControl"]
+    },
+    {
+      "device_type": "Fan",
+      "capabilities": ["OnOff"]
+    },
+    {
+      "device_type": "MediaPlayer",
+      "capabilities": ["OnOff"]
+    }
+  ],
+  "monitor_rules": [
+    {
+      "device_type": "MotionSensor",
+      "sensor_type": "motion",
+      "confidence_score": 0.9
+    },
+    {
+      "device_type": "SoundSensor",
+      "sensor_type": "sound",
+      "confidence_score": 0.9
+    }
+  ],
+  "access_rules": [
+    {
+      "role": "family_member",
+      "room_type": "Bedroom",
+      "action": "TurnOn",
+      "capability": "OnOff"
+    }
+  ]
+}

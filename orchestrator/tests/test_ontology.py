@@ -1,5 +1,6 @@
 """Tests for the ontology layer."""
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,6 +14,7 @@ from orchestrator.graph.models import ActionName, CapabilityName, DeviceType, Ro
 from orchestrator.graph.seeds import default_seed_inventory
 from orchestrator.main import app
 from orchestrator.ontology.loader import load_ontology
+from orchestrator.ontology.reasoner import load_rules, run_reasoner
 
 ECONEST = Namespace("http://econest.example.org/ontology#")
 SMART_HOME_TTL = Path(__file__).parents[1] / "ontology" / "smart_home.ttl"
@@ -56,6 +58,12 @@ def ontology_class_name(value: str) -> str:
     if value == DeviceType.PERSON.value:
         return "PersonDevice"
     return value
+
+
+def write_rules(tmp_path: Path, rules: dict) -> str:
+    path = tmp_path / "rules.json"
+    path.write_text(json.dumps(rules), encoding="utf-8")
+    return str(path)
 
 
 # ------------------------------------------------------------------
@@ -383,6 +391,151 @@ async def test_reason(client):
         resp = client.post("/ontology/reason")
     assert resp.status_code == 200
     assert resp.json()["total"] == 0
+
+
+def test_load_reasoner_rules_from_json(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [
+                {"device_type": "EnergyMonitor", "capabilities": ["PowerMonitoring"]}
+            ],
+            "monitor_rules": [],
+            "access_rules": [],
+        },
+    )
+
+    rules = load_rules(rules_path)
+
+    assert rules.capability_rules[0].device_type == "EnergyMonitor"
+    assert rules.capability_rules[0].capabilities == ["PowerMonitoring"]
+
+
+@pytest.mark.anyio
+async def test_reasoner_infers_device_capability_edges(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [
+                {"device_type": "EnergyMonitor", "capabilities": ["PowerMonitoring"]}
+            ],
+            "monitor_rules": [],
+            "access_rules": [],
+        },
+    )
+
+    async def fake_query(language, command, database=None, readonly=True):
+        if language == "gremlin":
+            return {"result": ["#12:0"]}
+        return {"result": []}
+
+    with patch(
+        "orchestrator.ontology.reasoner.arcadedb_query",
+        new=AsyncMock(side_effect=fake_query),
+    ) as query:
+        result = await run_reasoner(rules_path)
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert result["total"] == 1
+    assert result["inferred"][0]["capability"] == "PowerMonitoring"
+    assert any("UPDATE Capability SET" in command for command in commands)
+    assert any(
+        "CREATE EDGE HAS_CAPABILITY FROM #12:0" in command for command in commands
+    )
+    assert any("WHERE name = 'PowerMonitoring'" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_reasoner_infers_sensor_monitor_edges(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [],
+            "monitor_rules": [
+                {
+                    "device_type": "MotionSensor",
+                    "sensor_type": "motion",
+                    "confidence_score": 0.9,
+                }
+            ],
+            "access_rules": [],
+        },
+    )
+
+    async def fake_query(language, command, database=None, readonly=True):
+        if language == "gremlin":
+            return {
+                "result": [
+                    {
+                        "device": {
+                            "@rid": "#9:0",
+                            "name": ["Motion Sensor"],
+                            "ha_entity_id": ["binary_sensor.motion_sensor"],
+                        },
+                        "room": {"@rid": "#2:0", "name": ["Front Door"]},
+                    }
+                ]
+            }
+        return {"result": []}
+
+    with patch(
+        "orchestrator.ontology.reasoner.arcadedb_query",
+        new=AsyncMock(side_effect=fake_query),
+    ) as query:
+        result = await run_reasoner(rules_path)
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert result["total"] == 1
+    assert result["inferred"][0]["sensor"] == "Motion Sensor"
+    assert any("UPDATE Sensor SET" in command for command in commands)
+    assert any("DELETE EDGE MONITORS" in command for command in commands)
+    assert any("CREATE EDGE MONITORS" in command for command in commands)
+    assert any("confidence_score = 0.9" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_reasoner_infers_user_can_perform_action_edges(tmp_path):
+    rules_path = write_rules(
+        tmp_path,
+        {
+            "capability_rules": [],
+            "monitor_rules": [],
+            "access_rules": [
+                {
+                    "role": "family_member",
+                    "room_type": "Bedroom",
+                    "action": "TurnOn",
+                    "capability": "OnOff",
+                }
+            ],
+        },
+    )
+
+    async def fake_query(language, command, database=None, readonly=True):
+        if language == "gremlin":
+            return {"result": [{"user": "#30:0", "device": "#12:0"}]}
+        return {"result": []}
+
+    with patch(
+        "orchestrator.ontology.reasoner.arcadedb_query",
+        new=AsyncMock(side_effect=fake_query),
+    ) as query:
+        result = await run_reasoner(rules_path)
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert result["total"] == 1
+    assert result["inferred"][0]["action"] == "TurnOn"
+    assert result["inferred"][0]["device_context"] == "#12:0"
+    assert any("UPDATE Action SET" in command for command in commands)
+    assert any("CREATE EDGE REQUIRES_CAPABILITY" in command for command in commands)
+    assert any(
+        "CREATE EDGE CAN_PERFORM FROM #30:0 TO (SELECT FROM Action WHERE name = 'TurnOn')"
+        in command
+        for command in commands
+    )
 
 
 # ------------------------------------------------------------------
