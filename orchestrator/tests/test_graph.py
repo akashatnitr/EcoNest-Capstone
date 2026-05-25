@@ -510,3 +510,42 @@ async def test_incremental_sync_rolls_back_on_arcadedb_error():
     commands = [call.args[1] for call in query.await_args_list]
     assert commands[0] == "BEGIN"
     assert commands[-1] == "ROLLBACK"
+
+
+@pytest.mark.anyio
+async def test_get_affected_rooms():
+
+    with _mock_queries_arcadedb(
+        {
+            "result": [
+                {"name": ["Kitchen"]},
+                {"name": ["Garage"]},
+            ]
+        }
+    ):
+        from orchestrator.graph.queries import get_affected_rooms
+
+        result = await get_affected_rooms("#12:0")
+
+    assert len(result) == 2
+
+@pytest.mark.anyio
+async def test_get_room_sensor_confidence():
+
+    with _mock_queries_arcadedb(
+        {
+            "result": [
+                {
+                    "sensor": {"name": ["Hallway Motion"]},
+                    "confidence": 0.82,
+                }
+            ]
+        }
+    ):
+        from orchestrator.graph.queries import (
+            get_room_sensor_confidence,
+        )
+
+        result = await get_room_sensor_confidence("#10:0")
+
+    assert result[0]["confidence"] == 0.82
