@@ -11,6 +11,8 @@ async def store_interaction(
     query: str,
     response: str,
     action: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    observation_ids: Optional[list[str]] = None,
 ) -> str:
     """Store a single interaction in the graph.
 
@@ -21,9 +23,16 @@ async def store_interaction(
     ts = datetime.now(timezone.utc).isoformat()
 
     # Create Query vertex
+    thread_part = f", thread_id = '{_escape(thread_id)}'" if thread_id else ""
+
     q_resp = await arcadedb_query(
         "sql",
-        f"CREATE VERTEX Query SET text = '{_escape(query)}', timestamp = '{ts}'",
+        (
+            "CREATE VERTEX Query "
+            f"SET text = '{_escape(query)}', "
+            f"timestamp = '{ts}'"
+            f"{thread_part}"
+        ),
         readonly=False,
     )
     query_rid = _extract_rid(q_resp)
@@ -49,6 +58,19 @@ async def store_interaction(
         f"CREATE EDGE ASKED FROM {user_id} TO {query_rid} SET timestamp = '{ts}'",
         readonly=False,
     )
+
+    # Optional Observation links
+    if observation_ids:
+        for observation_id in observation_ids:
+            await arcadedb_query(
+                "sql",
+                (
+                    "CREATE EDGE REFERENCED_OBSERVATION "
+                    f"FROM {response_rid} TO {observation_id} "
+                    f"SET created_at = '{ts}'"
+                ),
+                readonly=False,
+            )
 
     # Optional Action vertex and link
     if action:
@@ -126,6 +148,64 @@ async def summarize_thread(user_id: str) -> str:
         r = item.get("response", {}).get("text", ["?"])[0]
         lines.append(f"Q: {q}\nA: {r}")
     return "\n---\n".join(lines)
+
+
+async def store_summary(
+    user_id: str,
+    summary: str,
+    time_window: str,
+) -> str:
+    """Store a persistent semantic memory summary."""
+
+    ts = datetime.now(timezone.utc).isoformat()
+
+    summary_resp = await arcadedb_query(
+        "sql",
+        (
+            "CREATE VERTEX MemorySummary "
+            f"SET summary_text = '{_escape(summary)}', "
+            f"created_at = '{ts}', "
+            f"time_window = '{_escape(time_window)}'"
+        ),
+        readonly=False,
+    )
+
+    summary_rid = _extract_rid(summary_resp)
+
+    if summary_rid:
+        await arcadedb_query(
+            "sql",
+            (
+                "CREATE EDGE REMEMBERS "
+                f"FROM {user_id} TO {summary_rid} "
+                f"SET created_at = '{ts}'"
+            ),
+            readonly=False,
+        )
+
+    return summary_rid or ""
+
+
+async def get_memory_summaries(
+    user_id: str,
+    n: int = 5,
+) -> list[dict[str, Any]]:
+    """Retrieve recent semantic memory summaries."""
+
+    escaped_user_id = _escape(user_id)
+
+    result = await arcadedb_query(
+        "gremlin",
+        (
+            f"g.V('{escaped_user_id}')"
+            ".out('REMEMBERS')"
+            ".order().by('created_at', desc)"
+            f".limit({n})"
+            ".valueMap()"
+        ),
+    )
+
+    return _result_rows(result)
 
 
 def _escape(text: str) -> str:

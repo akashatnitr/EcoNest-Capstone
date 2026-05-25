@@ -1,4 +1,6 @@
 @prefix econest: <http://econest.example.org/ontology#> .
+@prefix : <http://econest.example.org/ontology#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix sosa: <http://www.w3.org/ns/sosa/> .
 @prefix saref: <https://w3id.org/saref#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
@@ -296,6 +298,10 @@ econest:AnomalyObservation a owl:Class ;
     rdfs:label "AnomalyObservation" ;
     rdfs:comment "Unusual or suspicious home behavior patterns." .
 
+:Query rdf:type owl:Class .
+:Response rdf:type owl:Class .
+:MemorySummary rdf:type owl:Class .
+
 # ============================================================
 # Object Properties
 # ============================================================
@@ -359,6 +365,10 @@ econest:derivedFrom a owl:ObjectProperty ;
     rdfs:domain econest:Observation ;
     rdfs:range sosa:Sensor ;
     rdfs:label "derivedFrom" .
+
+:SUMMARIZES rdf:type owl:ObjectProperty .
+:REMEMBERS rdf:type owl:ObjectProperty .
+:REFERENCED_OBSERVATION rdf:type owl:ObjectProperty .
 
 # ============================================================
 # Data Properties
