@@ -1,6 +1,5 @@
 """MCP protocol implementation (tools/resources/prompts)."""
 
-from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,6 +8,7 @@ from pydantic import BaseModel, Field
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.permissions import has_permission
 from orchestrator.mcp.tools import db_tools, device_tools, graph_tools, ha_tools
+from orchestrator.mcp.middleware import require_permissions
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -16,25 +16,27 @@ router = APIRouter(prefix="/mcp", tags=["mcp"])
 # Registry
 # ------------------------------------------------------------------
 
-ToolHandler = Callable[..., Awaitable[Any]]
-_tool_registry: Dict[str, Dict[str, Any]] = {}
-
-
-def register_tool(
-    name: str,
-    description: str,
-    input_schema: type[BaseModel],
-    handler: ToolHandler,
-    permissions: List[str] | None = None,
-) -> None:
-    """Register an MCP tool with metadata and a handler function."""
-    _tool_registry[name] = {
-        "description": description,
-        "input_schema": input_schema,
-        "handler": handler,
-        "permissions": permissions or [],
-    }
-
+from orchestrator.mcp.prompts import (
+    DEVICE_CONTROL_PROMPT,
+    ENERGY_REVIEW_PROMPT,
+    SECURITY_CHECK_PROMPT,
+    SENSOR_HEALTH_PROMPT,
+)
+from orchestrator.mcp.registry import (
+    prompt_registry,
+    register_prompt,
+    register_resource,
+    register_tool,
+    resource_registry,
+    tool_registry,
+)
+from orchestrator.mcp.resources import (
+    home_analytics_resource,
+    home_devices_resource,
+    home_snapshot_resource,
+    ontology_resource,
+    recent_memory_resource,
+)
 
 # ------------------------------------------------------------------
 # Built-in tools registration
@@ -120,6 +122,59 @@ register_tool(
     permissions=["device:read"],
 )
 
+register_resource(
+    "home://snapshot",
+    "Current smart-home snapshot",
+    home_snapshot_resource,
+)
+
+register_resource(
+    "home://devices",
+    "Device inventory and state",
+    home_devices_resource,
+)
+
+register_resource(
+    "home://analytics",
+    "Home analytics context",
+    home_analytics_resource,
+)
+
+register_resource(
+    "home://ontology",
+    "Smart-home ontology context",
+    ontology_resource,
+)
+
+register_resource(
+    "home://memory/recent",
+    "Recent episodic memory summaries and interactions",
+    recent_memory_resource,
+)
+
+# ------------------------------------------------------------------
+# Prompt registration
+# ------------------------------------------------------------------
+
+register_prompt(
+    "energy_review",
+    ENERGY_REVIEW_PROMPT,
+)
+
+register_prompt(
+    "security_check",
+    SECURITY_CHECK_PROMPT,
+)
+
+register_prompt(
+    "device_control",
+    DEVICE_CONTROL_PROMPT,
+)
+
+register_prompt(
+    "sensor_health",
+    SENSOR_HEALTH_PROMPT,
+)
 
 # ------------------------------------------------------------------
 # Models
@@ -146,7 +201,7 @@ async def list_tools(
 ) -> dict[str, Any]:
     """List available MCP tools filtered by user permissions."""
     tools = []
-    for name, meta in _tool_registry.items():
+    for name, meta in tool_registry.items():
         if all(has_permission(current_user.role, p) for p in meta["permissions"]):
             tools.append(
                 {
@@ -165,18 +220,16 @@ async def invoke_tool(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
 ) -> dict[str, Any]:
     """Invoke an MCP tool directly (with auth)."""
-    if name not in _tool_registry:
+    if name not in tool_registry:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tool '{name}' not found",
         )
-    meta = _tool_registry[name]
-    for perm in meta["permissions"]:
-        if not has_permission(current_user.role, perm):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Missing permission: {perm}",
-            )
+    meta = tool_registry[name]
+    require_permissions(
+        current_user.role,
+        meta["permissions"],
+    )
     try:
         parsed = meta["input_schema"](**req.arguments)
     except Exception as exc:
@@ -194,18 +247,23 @@ async def get_resource(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
 ) -> dict[str, Any]:
     """Get resource snapshot by URI."""
-    if uri == "home://snapshot":
-        return {"type": "snapshot", "rooms": [], "active_devices": []}
-    if uri == "home://devices":
-        return {"type": "devices", "count": 0}
-    if uri == "home://analytics":
-        return {"type": "analytics", "hourly_power": []}
-    if uri == "home://ontology":
-        return {"type": "ontology", "classes": []}
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Resource '{uri}' not found",
-    )
+    if uri not in resource_registry:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Resource '{uri}' not found",
+        )
+
+    resource = resource_registry[uri]
+
+    if uri == "home://memory/recent":
+        result = await resource["handler"](str(current_user.id))
+    else:
+        result = await resource["handler"]()
+
+    return {
+        "uri": uri,
+        "resource": result,
+    }
 
 
 @router.get("/prompts/{name}")
@@ -213,16 +271,13 @@ async def get_prompt(
     name: str,
     current_user: Annotated[UserProfile, Depends(get_current_user)],
 ) -> dict[str, Any]:
-    """Return a prompt template by name."""
-    prompts = {
-        "energy_review": "Review the last 24h of energy usage and highlight any off-schedule devices.",
-        "security_check": "Check all motion sensors and garage doors for anomalies in the last hour.",
-        "device_control": "The user wants to control a device. Ask for clarification if the request is ambiguous.",
-        "sensor_health": "Review sensor data quality and flag any sensors that haven't reported in >15 minutes.",
-    }
-    if name not in prompts:
+    if name not in prompt_registry:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prompt '{name}' not found",
         )
-    return {"name": name, "text": prompts[name]}
+
+    return {
+        "name": name,
+        "text": prompt_registry[name],
+    }
