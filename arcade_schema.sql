@@ -73,6 +73,14 @@ CREATE PROPERTY Action.name IF NOT EXISTS STRING;
 CREATE PROPERTY Action.parameters IF NOT EXISTS MAP;
 CREATE PROPERTY Action.timestamp IF NOT EXISTS DATETIME;
 
+CREATE VERTEX TYPE Observation IF NOT EXISTS;
+CREATE PROPERTY Observation.observation_type IF NOT EXISTS STRING;
+CREATE PROPERTY Observation.value IF NOT EXISTS STRING;
+CREATE PROPERTY Observation.confidence IF NOT EXISTS FLOAT;
+CREATE PROPERTY Observation.source_sensor IF NOT EXISTS STRING;
+CREATE PROPERTY Observation.timestamp IF NOT EXISTS DATETIME;
+CREATE PROPERTY Observation.context IF NOT EXISTS MAP;
+
 -- ============================================================
 -- Edge types
 -- ============================================================
@@ -110,6 +118,12 @@ CREATE PROPERTY DEPENDS_ON.created_at IF NOT EXISTS DATETIME;
 
 CREATE EDGE TYPE LOCATED_IN IF NOT EXISTS;
 CREATE PROPERTY LOCATED_IN.created_at IF NOT EXISTS DATETIME;
+
+CREATE EDGE TYPE OBSERVED_IN IF NOT EXISTS;
+CREATE PROPERTY OBSERVED_IN.created_at IF NOT EXISTS DATETIME;
+
+CREATE EDGE TYPE DERIVED_FROM IF NOT EXISTS;
+CREATE PROPERTY DERIVED_FROM.created_at IF NOT EXISTS DATETIME;
 
 -- ============================================================
 -- Indexes
