@@ -7,7 +7,10 @@ import os
 from dotenv import load_dotenv
 
 
-load_dotenv()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".env"))
+load_dotenv(ROOT_ENV)
+load_dotenv(override=False)
 
 
 # ── Configuration ──────────────────────────────────────────────
@@ -263,4 +266,3 @@ if __name__ == "__main__":
 
     while True:
         time.sleep(1)
-

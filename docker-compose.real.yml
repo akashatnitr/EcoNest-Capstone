@@ -1,12 +1,23 @@
-version: "3.9"
+# Real EcoNest orchestrator stack for the Mac demo environment.
+#
+# This stack is intentionally separate from the existing Home Assistant
+# container. It connects to Home Assistant at http://host.docker.internal:8123
+# and reads HA_TOKEN from the ignored local .env file.
+#
+# Usage:
+#   Add HA_TOKEN=your_home_assistant_token to .env
+#   docker compose -f docker-compose.real.yml up -d --build
+#   docker compose -f docker-compose.real.yml down
+
+name: econest-real
 
 services:
   arcadedb:
     image: arcadedata/arcadedb:latest
-    container_name: econest-arcadedb
+    container_name: econest-real-arcadedb
     ports:
-      - "2480:2480"
-      - "2424:2424"
+      - "2481:2480"
+      - "2425:2424"
     environment:
       JAVA_OPTS: "-Darcadedb.server.rootPassword=playwithdata"
     volumes:
@@ -28,9 +39,9 @@ services:
 
   mysql:
     image: mysql:8.0
-    container_name: econest-mysql
+    container_name: econest-real-mysql
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: econest
       MYSQL_DATABASE: econest
@@ -46,44 +57,40 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: econest-ollama
+    container_name: econest-real-ollama
     ports:
-      - "11434:11434"
+      - "11435:11434"
     volumes:
       - ollama-data:/root/.ollama
-    # Pre-pull gemma4 on first start (idempotent)
-    entrypoint: >
-      sh -c '
-        ollama serve &
-        sleep 5
-        ollama pull gemma4 || true
-        ollama pull mistral || true
-        wait
-      '
+    entrypoint: ["ollama", "serve"]
 
   orchestrator:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: econest-orchestrator
+    container_name: econest-real-orchestrator
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       ARCADEDB_HOST: arcadedb
       ARCADEDB_PORT: 2480
       ARCADEDB_USER: root
       ARCADEDB_PASSWORD: playwithdata
+      ARCADEDB_DATABASE: econest
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_PASSWORD: econest
       MYSQL_DATABASE: econest
       OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-qwen2.5:0.5b}
       HA_URL: http://host.docker.internal:8123
-      HA_TOKEN: ${HA_TOKEN:-}
+      HA_TOKEN: ${HA_TOKEN:?Set HA_TOKEN in your .env before starting econest-real}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
+      SECRET_KEY: ${SECRET_KEY:-replace-this-for-local-demo-only}
     depends_on:
       arcadedb:
         condition: service_healthy

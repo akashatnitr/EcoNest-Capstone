@@ -1,0 +1,53 @@
+# Test override for running a second EcoNest stack beside the default stack.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d mysql arcadedb
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm --no-deps orchestrator poetry run poe test
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml down
+
+name: econest-test
+
+services:
+  arcadedb:
+    container_name: econest-test-arcadedb
+    ports: !override
+      - "2481:2480"
+      - "2425:2424"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "--header",
+          "Authorization: Basic cm9vdDpwbGF5d2l0aGRhdGE=",
+          "http://localhost:2480/api/v1/server",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    container_name: econest-test-mysql
+    ports: !override
+      - "3307:3306"
+
+  ollama:
+    container_name: econest-test-ollama
+    ports: !override
+      - "11435:11434"
+    entrypoint: ["ollama", "serve"]
+
+  orchestrator:
+    container_name: econest-test-orchestrator
+    env_file:
+      - .env
+    environment:
+      HA_TOKEN: ${HA_TOKEN:-}
+      HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-qwen2.5:0.5b}
+    ports: !override
+      - "8001:8000"

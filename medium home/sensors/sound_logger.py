@@ -6,7 +6,10 @@ import os
 from collections import deque
 from dotenv import load_dotenv
 
-load_dotenv()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".env"))
+load_dotenv(ROOT_ENV)
+load_dotenv(override=False)
 
 API_URL = "http://127.0.0.1:5000/readings/add"
 DEVICE_ID = 6

@@ -9,7 +9,10 @@ import os
 from dotenv import load_dotenv
 from kasa import SmartPlug
 
-load_dotenv()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".env"))
+load_dotenv(ROOT_ENV)
+load_dotenv(override=False)
 
 # ── Configuration ──────────────────────────────────────────────
 HA_URL = os.getenv("HA_URL", "http://100.92.98.121:8123")
