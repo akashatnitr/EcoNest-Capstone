@@ -8,7 +8,10 @@ import os
 
 app = Flask(__name__)
 
-load_dotenv()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".env"))
+load_dotenv(ROOT_ENV)
+load_dotenv(override=False)
 
 db_config = {
     'user': os.getenv('DB_USER'),

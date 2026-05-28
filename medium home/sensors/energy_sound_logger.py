@@ -7,6 +7,12 @@ from datetime import datetime
 import requests
 from kasa import SmartPlug
 import RPi.GPIO as GPIO
+from dotenv import load_dotenv
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".env"))
+load_dotenv(ROOT_ENV)
+load_dotenv(override=False)
 
 # ====== CONFIG ======
 

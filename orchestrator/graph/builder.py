@@ -206,23 +206,22 @@ def _room_command(row: Mapping[str, Any], conflict_policy: ConflictPolicy) -> st
         description=row.get("description"),
         ha_area_id=row.get("ha_area_id"),
     )
-    fields = [
-        f"mysql_id = {int(row['id'])}",
-        f"name = {_sql_string(room.name)}",
-        f"room_type = {_sql_string(room.room_type)}",
-        f"description = {_sql_optional_string(room.description)}",
-        f"ha_area_id = {_sql_optional_string(room.ha_area_id)}",
-        "created_at = datetime()",
-    ]
+    fields = _assignments(
+        {
+            "mysql_id": int(row["id"]),
+            "name": room.name,
+            "room_type": room.room_type,
+            "description": room.description,
+            "ha_area_id": room.ha_area_id,
+            "created_at": "datetime()",
+        }
+    )
     if conflict_policy == "skip":
         return (
-            f"CREATE VERTEX Room SET {', '.join(fields)} "
+            f"CREATE VERTEX Room SET {fields} "
             f"IF NOT EXISTS WHERE mysql_id = {int(row['id'])}"
         )
-    return (
-        f"UPDATE Room SET {', '.join(fields)} "
-        f"UPSERT WHERE mysql_id = {int(row['id'])}"
-    )
+    return f"UPDATE Room SET {fields} UPSERT WHERE mysql_id = {int(row['id'])}"
 
 
 def _device_command(row: Mapping[str, Any], conflict_policy: ConflictPolicy) -> str:
@@ -241,30 +240,29 @@ def _device_command(row: Mapping[str, Any], conflict_policy: ConflictPolicy) -> 
         ip_address=row.get("ip_address"),
         is_active=bool(row["is_active"]),
     )
-    fields = [
-        f"mysql_id = {int(row['id'])}",
-        f"name = {_sql_string(device.name)}",
-        f"device_type = {_sql_string(device.device_type)}",
-        f"ha_domain = {_sql_optional_string(device.ha_domain)}",
-        f"ha_entity_id = {_sql_optional_string(device.ha_entity_id)}",
-        f"ha_device_id = {_sql_optional_string(device.ha_device_id)}",
-        f"ha_area_id = {_sql_optional_string(device.ha_area_id)}",
-        f"ha_platform = {_sql_optional_string(device.ha_platform)}",
-        f"manufacturer = {_sql_optional_string(device.manufacturer)}",
-        f"model = {_sql_optional_string(device.model)}",
-        f"ip_address = {_sql_optional_string(device.ip_address)}",
-        f"is_active = {str(device.is_active).lower()}",
-        "created_at = datetime()",
-    ]
+    fields = _assignments(
+        {
+            "mysql_id": int(row["id"]),
+            "name": device.name,
+            "device_type": device.device_type,
+            "ha_domain": device.ha_domain,
+            "ha_entity_id": device.ha_entity_id,
+            "ha_device_id": device.ha_device_id,
+            "ha_area_id": device.ha_area_id,
+            "ha_platform": device.ha_platform,
+            "manufacturer": device.manufacturer,
+            "model": device.model,
+            "ip_address": device.ip_address,
+            "is_active": device.is_active,
+            "created_at": "datetime()",
+        }
+    )
     if conflict_policy == "skip":
         return (
-            f"CREATE VERTEX Device SET {', '.join(fields)} "
+            f"CREATE VERTEX Device SET {fields} "
             f"IF NOT EXISTS WHERE mysql_id = {int(row['id'])}"
         )
-    return (
-        f"UPDATE Device SET {', '.join(fields)} "
-        f"UPSERT WHERE mysql_id = {int(row['id'])}"
-    )
+    return f"UPDATE Device SET {fields} UPSERT WHERE mysql_id = {int(row['id'])}"
 
 
 def _device_room_edge_commands(row: Mapping[str, Any]) -> list[str]:
@@ -449,9 +447,25 @@ def _sql_json(value: Mapping[str, Any]) -> str:
     return json.dumps(value, sort_keys=True)
 
 
-def _sql_optional_string(value: Any) -> str:
-    if value is None:
-        return "null"
+def _assignments(fields: Mapping[str, Any]) -> str:
+    return ", ".join(
+        f"{name} = {_sql_value(value)}"
+        for name, value in fields.items()
+        if _has_value(value)
+    )
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and value != ""
+
+
+def _sql_value(value: Any) -> str:
+    if value == "datetime()":
+        return "datetime()"
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, (int, float)):
+        return str(value)
     return _sql_string(str(value))
 
 

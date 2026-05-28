@@ -24,7 +24,10 @@ from email.mime.text import MIMEText
 from dotenv import load_dotenv
 from datetime import datetime
 
-load_dotenv(os.path.expanduser("~/Desktop/Econest/.env"))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".env"))
+load_dotenv(ROOT_ENV)
+load_dotenv(os.path.expanduser("~/Desktop/Econest/.env"), override=False)
 
 from inference import (
     get_connection,

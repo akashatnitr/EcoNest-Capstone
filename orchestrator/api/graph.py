@@ -15,6 +15,7 @@ from orchestrator.core.database import (
 )
 from orchestrator.core.permissions import USER_ADMIN, has_permission
 from orchestrator.graph.builder import ConflictPolicy, incremental_sync
+from orchestrator.graph.ha_importer import bootstrap_home_assistant_graph
 from orchestrator.graph.queries import (
     get_devices_in_room,
 )
@@ -57,6 +58,25 @@ class GraphSyncResponse(BaseModel):
     changed_sensor_readings: int
     last_sync: str
     conflict_policy: ConflictPolicy
+
+
+class HomeAssistantGraphSyncRequest(BaseModel):
+    limit: int | None = Field(default=None, ge=1)
+
+
+class HomeAssistantGraphSyncResponse(BaseModel):
+    created_database: bool
+    schema_commands: int
+    home_assistant_states: int
+    registry_loaded: bool
+    registry_source: str
+    rooms: int
+    devices: int
+    sensors: int
+    observations: int
+    skipped_observations: int
+    edges: int
+    database: str
 
 
 @router.get("/health")
@@ -157,6 +177,21 @@ async def sync_graph(
         conflict_policy=req.conflict_policy,
     )
     return GraphSyncResponse(**result)
+
+
+@router.post("/home-assistant/sync", response_model=HomeAssistantGraphSyncResponse)
+async def sync_home_assistant_graph(
+    req: HomeAssistantGraphSyncRequest,
+    current_user: Annotated[UserProfile, Depends(get_current_user)],
+) -> HomeAssistantGraphSyncResponse:
+    """Trigger live Home Assistant inventory/state sync into ArcadeDB."""
+    if not has_permission(current_user.role, USER_ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    result = await bootstrap_home_assistant_graph(limit=req.limit)
+    return HomeAssistantGraphSyncResponse(**result)
 
 
 def _validate_readonly_gremlin(query: str) -> None:

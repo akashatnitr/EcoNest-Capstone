@@ -631,7 +631,15 @@ async def _repair_edge(
 
 
 def _assignments(fields: Mapping[str, Any]) -> str:
-    return ", ".join(f"{name} = {_sql_value(value)}" for name, value in fields.items())
+    return ", ".join(
+        f"{name} = {_sql_value(value)}"
+        for name, value in fields.items()
+        if _has_value(value)
+    )
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and value != ""
 
 
 def _selector(label: str, key_name: str, key_value: Any) -> str:

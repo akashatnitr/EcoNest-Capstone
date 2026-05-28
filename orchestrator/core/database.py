@@ -104,6 +104,55 @@ async def arcadedb_query(
     return {"result": data}
 
 
+async def arcadedb_server_command(command: str) -> dict[str, Any]:
+    """Execute a server-level ArcadeDB command."""
+    if _arcadedb_client is None:
+        raise RuntimeError(
+            "ArcadeDB client not initialized. Call init_databases() first."
+        )
+
+    response = await _arcadedb_client.post(
+        "/api/v1/server",
+        json={"command": command},
+    )
+    response.raise_for_status()
+    data = response.json()
+    if isinstance(data, dict):
+        return data
+    return {"result": data}
+
+
+async def arcadedb_database_exists(database: Optional[str] = None) -> bool:
+    """Return True if an ArcadeDB database exists."""
+    if _arcadedb_client is None or _settings is None:
+        raise RuntimeError(
+            "ArcadeDB client not initialized. Call init_databases() first."
+        )
+
+    db = database or _settings.ARCADEDB_DATABASE
+    response = await _arcadedb_client.get(f"/api/v1/exists/{db}")
+    response.raise_for_status()
+    data = response.json()
+    return bool(isinstance(data, dict) and data.get("result") is True)
+
+
+async def ensure_arcadedb_database(database: Optional[str] = None) -> bool:
+    """Create the configured ArcadeDB database if it does not exist.
+
+    Returns True when a database was created and False when it already existed.
+    """
+    if _settings is None:
+        raise RuntimeError(
+            "ArcadeDB client not initialized. Call init_databases() first."
+        )
+
+    db = database or _settings.ARCADEDB_DATABASE
+    if await arcadedb_database_exists(db):
+        return False
+    await arcadedb_server_command(f"create database {db}")
+    return True
+
+
 async def healthcheck_mysql() -> bool:
     """Return True if MySQL is reachable."""
     if _mysql_engine is None:

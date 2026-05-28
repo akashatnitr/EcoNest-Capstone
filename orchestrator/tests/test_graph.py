@@ -15,6 +15,10 @@ from orchestrator.graph.builder import (
     sync_rooms_to_graph,
     sync_sensor_readings_to_graph,
 )
+from orchestrator.graph.ha_importer import (
+    _home_assistant_websocket_url,
+    _is_reasoning_relevant_state,
+)
 from orchestrator.graph.models import (
     Action,
     CanPerform,
@@ -692,7 +696,7 @@ async def test_incremental_sync_upserts_rooms_and_devices():
     assert any(
         "UPDATE Device SET" in command
         and "EnergyMonitor" in command
-        and "ha_domain = null" in command
+        and "ha_domain =" not in command
         for command in commands
     )
     assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
@@ -876,6 +880,32 @@ def test_build_inventory_from_records_uses_home_assistant_device_area_mapping():
     assert device.manufacturer == "Kasa"
     assert device.model == "KL125"
     assert device.via_device_id == "hub-1"
+
+
+def test_home_assistant_websocket_url_uses_matching_scheme():
+    assert (
+        _home_assistant_websocket_url("http://localhost:8123")
+        == "ws://localhost:8123/api/websocket"
+    )
+    assert (
+        _home_assistant_websocket_url("https://ha.example.com")
+        == "wss://ha.example.com/api/websocket"
+    )
+
+
+def test_home_assistant_reasoning_relevance_prefers_energy_and_security_states():
+    assert _is_reasoning_relevant_state(
+        "sensor.panel_power",
+        {"attributes": {"device_class": "power", "unit_of_measurement": "W"}},
+    )
+    assert _is_reasoning_relevant_state(
+        "binary_sensor.front_door",
+        {"attributes": {"device_class": "door"}},
+    )
+    assert not _is_reasoning_relevant_state(
+        "update.router_firmware",
+        {"attributes": {"device_class": "firmware"}},
+    )
 
 
 @pytest.mark.anyio

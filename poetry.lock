@@ -2238,4 +2238,4 @@ dev = ["black", "mypy", "poethepoet", "pytest", "pytest-asyncio", "ruff"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "d9a2e76360c9c40efc4dc318ef001420c663039f7b1a426e19573251617fa366"
+content-hash = "a02cb28169fb4da7aca5b4be8c540aa3d8b57570886ee85efb3ce2665eac8756"

@@ -2,6 +2,9 @@ venv/
 __pycache__/
 .pytest_cache/
 *.pyc
+.env
+*.env
+test_reports/
 Device_list.txt
 ha_area_registry.json
 ha_device_registry.json
