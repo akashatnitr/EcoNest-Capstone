@@ -19,6 +19,10 @@ from orchestrator.graph.ha_importer import bootstrap_home_assistant_graph
 from orchestrator.graph.queries import (
     get_devices_in_room,
 )
+from orchestrator.graph.relationships import (
+    RelationshipSyncResult,
+    sync_graph_relationships,
+)
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -76,6 +80,7 @@ class HomeAssistantGraphSyncResponse(BaseModel):
     observations: int
     skipped_observations: int
     edges: int
+    relationships: dict[str, int]
     database: str
 
 
@@ -177,6 +182,20 @@ async def sync_graph(
         conflict_policy=req.conflict_policy,
     )
     return GraphSyncResponse(**result)
+
+
+@router.post("/relationships/sync", response_model=RelationshipSyncResult)
+async def sync_relationships(
+    current_user: Annotated[UserProfile, Depends(get_current_user)],
+    mysql_session: Annotated[AsyncSession, Depends(get_mysql_session)],
+) -> RelationshipSyncResult:
+    """Infer and repair graph relationships from current MySQL/ArcadeDB data."""
+    if not has_permission(current_user.role, USER_ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return await sync_graph_relationships(mysql_session=mysql_session)
 
 
 @router.post("/home-assistant/sync", response_model=HomeAssistantGraphSyncResponse)
