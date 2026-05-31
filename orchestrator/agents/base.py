@@ -75,7 +75,8 @@ class BaseAgent(ABC):
         started_at = monotonic()
         result: Result
         try:
-            if not await self.can_handle(task):
+            routed_agent = task.metadata.get("routed_agent")
+            if routed_agent != self.name and not await self.can_handle(task):
                 result = Result(
                     success=False,
                     data={},
