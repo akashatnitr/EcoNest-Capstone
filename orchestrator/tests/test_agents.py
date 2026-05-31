@@ -1,7 +1,10 @@
 """Tests for agents and orchestrator."""
 
+import asyncio
 import json
 import logging
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -35,6 +38,68 @@ class _FailingAgent(_SuccessAgent):
 
     async def run(self, task: Task) -> Result:
         raise RuntimeError("boom")
+
+
+class _StaticAgent(BaseAgent):
+    def __init__(
+        self,
+        name: str,
+        success: bool = True,
+        can_handle_task: bool = True,
+    ) -> None:
+        super().__init__()
+        self.name = name
+        self.success = success
+        self.can_handle_task = can_handle_task
+        self.run_count = 0
+
+    async def can_handle(self, task: Task) -> bool:
+        return self.can_handle_task
+
+    async def run(self, task: Task) -> Result:
+        self.run_count += 1
+        return Result(
+            success=self.success,
+            data={"agent": self.name, "source": task.metadata.get("source")},
+            message=f"{self.name} complete",
+        )
+
+
+class _FlakyAgent(_StaticAgent):
+    def __init__(self) -> None:
+        super().__init__("energy")
+
+    async def run(self, task: Task) -> Result:
+        self.run_count += 1
+        return Result(
+            success=self.run_count >= 3,
+            data={"attempt": self.run_count},
+            message="flaky",
+            error=None if self.run_count >= 3 else "temporary_failure",
+        )
+
+
+class _FakeLLM:
+    def __init__(self, category: str) -> None:
+        self.category = category
+
+    async def generate_structured(
+        self,
+        prompt: str,
+        output_model: type[Any],
+        system: str | None = None,
+        temperature: float = 0.7,
+    ) -> Any:
+        return output_model(category=self.category)
+
+
+async def _wait_for_result(orch: AgentOrchestrator, task_id: str) -> Result | None:
+    for _ in range(20):
+        result = await orch.get_result(task_id)
+        if result is not None:
+            return result
+        await asyncio.sleep(0)
+    return None
 
 
 def test_task_validation_rejects_empty_intent():
@@ -205,6 +270,174 @@ async def test_orchestrator_submit_and_result():
     # Result may still be running or completed
     result = await orch.get_result(task_id)
     assert result is not None or result is None  # either is valid depending on timing
+
+
+@pytest.mark.anyio
+async def test_orchestrator_http_api_intake_adds_source_and_role():
+    agent = _StaticAgent("energy")
+    orch = AgentOrchestrator(agents=[agent])
+
+    task_id = await orch.submit_http_api(
+        intent="energy overview",
+        payload={},
+        user_id="42",
+        user_role="homeowner",
+    )
+    result = await _wait_for_result(orch, task_id)
+
+    assert result is not None
+    assert result.success
+    assert result.data["source"] == "http_api"
+
+
+@pytest.mark.anyio
+async def test_orchestrator_scheduled_intake_adds_source():
+    agent = _StaticAgent("energy")
+    orch = AgentOrchestrator(agents=[agent])
+
+    task_id = await orch.submit_scheduled(
+        intent="energy check",
+        payload={},
+        schedule_id="nightly",
+    )
+    result = await _wait_for_result(orch, task_id)
+
+    assert result is not None
+    assert result.success
+    assert result.data["source"] == "scheduled_cron"
+
+
+@pytest.mark.anyio
+async def test_orchestrator_ha_webhook_intake_adds_source():
+    agent = _StaticAgent("security")
+    orch = AgentOrchestrator(agents=[agent])
+
+    task_id = await orch.submit_home_assistant_webhook(
+        event_type="motion alert",
+        payload={"entity_id": "binary_sensor.motion"},
+    )
+    result = await _wait_for_result(orch, task_id)
+
+    assert result is not None
+    assert result.success
+    assert result.data["source"] == "ha_webhook"
+
+
+@pytest.mark.anyio
+async def test_orchestrator_llm_fallback_routes_unknown_intent():
+    agent = _StaticAgent("sensor", can_handle_task=False)
+    orch = AgentOrchestrator(agents=[agent], llm=_FakeLLM("sensor"))
+    task = Task(id="llm-1", intent="please inspect the silent readings", payload={})
+
+    await orch._run_with_lifecycle(task)
+    result = await orch.get_result("llm-1")
+
+    assert result is not None
+    assert result.success
+    assert result.agent == "sensor"
+
+
+@pytest.mark.anyio
+async def test_orchestrator_aggregates_multiple_agent_results():
+    orch = AgentOrchestrator(agents=[_StaticAgent("energy"), _StaticAgent("security")])
+    task = Task(
+        id="multi-1",
+        intent="whole home status",
+        payload={},
+        metadata={"aggregate": True},
+    )
+
+    await orch._run_with_lifecycle(task)
+    result = await orch.get_result("multi-1")
+
+    assert result is not None
+    assert result.success
+    assert result.message == "Aggregated 2 agent results"
+    assert len(result.data["results"]) == 2
+
+
+@pytest.mark.anyio
+async def test_orchestrator_retries_failed_agent_results():
+    agent = _FlakyAgent()
+    orch = AgentOrchestrator(agents=[agent])
+
+    result = await orch._run_agent_with_retries(
+        agent,
+        Task(id="retry-1", intent="energy check", payload={}),
+    )
+
+    assert result.success
+    assert result.data["attempt"] == 3
+    assert agent.run_count == 3
+
+
+@pytest.mark.anyio
+async def test_orchestrator_blocks_guest_device_control_at_night():
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("device")],
+        current_hour_provider=lambda: 23,
+    )
+    task = Task(
+        id="policy-1",
+        intent="turn on the porch light",
+        payload={"action": "turn_on", "domain": "light"},
+        metadata={"user_role": "guest"},
+    )
+
+    with patch(
+        "orchestrator.agents.orchestrator.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        await orch._run_with_lifecycle(task)
+
+    result = await orch.get_result("policy-1")
+    assert result is not None
+    assert not result.success
+    assert result.error == "policy_device_control_quiet_hours"
+    query.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_orchestrator_allows_homeowner_device_control_at_night():
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("device")],
+        current_hour_provider=lambda: 23,
+    )
+    task = Task(
+        id="policy-2",
+        intent="turn on the porch light",
+        payload={"action": "turn_on", "domain": "light"},
+        metadata={"user_role": "homeowner"},
+    )
+
+    with patch(
+        "orchestrator.agents.orchestrator.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ) as query:
+        await orch._run_with_lifecycle(task)
+
+    result = await orch.get_result("policy-2")
+    assert result is not None
+    assert result.success
+    query.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_orchestrator_blocks_guest_sms_actions():
+    orch = AgentOrchestrator(agents=[_StaticAgent("security")])
+    task = Task(
+        id="policy-3",
+        intent="send sms security alert",
+        payload={"action": "send_sms", "channel": "sms"},
+        metadata={"user_role": "family_member"},
+    )
+
+    await orch._run_with_lifecycle(task)
+    result = await orch.get_result("policy-3")
+
+    assert result is not None
+    assert not result.success
+    assert result.error == "policy_sms_role_restricted"
 
 
 # ------------------------------------------------------------------

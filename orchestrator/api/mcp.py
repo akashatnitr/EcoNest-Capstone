@@ -36,16 +36,13 @@ async def submit_task(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="agent:run permission required",
         )
-    from orchestrator.agents.base import Task
-
-    task = Task(
-        id="",
+    task_id = await _orchestrator.submit_http_api(
         intent=req.intent,
         payload=req.payload,
         user_id=str(current_user.id),
+        user_role=current_user.role,
         timeout_seconds=req.timeout_seconds,
     )
-    task_id = await _orchestrator.submit(task)
     return TaskResponse(task_id=task_id, status="submitted")
 
 
