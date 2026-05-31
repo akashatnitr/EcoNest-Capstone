@@ -44,7 +44,7 @@ class AgentOrchestrator:
         for attempt in range(3):
             try:
                 result = await asyncio.wait_for(
-                    agent.run(task),
+                    agent.execute(task),
                     timeout=task.timeout_seconds,
                 )
                 self._results[task.id] = result
@@ -97,5 +97,6 @@ class AgentOrchestrator:
     async def healthcheck(self) -> dict[str, Any]:
         """Healthcheck all registered agents."""
         return {
-            agent.name: (await agent.healthcheck()).__dict__ for agent in self.agents
+            agent.name: (await agent.healthcheck()).model_dump()
+            for agent in self.agents
         }

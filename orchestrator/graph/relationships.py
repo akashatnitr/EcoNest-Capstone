@@ -279,12 +279,19 @@ async def _sync_observation_sensor_edges() -> int:
 
 async def _sync_user_home_edges() -> int:
     await _clear_edges("OWNS")
-    users = await _graph_rows("g.V().hasLabel('User').values('@rid')")
+    user_result = await arcadedb_query(
+        "sql",
+        "SELECT @rid FROM User WHERE role IN ['homeowner', 'superadmin']",
+    )
+    users = _result_values(user_result)
     home_selector = "(SELECT FROM Home LIMIT 1)"
     if not users or not await _selector_exists(home_selector):
         return 0
     count = 0
-    for user_rid in users:
+    for user in users:
+        if not isinstance(user, Mapping):
+            continue
+        user_rid = user.get("@rid")
         if not isinstance(user_rid, str):
             continue
         await _repair_edge("OWNS", user_rid, home_selector)

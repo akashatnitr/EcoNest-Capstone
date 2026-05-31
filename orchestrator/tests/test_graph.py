@@ -1013,6 +1013,11 @@ async def test_sync_graph_relationships_repairs_inferred_edges():
                     }
                 ]
             }
+        if (
+            language == "sql"
+            and command == "SELECT @rid FROM User WHERE role IN ['homeowner', 'superadmin']"
+        ):
+            return {"result": [{"@rid": "#4:0"}]}
         if language == "sql" and command.startswith("SELECT FROM"):
             return {"result": [{"@rid": "#9:0"}]}
         return {"result": []}
