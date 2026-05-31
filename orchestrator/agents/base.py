@@ -3,34 +3,33 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, List
+import json
+import logging
 
 from orchestrator.llm.client import LLMClient
+from orchestrator.llm import memory
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class Task:
-    """A task to be processed by an agent."""
-
+class Task(BaseModel):
     id: str
     intent: str
-    payload: dict
+    payload: dict[str, Any]
     user_id: str = ""
     timeout_seconds: int = 30
+    priority: int = 0
+    thread_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass
-class Result:
-    """Result of agent task execution."""
-
+class Result(BaseModel):
     success: bool
     data: Any
     message: str = ""
+    confidence: float = 1.0
 
 
-@dataclass
-class Status:
-    """Health status of an agent."""
-
+class Status(BaseModel):
     healthy: bool
     message: str = ""
 
@@ -44,7 +43,8 @@ class BaseAgent(ABC):
 
     def __init__(self, llm: LLMClient | None = None):
         self.llm = llm or LLMClient()
-        self.memory: dict[str, Any] = {}
+        self.memory = memory
+        self.logger = logging.getLogger(f"agent.{self.name}")
 
     @abstractmethod
     async def run(self, task: Task) -> Result:
@@ -59,3 +59,16 @@ class BaseAgent(ABC):
     async def healthcheck(self) -> Status:
         """Return health status. Subclasses may override."""
         return Status(healthy=True, message=f"{self.name} is healthy")
+
+    def log_event(
+        self,
+        event: str,
+        **kwargs: Any,
+    ) -> None:
+        payload = {
+            "agent": self.name,
+            "event": event,
+            **kwargs,
+        }
+
+        self.logger.info(json.dumps(payload))

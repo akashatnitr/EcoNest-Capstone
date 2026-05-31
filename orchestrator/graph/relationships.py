@@ -248,9 +248,7 @@ async def _sync_device_dependency_edges() -> int:
         via_device_id = _first_string(device.get("via_device_id"))
         if not device_rid or not via_device_id:
             continue
-        parent_selector = (
-            f"(SELECT FROM Device WHERE ha_device_id = {_sql_value(via_device_id)} LIMIT 1)"
-        )
+        parent_selector = f"(SELECT FROM Device WHERE ha_device_id = {_sql_value(via_device_id)} LIMIT 1)"
         if not await _selector_exists(parent_selector):
             continue
         await _repair_edge("DEPENDS_ON", device_rid, parent_selector)
