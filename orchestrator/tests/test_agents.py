@@ -202,6 +202,112 @@ async def test_energy_agent_run():
     result = await agent.run(Task(id="1", intent="energy", payload={}))
     assert result.success
     assert "recommendation" in result.data
+    assert "recommendations" in result.data
+    assert result.data["pricing"]["current_tier"] in {"peak", "off_peak"}
+
+
+@pytest.mark.anyio
+async def test_energy_agent_peak_pricing_recommendation():
+    agent = EnergyAgent()
+    result = await agent.run(
+        Task(
+            id="energy-peak",
+            intent="energy pricing review",
+            payload={
+                "current_hour": 17,
+                "observations": [
+                    {
+                        "name": "Washer",
+                        "current_power_w": 900,
+                        "scheduled": True,
+                    }
+                ],
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["pricing"]["current_tier"] == "peak"
+    assert any(
+        "Delay flexible high-load tasks" in item["action"]
+        for item in result.data["recommendations"]
+    )
+    assert result.data["alerts"][0].startswith("Peak pricing")
+
+
+@pytest.mark.anyio
+async def test_energy_agent_detects_schedule_violation():
+    agent = EnergyAgent()
+    result = await agent.run(
+        Task(
+            id="energy-schedule",
+            intent="energy schedule review",
+            payload={
+                "current_hour": 2,
+                "observations": [
+                    {
+                        "name": "Dryer",
+                        "current_power_w": 1200,
+                        "scheduled": False,
+                        "schedule": "9:00-21:00",
+                    }
+                ],
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["schedule_violations"][0]["name"] == "Dryer"
+    assert result.data["recommendations"][0]["priority"] == "HIGH"
+
+
+@pytest.mark.anyio
+async def test_energy_agent_detects_anomaly_from_baseline():
+    agent = EnergyAgent()
+    result = await agent.run(
+        Task(
+            id="energy-anomaly",
+            intent="energy anomaly",
+            payload={
+                "type": "energy",
+                "current_power_w": 650,
+                "baseline_w": 100,
+                "device_name": "Garage Breaker",
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["mode"] == "alert"
+    assert result.data["anomalies"][0]["name"] == "Garage Breaker"
+    assert "baseline" in result.data["anomalies"][0]["anomaly_reason"]
+
+
+@pytest.mark.anyio
+async def test_energy_agent_uses_prompt_template_when_requested():
+    class _EnergyLLM:
+        async def generate(
+            self,
+            prompt: str,
+            system: str | None = None,
+            temperature: float = 0.7,
+            max_retries: int = 3,
+            stream: bool = False,
+        ) -> str:
+            assert "EcoNest's energy optimization agent" in prompt
+            return "Shift laundry to the off-peak window after 9pm."
+
+    agent = EnergyAgent(llm=_EnergyLLM())
+    result = await agent.run(
+        Task(
+            id="energy-llm",
+            intent="energy review",
+            payload={"use_llm": True, "current_hour": 17},
+        )
+    )
+
+    assert result.success
+    assert result.data["recommendations"][0]["action"].startswith("Shift laundry")
 
 
 @pytest.mark.anyio
