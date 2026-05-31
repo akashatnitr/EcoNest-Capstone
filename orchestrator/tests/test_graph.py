@@ -49,6 +49,7 @@ from orchestrator.graph.queries import (
     get_sensor_coverage,
     get_user_accessible_devices,
 )
+from orchestrator.graph.relationships import sync_graph_relationships
 from orchestrator.graph.seeds import (
     GraphSeedInventory,
     SeedDevice,
@@ -950,6 +951,96 @@ async def test_seed_graph_upserts_vertices_and_repairs_edges():
     assert any("CREATE EDGE CONTAINS" in command for command in commands)
     assert any("DELETE EDGE LOCATED_IN" in command for command in commands)
     assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
+
+
+@pytest.mark.anyio
+async def test_sync_graph_relationships_repairs_inferred_edges():
+    session = AsyncMock()
+    session.execute.return_value = _mock_mysql_rows(
+        [
+            {
+                "email": "owner@example.com",
+                "role": "homeowner",
+                "household_id": 1,
+                "is_active": True,
+            }
+        ]
+    )
+
+    async def fake_query(language, command, database=None, readonly=True):
+        if language == "gremlin" and "hasLabel('Device').valueMap(true)" in command:
+            return {
+                "result": [
+                    {
+                        "@rid": "#1:0",
+                        "name": ["Counter Light"],
+                        "device_type": ["SmartBulb"],
+                        "ha_entity_id": ["light.counter_light"],
+                    }
+                ]
+            }
+        if language == "gremlin" and "hasLabel('Room').valueMap(true)" in command:
+            return {
+                "result": [
+                    {
+                        "@rid": "#2:0",
+                        "name": ["Kitchen"],
+                        "ha_area_id": ["kitchen"],
+                    }
+                ]
+            }
+        if language == "gremlin" and ".in('LOCATED_IN')" in command:
+            return {"result": [{"@rid": "#1:0", "name": ["Counter Light"]}]}
+        if language == "gremlin" and "hasLabel('Sensor').valueMap(true)" in command:
+            return {
+                "result": [
+                    {
+                        "@rid": "#3:0",
+                        "name": ["Counter Light"],
+                        "ha_entity_id": ["light.counter_light"],
+                    }
+                ]
+            }
+        if language == "gremlin" and "hasLabel('User').values('@rid')" in command:
+            return {"result": ["#4:0"]}
+        if language == "gremlin" and "hasLabel('User').valueMap(true)" in command:
+            return {
+                "result": [
+                    {
+                        "@rid": "#4:0",
+                        "email": ["owner@example.com"],
+                        "role": ["homeowner"],
+                    }
+                ]
+            }
+        if language == "sql" and command.startswith("SELECT FROM"):
+            return {"result": [{"@rid": "#9:0"}]}
+        return {"result": []}
+
+    with patch(
+        "orchestrator.graph.relationships.arcadedb_query",
+        new=AsyncMock(side_effect=fake_query),
+    ) as query:
+        result = await sync_graph_relationships(mysql_session=session)
+
+    commands = [call.args[1] for call in query.await_args_list]
+
+    assert result.users == 1
+    assert result.capabilities == 9
+    assert result.actions == 8
+    assert result.requires_capability == 8
+    assert result.has_capability == 3
+    assert result.circuits == 1
+    assert result.powered_by == 1
+    assert result.derived_from == 1
+    assert result.owns == 1
+    assert result.can_perform == 8
+    assert any("CREATE EDGE HAS_CAPABILITY" in command for command in commands)
+    assert any("CREATE EDGE REQUIRES_CAPABILITY" in command for command in commands)
+    assert any("CREATE EDGE POWERED_BY" in command for command in commands)
+    assert any("CREATE EDGE DERIVED_FROM" in command for command in commands)
+    assert any("CREATE EDGE OWNS" in command for command in commands)
+    assert any("CREATE EDGE CAN_PERFORM" in command for command in commands)
 
 
 @pytest.mark.anyio

@@ -209,6 +209,10 @@ async def bootstrap_home_assistant_graph(limit: int | None = None) -> dict[str, 
         else:
             skipped_observations += 1
 
+    from orchestrator.graph.relationships import sync_graph_relationships
+
+    relationship_result = await sync_graph_relationships()
+
     return {
         "created_database": created_database,
         "schema_commands": schema_commands,
@@ -221,6 +225,7 @@ async def bootstrap_home_assistant_graph(limit: int | None = None) -> dict[str, 
         "observations": observations,
         "skipped_observations": skipped_observations,
         "edges": edges,
+        "relationships": relationship_result.model_dump(),
         "database": settings.ARCADEDB_DATABASE,
     }
 
