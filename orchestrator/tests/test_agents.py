@@ -790,7 +790,7 @@ async def test_device_agent_permission_allowed():
         "orchestrator.agents.device_agent.arcadedb_query",
         new=AsyncMock(
             side_effect=[
-                {"result": ["device_turn_on"]},  # capability check
+                {"result": ["OnOff"]},  # capability check
                 {"result": ["turn_on"]},  # permission check
             ]
         ),
@@ -819,7 +819,7 @@ async def test_device_agent_permission_denied():
         "orchestrator.agents.device_agent.arcadedb_query",
         new=AsyncMock(
             side_effect=[
-                {"result": ["device_turn_on"]},  # capability check
+                {"result": ["OnOff"]},  # capability check
                 {"result": ["turn_off"]},  # permission check
             ]
         ),
