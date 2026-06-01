@@ -57,10 +57,23 @@ async def get_task_status(
         return {"task_id": task_id, "status": "running", "result": None}
     return {
         "task_id": task_id,
-        "status": "completed" if result.success else "failed",
+        "status": ("completed" if result.success else "failed"),
         "result": result.data,
         "message": result.message,
+        "agent": result.agent,
+        "confidence": result.confidence,
+        "metadata": result.metadata,
     }
+
+
+@router.get("/stats")
+async def get_stats(
+    current_user: Annotated[
+        UserProfile,
+        Depends(get_current_user),
+    ],
+) -> dict[str, Any]:
+    return _orchestrator.stats()
 
 
 @router.get("/agents")
@@ -69,4 +82,18 @@ async def list_agents(
 ) -> dict[str, Any]:
     """List registered agents and their health."""
     health = await _orchestrator.healthcheck()
-    return {"agents": health}
+    return {
+        "agents": health,
+        "registered": [
+            {
+                "name": agent.name,
+                "tools": getattr(agent, "tools", []),
+                "permissions": getattr(
+                    agent,
+                    "permissions",
+                    [],
+                ),
+            }
+            for agent in _orchestrator.agents
+        ],
+    }

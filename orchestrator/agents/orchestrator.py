@@ -58,6 +58,11 @@ class AgentOrchestrator:
         llm: LLMClient | None = None,
         current_hour_provider: Callable[[], int] | None = None,
     ) -> None:
+        self._stats = {
+            "submitted": 0,
+            "completed": 0,
+            "failed": 0,
+        }
         self.agents = list(
             agents
             or [
@@ -73,6 +78,9 @@ class AgentOrchestrator:
         )
         self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._results: dict[str, Result] = {}
+
+    def stats(self) -> dict[str, int]:
+        return dict(self._stats)
 
     async def submit_http_api(
         self,
@@ -133,6 +141,7 @@ class AgentOrchestrator:
         task = task.model_copy(update={"id": task.id or str(uuid.uuid4())})
         running_task = asyncio.create_task(self._run_with_lifecycle(task))
         self._tasks[task.id] = running_task
+        self._stats["submitted"] += 1
         running_task.add_done_callback(lambda _: self._tasks.pop(task.id, None))
         return task.id
 
@@ -161,6 +170,10 @@ class AgentOrchestrator:
         )
         result = self._aggregate_results(task, results)
         self._results[task.id] = result
+        if result.success:
+            self._stats["completed"] += 1
+        else:
+            self._stats["failed"] += 1
 
         if self._is_device_control_task(task):
             await self._log_device_control_to_graph(task, result)
