@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field
 
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.core.database import arcadedb_query
+from orchestrator.mcp.registry import tool_registry
+from orchestrator.mcp.tools.device_tools import (
+    DeviceActionInput,
+    DeviceBrightnessInput,
+)
 
 
 class DeviceActionRequest(BaseModel):
@@ -147,9 +152,9 @@ class DeviceAgent(BaseAgent):
     ) -> CapabilityCheck:
 
         required_capabilities = {
-            "turn_on": "device_turn_on",
-            "turn_off": "device_turn_off",
-            "set_brightness": "device_set_brightness",
+            "turn_on": "OnOff",
+            "turn_off": "OnOff",
+            "set_brightness": "Dimmable",
         }
 
         required = required_capabilities.get(request.action)
@@ -263,7 +268,7 @@ class DeviceAgent(BaseAgent):
         if request.action == "set_brightness":
             return f"brightness:{request.brightness}"
 
-        return "unknown"
+        raise ValueError(f"Unsupported action: {request.action}")
 
     async def _verify_state(
         self,

@@ -14,6 +14,68 @@ from orchestrator.core.permissions import DEVICE_READ, DEVICE_WRITE, has_permiss
 router = APIRouter(prefix="/devices", tags=["devices"])
 
 
+async def _verify_device_access(
+    user: UserProfile,
+    device_id: int,
+) -> bool:
+
+    try:
+        result = await arcadedb_query(
+            "gremlin",
+            f"""
+            g.V()
+             .hasLabel('User')
+             .has('email', '{user.email}')
+             .union(
+                 out('HAS_ACCESS'),
+                 out('OWNS').out('CONTAINS')
+             )
+             .hasLabel('Device')
+             .has('id', {device_id})
+            """,
+        )
+
+        return bool(result.get("result"))
+
+    except Exception:
+        return True
+
+
+async def _has_capability(
+    device_id: int,
+    capability: str,
+) -> bool:
+
+    try:
+        result = await arcadedb_query(
+            "gremlin",
+            (
+                f"g.V().has('id', {device_id})"
+                ".out('HAS_CAPABILITY')"
+                f".has('name', '{capability}')"
+            ),
+        )
+
+        return bool(result.get("result"))
+
+    except Exception:
+        return True
+
+
+def _require_write_access(
+    current_user: UserProfile,
+):
+
+    if not has_permission(
+        current_user.role,
+        DEVICE_WRITE,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Write permission required",
+        )
+
+
 class DeviceOut(BaseModel):
     id: int
     name: str
@@ -43,7 +105,17 @@ async def list_devices(
         )
     )
     rows = result.mappings().all()
-    return [DeviceOut(**row) for row in rows]
+
+    filtered_devices = []
+
+    for row in rows:
+        if await _verify_device_access(
+            current_user,
+            row["id"],
+        ):
+            filtered_devices.append(DeviceOut(**row))
+
+    return filtered_devices
 
 
 @router.get("/{device_id}")
@@ -57,6 +129,14 @@ async def get_device(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
         )
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
     result = await session.execute(
         text(
             "SELECT id, name, device_type, room_id, is_active FROM devices WHERE id = :id"
@@ -68,7 +148,23 @@ async def get_device(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Device not found"
         )
-    return dict(row)
+    caps_result = await arcadedb_query(
+        "gremlin",
+        (
+            f"g.V().hasLabel('Device')"
+            f".has('id', {device_id})"
+            ".out('HAS_CAPABILITY')"
+            ".values('name')"
+        ),
+    )
+
+    device = dict(row)
+    device["capabilities"] = caps_result.get(
+        "result",
+        [],
+    )
+
+    return device
 
 
 @router.get("/{device_id}/capabilities")
@@ -80,6 +176,14 @@ async def get_capabilities(
     if not has_permission(current_user.role, DEVICE_READ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
         )
     # Query ArcadeDB for device capabilities
     result = await arcadedb_query(
@@ -99,10 +203,68 @@ async def get_permitted_actions(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
 ) -> dict[str, Any]:
     """List permitted actions for the current user on this device."""
+
+    if not has_permission(
+        current_user.role,
+        DEVICE_READ,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    caps_result = await arcadedb_query(
+        "gremlin",
+        (
+            f"g.V().hasLabel('Device')"
+            f".has('id', {device_id})"
+            ".out('HAS_CAPABILITY')"
+            ".values('name')"
+        ),
+    )
+
+    caps = set(
+        caps_result.get(
+            "result",
+            [],
+        )
+    )
+
     actions = ["read"]
-    if has_permission(current_user.role, DEVICE_WRITE):
-        actions.extend(["on", "off"])
-    return {"device_id": device_id, "actions": actions}
+
+    if has_permission(
+        current_user.role,
+        DEVICE_WRITE,
+    ):
+
+        if "OnOff" in caps:
+            actions.extend(
+                [
+                    "on",
+                    "off",
+                ]
+            )
+
+        if "Dimmable" in caps:
+            actions.append("dim")
+
+        if "ColorControl" in caps:
+            actions.append("color")
+
+    return {
+        "device_id": device_id,
+        "actions": actions,
+        "capabilities": list(caps),
+    }
 
 
 @router.post("/{device_id}/on")
@@ -112,9 +274,24 @@ async def turn_on(
     session: AsyncSession = Depends(get_mysql_session),
 ) -> dict[str, Any]:
     """Turn on a device."""
-    if not has_permission(current_user.role, DEVICE_WRITE):
+    _require_write_access(current_user)
+
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Write permission required"
+            status_code=403,
+            detail="Access denied",
+        )
+
+    if not await _has_capability(
+        device_id,
+        "OnOff",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Device does not support OnOff",
         )
     await session.execute(
         text("UPDATE devices SET is_active = TRUE WHERE id = :id"),
@@ -131,9 +308,24 @@ async def turn_off(
     session: AsyncSession = Depends(get_mysql_session),
 ) -> dict[str, Any]:
     """Turn off a device."""
-    if not has_permission(current_user.role, DEVICE_WRITE):
+    _require_write_access(current_user)
+
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Write permission required"
+            status_code=403,
+            detail="Access denied",
+        )
+
+    if not await _has_capability(
+        device_id,
+        "OnOff",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Device does not support OnOff",
         )
     await session.execute(
         text("UPDATE devices SET is_active = FALSE WHERE id = :id"),
@@ -151,9 +343,24 @@ async def set_brightness(
     session: AsyncSession = Depends(get_mysql_session),
 ) -> dict[str, Any]:
     """Set brightness (requires Dimmable capability)."""
-    if not has_permission(current_user.role, DEVICE_WRITE):
+    _require_write_access(current_user)
+
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Write permission required"
+            status_code=403,
+            detail="Access denied",
+        )
+
+    if not await _has_capability(
+        device_id,
+        "Dimmable",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Device is not dimmable",
         )
     # Capability check placeholder
     await session.execute(
@@ -171,8 +378,23 @@ async def set_color_temp(
     current_user: Annotated[UserProfile, Depends(get_current_user)],
 ) -> dict[str, Any]:
     """Set color temperature (requires ColorControl capability)."""
-    if not has_permission(current_user.role, DEVICE_WRITE):
+    _require_write_access(current_user)
+
+    if not await _verify_device_access(
+        current_user,
+        device_id,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Write permission required"
+            status_code=403,
+            detail="Access denied",
+        )
+
+    if not await _has_capability(
+        device_id,
+        "ColorControl",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Device does not support color control",
         )
     return {"device_id": device_id, "color_temp": color_temp}
