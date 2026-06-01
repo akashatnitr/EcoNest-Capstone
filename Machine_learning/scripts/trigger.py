@@ -259,6 +259,10 @@ def submit_orchestrator_task(intent, payload):
             json={
                 "intent": intent,
                 "payload": payload,
+                "metadata": {
+                "source": "trigger",
+                "generated_at": datetime.now().isoformat(),
+            },
                 "timeout_seconds": 30,
             },
             timeout=ORCHESTRATOR_TIMEOUT_SECONDS,
@@ -296,7 +300,7 @@ def run():
                 print(f"[{datetime.now()}] SECURITY ANOMALY: {security_reason}")
                 if not DRY_RUN:
                     handle_anomaly(
-                        "security alert",
+                        "security",
                         {
                             "type": "security",
                             "reason": security_reason,
@@ -324,7 +328,7 @@ def run():
                     print(f"[{datetime.now()}] ANOMALY room_id={room_id}: {signals['anomaly_reason']}")
                     if not DRY_RUN:
                         handle_anomaly(
-                            "energy anomaly",
+                            "energy",
                             {
                                 "type": "energy",
                                 "room_id": room_id,

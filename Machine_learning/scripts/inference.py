@@ -73,6 +73,37 @@ def call_mcp_tool(name, arguments):
     response.raise_for_status()
     return response.json().get("result")
 
+def call_ha_service_via_mcp(
+    domain,
+    service,
+    entity_id,
+    service_data=None,
+):
+    """Call Home Assistant through MCP."""
+    
+    if not USE_MCP_TOOLS:
+        return False
+
+    try:
+        call_mcp_tool(
+            "ha_call_service",
+            {
+                "domain": domain,
+                "service": service,
+                "entity_id": entity_id,
+                "service_data": service_data or {},
+            },
+        )
+        return True
+
+    except requests.RequestException as e:
+        log(
+            f"MCP ha_call_service failed "
+            f"for {entity_id}: {e}"
+        )
+
+    return False
+
 def get_ha_entity_state_via_mcp(entity_id):
     """Read a Home Assistant entity via MCP. Return None on fallback-worthy errors."""
     if not USE_MCP_TOOLS:
@@ -516,13 +547,24 @@ def check_sprinkler(dry_run=True):
         print(f"  Decision      : WATER — soil dry and off-peak pricing")
         if not dry_run:
             # Trigger all three zones
-            for valve in ["valve.side_r_lawn", "valve.back_porch_lawn", "valve.back_lawn"]:
-                requests.post(
-                    f"{ha_url}/api/services/valve/open_valve",
-                    headers=headers,
-                    json={"entity_id": valve}
+            for valve in [
+                "valve.side_r_lawn",
+                "valve.back_porch_lawn",
+                "valve.back_lawn",
+            ]:
+
+                used_mcp = call_ha_service_via_mcp(
+                    domain="valve",
+                    service="open_valve",
+                    entity_id=valve,
                 )
-            log("Sprinkler: zones triggered")
+
+                if not used_mcp:
+                    requests.post(
+                        f"{ha_url}/api/services/valve/open_valve",
+                        headers=headers,
+                        json={"entity_id": valve},
+                    )
         else:
             print("  [DRY RUN] Would trigger valve.side_r_lawn, valve.back_porch_lawn, valve.back_lawn")
     else:
