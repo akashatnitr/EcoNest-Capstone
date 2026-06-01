@@ -556,3 +556,226 @@ async def test_agent_healthcheck():
     agent = EnergyAgent()
     status = await agent.healthcheck()
     assert status.healthy
+
+
+@pytest.mark.anyio
+async def test_security_agent_motion_at_night():
+
+    agent = SecurityAgent()
+
+    result = await agent.run(
+        Task(
+            id="sec-1",
+            intent="security",
+            payload={
+                "motion": True,
+                "current_hour": 1,
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["severity"] in {
+        "HIGH",
+        "CRITICAL",
+    }
+
+
+@pytest.mark.anyio
+async def test_security_agent_garage_open():
+
+    agent = SecurityAgent()
+
+    result = await agent.run(
+        Task(
+            id="sec-2",
+            intent="security",
+            payload={
+                "garage_open_minutes": 60,
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["severity"] == "HIGH"
+
+
+@pytest.mark.anyio
+async def test_security_agent_multisignal():
+
+    agent = SecurityAgent()
+
+    result = await agent.run(
+        Task(
+            id="sec-3",
+            intent="security",
+            payload={
+                "motion": True,
+                "sound": True,
+                "current_hour": 1,
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["severity"] == "CRITICAL"
+
+
+@pytest.mark.anyio
+async def test_security_agent_confidence():
+
+    agent = SecurityAgent()
+
+    result = await agent.run(
+        Task(
+            id="sec-4",
+            intent="security",
+            payload={
+                "motion": True,
+                "sound": True,
+                "current_hour": 1,
+            },
+        )
+    )
+
+    assert 0.0 <= result.confidence <= 1.0
+
+
+@pytest.mark.anyio
+async def test_sensor_agent_detects_offline_sensor():
+
+    agent = SensorAgent()
+
+    result = await agent.run(
+        Task(
+            id="sensor-1",
+            intent="sensor",
+            payload={
+                "sensors": [
+                    {
+                        "name": "TempSensor",
+                        "last_seen_minutes": 30,
+                    }
+                ]
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["offline_sensors"] == 1
+
+
+@pytest.mark.anyio
+async def test_sensor_agent_detects_bad_value():
+
+    agent = SensorAgent()
+
+    result = await agent.run(
+        Task(
+            id="sensor-2",
+            intent="sensor",
+            payload={
+                "sensors": [
+                    {
+                        "name": "TempSensor",
+                        "value": -500,
+                    }
+                ]
+            },
+        )
+    )
+
+    assert result.success
+    assert len(result.data["issues"]) > 0
+
+
+@pytest.mark.anyio
+async def test_sensor_agent_confidence():
+
+    agent = SensorAgent()
+
+    result = await agent.run(
+        Task(
+            id="sensor-3",
+            intent="sensor",
+            payload={},
+        )
+    )
+
+    assert 0.0 <= result.confidence <= 1.0
+
+
+@pytest.mark.anyio
+async def test_device_agent_turn_on():
+
+    agent = DeviceAgent()
+
+    result = await agent.run(
+        Task(
+            id="dev-1",
+            intent="turn on device",
+            payload={
+                "device_id": "light_1",
+                "action": "turn_on",
+            },
+        )
+    )
+
+    assert result.success
+
+
+@pytest.mark.anyio
+async def test_device_agent_unknown_action():
+
+    agent = DeviceAgent()
+
+    result = await agent.run(
+        Task(
+            id="dev-2",
+            intent="device",
+            payload={
+                "device_id": "light_1",
+                "action": "explode",
+            },
+        )
+    )
+
+    assert result.success is False
+
+
+@pytest.mark.anyio
+async def test_device_agent_confidence():
+
+    agent = DeviceAgent()
+
+    result = await agent.run(
+        Task(
+            id="dev-3",
+            intent="device",
+            payload={
+                "device_id": "light_1",
+                "action": "turn_on",
+            },
+        )
+    )
+
+    assert 0.0 <= result.confidence <= 1.0
+
+
+@pytest.mark.anyio
+async def test_device_agent_metadata():
+
+    agent = DeviceAgent()
+
+    result = await agent.run(
+        Task(
+            id="dev-meta",
+            intent="device",
+            payload={
+                "device_id": "light_1",
+                "action": "turn_on",
+            },
+        )
+    )
+
+    assert result.metadata["agent_type"] == "device"

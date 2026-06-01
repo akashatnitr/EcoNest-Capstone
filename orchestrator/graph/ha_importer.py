@@ -86,14 +86,10 @@ class RegistryContext:
     ) -> None:
         self.source = source
         self.areas_by_id = {
-            str(area.get("area_id")): area
-            for area in areas
-            if area.get("area_id")
+            str(area.get("area_id")): area for area in areas if area.get("area_id")
         }
         self.devices_by_id = {
-            str(device.get("id")): device
-            for device in devices
-            if device.get("id")
+            str(device.get("id")): device for device in devices if device.get("id")
         }
         self.entities_by_id = {
             str(entity.get("entity_id")): entity
@@ -284,14 +280,20 @@ async def fetch_home_assistant_registry() -> RegistryContext:
         if auth_required.get("type") != "auth_required":
             raise RuntimeError("Home Assistant websocket did not request auth.")
 
-        await websocket.send(json.dumps({"type": "auth", "access_token": settings.HA_TOKEN}))
+        await websocket.send(
+            json.dumps({"type": "auth", "access_token": settings.HA_TOKEN})
+        )
         auth_response = json.loads(await websocket.recv())
         if auth_response.get("type") != "auth_ok":
             raise RuntimeError("Home Assistant websocket auth failed.")
 
         areas = await _ha_websocket_command(websocket, 1, "config/area_registry/list")
-        devices = await _ha_websocket_command(websocket, 2, "config/device_registry/list")
-        entities = await _ha_websocket_command(websocket, 3, "config/entity_registry/list")
+        devices = await _ha_websocket_command(
+            websocket, 2, "config/device_registry/list"
+        )
+        entities = await _ha_websocket_command(
+            websocket, 3, "config/entity_registry/list"
+        )
 
     return RegistryContext(
         areas=_dict_list(areas),
@@ -616,7 +618,11 @@ def _sensor_type(attributes: dict[str, Any]) -> str:
         return SensorType.VOLTAGE.value
     if unit in {"a"}:
         return SensorType.CURRENT.value
-    return SensorType.OCCUPANCY.value if device_class == "occupancy" else SensorType.POWER.value
+    return (
+        SensorType.OCCUPANCY.value
+        if device_class == "occupancy"
+        else SensorType.POWER.value
+    )
 
 
 def _room_type(room_name: str) -> str:
@@ -671,7 +677,9 @@ async def _ha_websocket_command(
         if message.get("id") != command_id:
             continue
         if not message.get("success", False):
-            raise RuntimeError(f"Home Assistant websocket command failed: {command_type}")
+            raise RuntimeError(
+                f"Home Assistant websocket command failed: {command_type}"
+            )
         return message.get("result")
 
 

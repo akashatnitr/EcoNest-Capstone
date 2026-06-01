@@ -42,6 +42,11 @@ class Result(BaseModel):
     task_id: str | None = None
     error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+    )
 
 
 class Status(BaseModel):
