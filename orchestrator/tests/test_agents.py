@@ -779,3 +779,108 @@ async def test_device_agent_metadata():
     )
 
     assert result.metadata["agent_type"] == "device"
+
+
+@pytest.mark.anyio
+async def test_device_agent_permission_allowed():
+
+    agent = DeviceAgent()
+
+    with patch(
+        "orchestrator.agents.device_agent.arcadedb_query",
+        new=AsyncMock(
+            side_effect=[
+                {"result": ["device_turn_on"]},  # capability check
+                {"result": ["turn_on"]},  # permission check
+            ]
+        ),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-perm-1",
+                intent="device",
+                user_id="test@example.com",
+                payload={
+                    "device_id": "light_1",
+                    "action": "turn_on",
+                },
+            )
+        )
+
+    assert result.success
+
+
+@pytest.mark.anyio
+async def test_device_agent_permission_denied():
+
+    agent = DeviceAgent()
+
+    with patch(
+        "orchestrator.agents.device_agent.arcadedb_query",
+        new=AsyncMock(
+            side_effect=[
+                {"result": ["device_turn_on"]},  # capability check
+                {"result": ["turn_off"]},  # permission check
+            ]
+        ),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-perm-2",
+                intent="device",
+                user_id="test@example.com",
+                payload={
+                    "device_id": "light_1",
+                    "action": "turn_on",
+                },
+            )
+        )
+
+    assert result.success is False
+
+
+# Test SecurityAgent & SensorAgent LLM Failure
+class _BrokenLLM:
+
+    async def generate(
+        self,
+        prompt: str,
+        temperature: float = 0.0,
+    ):
+        raise RuntimeError("LLM unavailable")
+
+
+@pytest.mark.anyio
+async def test_security_agent_llm_failure():
+
+    agent = SecurityAgent(
+        llm=_BrokenLLM(),
+    )
+
+    result = await agent.run(
+        Task(
+            id="sec-fail",
+            intent="security",
+            payload={},
+        )
+    )
+
+    assert result.success
+
+
+@pytest.mark.anyio
+async def test_sensor_agent_llm_failure():
+
+    agent = SensorAgent(
+        llm=_BrokenLLM(),
+    )
+
+    result = await agent.run(
+        Task(
+            id="sensor-fail",
+            intent="sensor",
+            payload={},
+        )
+    )
+
+    assert result.success

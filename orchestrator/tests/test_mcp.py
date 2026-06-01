@@ -135,3 +135,68 @@ async def test_list_tools_guest_limited(client, guest_user):
     tool_names = {t["name"] for t in resp.json()["tools"]}
     # Guest should not see write tools
     assert "device_turn_on" not in tool_names
+
+
+def test_mcp_agents_endpoint(client):
+
+    response = client.get("/mcp/agents")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "registered" in data
+
+
+def test_mcp_stats_endpoint(client):
+
+    response = client.get("/mcp/stats")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "submitted" in data
+    assert "completed" in data
+    assert "failed" in data
+
+
+@pytest.mark.anyio
+async def test_task_result_contains_agent_metadata(client):
+
+    response = client.post(
+        "/mcp/task",
+        json={
+            "intent": "energy",
+            "payload": {},
+        },
+    )
+
+    assert response.status_code == 202
+    import time
+
+    task_id = response.json()["task_id"]
+
+    data = None
+
+    for _ in range(10):
+
+        status_response = client.get(f"/mcp/task/{task_id}")
+
+        assert status_response.status_code == 200
+
+        data = status_response.json()
+
+        if data["status"] != "running":
+            break
+
+        time.sleep(0.1)
+
+    assert data is not None
+    assert data["status"] in {
+        "completed",
+        "failed",
+    }
+
+    if data["status"] == "completed":
+        assert "confidence" in data
