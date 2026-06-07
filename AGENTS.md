@@ -91,6 +91,24 @@ LEGACY_API_KEY=your-long-lived-key
 
 When both values are set, scripts must prefer `SERVICE_ACCOUNT_TOKEN`.
 
+### Service Identities
+
+Sensor and automation scripts should identify themselves using:
+
+X-Service-Name
+
+Examples:
+
+- frontend
+- logger
+- sound_logger
+
+This metadata may be used by the orchestrator for:
+- event attribution
+- memory tracking
+- agent diagnostics
+- autonomous planning
+
 ## Database Access
 
 - MySQL access must go through the async SQLAlchemy session factory in

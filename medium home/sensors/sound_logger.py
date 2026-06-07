@@ -33,6 +33,8 @@ if SERVICE_ACCOUNT_TOKEN:
 elif LEGACY_API_KEY:
     API_HEADERS["X-API-Key"] = LEGACY_API_KEY
 
+API_HEADERS["X-Service-Name"] = "sound_logger"
+
 
 def get_sound_level():
     recording = sd.rec(

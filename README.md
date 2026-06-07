@@ -320,6 +320,28 @@ During migration from legacy scripts, a long-lived fallback key may be supplied:
 LEGACY_API_KEY=your-long-lived-key
 ```
 
+### Service Identities
+
+Automation and sensor scripts authenticate using service identities.
+
+Examples:
+
+- frontend
+- logger
+- sound_logger
+- energy_sound_logger
+
+Scripts provide:
+
+Authorization: Bearer <SERVICE_ACCOUNT_TOKEN>
+
+and identify themselves using:
+
+X-Service-Name
+
+This allows event attribution, diagnostics, agent memory tracking, and future
+autonomous service coordination.
+
 ---
 
 ## Orchestrator API
@@ -356,6 +378,24 @@ Current agents:
 - `SensorAgent`
 - `DeviceAgent`
 
+### Agent Runtime Flow
+
+Most autonomous workflows follow the same execution path:
+
+Event
+→ Task
+→ AgentOrchestrator
+→ Specialized Agent
+→ MCP Tool
+→ External System
+
+Examples:
+
+- Energy anomaly → EnergyAgent → query_mysql/query_arcadedb
+- Motion alert → SecurityAgent → Home Assistant state tools
+- Sensor health issue → SensorAgent → diagnostics workflow
+- Device request → DeviceAgent → capability verification → action
+
 Submit work through:
 
 ```http
@@ -381,6 +421,28 @@ The ontology API can:
 - validate graph consistency
 - run simple reasoning
 - upload replacement Turtle files
+
+### Capability-Based Device Control
+
+Device actions are capability-driven rather than device-type driven.
+
+Examples:
+
+- OnOff
+- Dimmable
+- ColorControl
+
+The DeviceAgent validates:
+
+1. Device capability
+2. User permission
+3. Requested action
+4. Result verification
+
+before executing device operations.
+
+This allows future agents to reason about available actions without relying on
+hardcoded device types.
 
 ArcadeDB graph helpers live in `orchestrator/graph/` and model relationships
 such as:
