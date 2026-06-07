@@ -74,6 +74,8 @@ if SERVICE_ACCOUNT_TOKEN:
 elif LEGACY_API_KEY:
     BACKEND_HEADERS["X-API-Key"] = LEGACY_API_KEY
 
+BACKEND_HEADERS["X-Service-Name"] = "logger"
+
 
 # ── Helpers ────────────────────────────────────────────────────
 def post_readings(payload):
