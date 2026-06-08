@@ -3,19 +3,23 @@
 import asyncio
 import time
 
+from orchestrator.agents.orchestrator import AgentOrchestrator
+from orchestrator.models import Task
+
 TOTAL_TASKS = 1000
 CONCURRENT_WORKERS = 50
 
+ORCHESTRATOR = AgentOrchestrator()
 
-async def mock_mcp_task(task_id: int) -> dict:
-    """Simulate lightweight MCP orchestration work."""
+async def execute_mcp_task(task_id: int):
+    task = Task(
+        id=f"bench-{task_id}",
+        intent="energy",
+        payload={},
+    )
 
-    await asyncio.sleep(0.01)
+    return await ORCHESTRATOR.run(task)
 
-    return {
-        "task_id": task_id,
-        "status": "completed",
-    }
 
 
 async def worker(task_queue: asyncio.Queue, results: list):
@@ -26,7 +30,7 @@ async def worker(task_queue: asyncio.Queue, results: list):
 
         start = time.perf_counter()
 
-        await mock_mcp_task(task_id)
+        await execute_mcp_task(task_id)
 
         elapsed = time.perf_counter() - start
 
@@ -58,7 +62,7 @@ async def main():
     throughput = TOTAL_TASKS / total_elapsed
     avg_latency = sum(results) / len(results)
 
-    print("\n=== MCP Throughput Benchmark ===")
+    print("\n=== MCP Orchestrator Benchmark ===")
     print(f"Total tasks: {TOTAL_TASKS}")
     print(f"Concurrent workers: {CONCURRENT_WORKERS}")
     print(f"Total time: {total_elapsed:.3f} sec")

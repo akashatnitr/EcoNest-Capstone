@@ -9,6 +9,7 @@ import orchestrator.core.database as db
 
 TOTAL_QUERIES = 1000
 CONCURRENT_WORKERS = 50
+GRAPH_SIZE = 10000
 
 DEVICE_TYPES = [
     "MotionSensor",
@@ -99,6 +100,7 @@ async def main():
     print(f"Total queries: {TOTAL_QUERIES}")
     print(f"Concurrent workers: {CONCURRENT_WORKERS}")
     print(f"Total time: {total_elapsed:.3f} sec")
+    print(f"Graph size: {GRAPH_SIZE} nodes")
     print(f"Throughput: {throughput:.2f} queries/sec")
     print(f"Average latency: {avg_latency:.6f} sec")
 
