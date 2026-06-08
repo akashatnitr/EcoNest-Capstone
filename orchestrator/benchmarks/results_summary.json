@@ -1,0 +1,8 @@
+{
+  "arcadedb_latency_ms": 0,
+  "arcadedb_qps": 0,
+  "mcp_tasks_per_sec": 0,
+  "mcp_latency_ms": 0,
+  "gemma4_latency_ms": 0,
+  "mistral_latency_ms": 0
+}

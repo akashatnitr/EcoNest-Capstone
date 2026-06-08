@@ -43,7 +43,8 @@ Metrics:
 
 ### benchmark_graph.py
 
-Measures ArcadeDB graph query orchestration performance using mocked graph queries.
+Measures ArcadeDB graph query performance on a synthetic
+10k-node smart-home graph workload.
 
 Metrics:
 - graph query throughput

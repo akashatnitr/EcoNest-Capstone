@@ -101,10 +101,33 @@ async def main():
         )
 
         writer.writeheader()
-
         writer.writerows(all_results)
 
     print(f"\nSaved results to: {OUTPUT_FILE}")
+
+    successful = [
+        r
+        for r in all_results
+        if r["status"] == "success"
+    ]
+
+    for model in MODELS:
+        model_runs = [
+            r
+            for r in successful
+            if r["model"] == model
+        ]
+
+        if model_runs:
+            avg_latency = (
+                sum(r["latency_seconds"] for r in model_runs)
+                / len(model_runs)
+            )
+
+            print(
+                f"{model} average latency: "
+                f"{avg_latency:.3f}s"
+            )
 
 
 if __name__ == "__main__":
