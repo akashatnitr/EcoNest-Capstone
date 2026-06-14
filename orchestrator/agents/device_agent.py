@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from pydantic import BaseModel
 
 from orchestrator.agents.base import BaseAgent, Result, Task
@@ -12,6 +14,9 @@ from orchestrator.mcp.tools.ha_tools import (
     ha_call_service_handler,
     ha_get_state_handler,
 )
+
+HA_VERIFY_ATTEMPTS = 5
+HA_VERIFY_DELAY_SECONDS = 0.5
 
 
 class DeviceActionRequest(BaseModel):
@@ -360,10 +365,15 @@ class DeviceAgent(BaseAgent):
     ) -> bool:
         if expected_state.startswith("brightness:"):
             return True
-        result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
-        if not result.success or not isinstance(result.result, dict):
-            return False
-        return str(result.result.get("state", "")).lower() == expected_state
+        for attempt in range(HA_VERIFY_ATTEMPTS):
+            result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
+            if result.success and isinstance(result.result, dict):
+                state = str(result.result.get("state", "")).lower()
+                if state == expected_state:
+                    return True
+            if attempt < HA_VERIFY_ATTEMPTS - 1:
+                await asyncio.sleep(HA_VERIFY_DELAY_SECONDS)
+        return False
 
     def _ha_entity_id(self, request: DeviceActionRequest) -> str | None:
         if request.entity_id:
