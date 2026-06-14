@@ -286,6 +286,30 @@ def test_periodic_feedback_returns_suggestions_only(client, monkeypatch):
     assert "action" not in data
 
 
+def test_demo_audit_returns_recent_events(client, monkeypatch):
+    monkeypatch.setattr(
+        demo,
+        "read_recent_audit_events",
+        lambda limit: [
+            {
+                "timestamp": "2026-06-14T00:00:00+00:00",
+                "event_type": "task.completed",
+                "task_id": "task-1",
+                "agent": "device",
+                "success": True,
+            }
+        ],
+    )
+
+    response = client.get("/demo/audit?limit=500")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["limit"] == 200
+    assert data["events"][0]["event_type"] == "task.completed"
+    assert data["events"][0]["agent"] == "device"
+
+
 def test_light_policy_reasoning_guard_replaces_contradiction():
     reasoning = demo._guard_light_policy_reasoning(
         "The media room light should remain on even though no motion was detected.",

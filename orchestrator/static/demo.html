@@ -153,7 +153,8 @@
 
       .summary,
       .timeline,
-      .feedback {
+      .feedback,
+      .audit {
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--panel);
@@ -284,12 +285,14 @@
         text-align: center;
       }
 
-      .feedback {
+      .feedback,
+      .audit {
         margin-top: 18px;
         padding: 18px;
       }
 
-      .feedback-head {
+      .feedback-head,
+      .audit-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -297,7 +300,8 @@
         margin-bottom: 14px;
       }
 
-      .feedback-head h2 {
+      .feedback-head h2,
+      .audit-head h2 {
         margin: 0;
         font-size: 17px;
       }
@@ -355,6 +359,30 @@
         font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
+      }
+
+      .audit-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .audit-event {
+        display: grid;
+        gap: 7px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fbfcfb;
+      }
+
+      .audit-event strong {
+        overflow-wrap: anywhere;
+      }
+
+      .audit-meta {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
       }
 
       @media (max-width: 820px) {
@@ -457,6 +485,16 @@
           <div class="empty">Waiting for feedback refresh.</div>
         </div>
       </section>
+
+      <section class="audit" aria-live="polite">
+        <div class="audit-head">
+          <h2>Recent Audit</h2>
+          <button id="auditButton" class="secondary" type="button">Refresh</button>
+        </div>
+        <div id="auditList" class="audit-list">
+          <div class="empty">Waiting for audit refresh.</div>
+        </div>
+      </section>
     </main>
 
     <script>
@@ -474,6 +512,8 @@
       const feedbackButton = document.getElementById("feedbackButton");
       const feedbackSummary = document.getElementById("feedbackSummary");
       const suggestions = document.getElementById("suggestions");
+      const auditButton = document.getElementById("auditButton");
+      const auditList = document.getElementById("auditList");
       const apiBase = resolveApiBase();
 
       if (shouldRedirectToBackend(apiBase)) {
@@ -482,8 +522,11 @@
 
       backend.textContent = apiBase;
       feedbackButton.addEventListener("click", refreshFeedback);
+      auditButton.addEventListener("click", refreshAudit);
       window.setTimeout(refreshFeedback, 800);
+      window.setTimeout(refreshAudit, 1100);
       window.setInterval(refreshFeedback, 120000);
+      window.setInterval(refreshAudit, 120000);
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -528,6 +571,7 @@
           setStatus("bad", "Failed");
         } finally {
           button.disabled = false;
+          refreshAudit();
         }
       });
 
@@ -625,6 +669,20 @@
         }
       }
 
+      async function refreshAudit() {
+        auditButton.disabled = true;
+        try {
+          const response = await fetch(`${apiBase}/demo/audit?limit=20`);
+          if (!response.ok) throw new Error(`Audit failed with ${response.status}`);
+          const data = await response.json();
+          renderAudit(data.events || []);
+        } catch (error) {
+          auditList.innerHTML = `<div class="empty">${error.message}</div>`;
+        } finally {
+          auditButton.disabled = false;
+        }
+      }
+
       function renderFeedback(data) {
         feedbackSummary.textContent = `${data.summary} Reasoning: ${data.source || "unknown"}.`;
         suggestions.innerHTML = "";
@@ -651,6 +709,39 @@
           card.querySelector("h3").textContent = item.title || "Suggestion";
           card.querySelector("p").textContent = item.detail || "";
           suggestions.appendChild(card);
+        });
+      }
+
+      function renderAudit(items) {
+        auditList.innerHTML = "";
+        if (!items.length) {
+          auditList.innerHTML = '<div class="empty">No audit events recorded yet.</div>';
+          return;
+        }
+
+        items.slice().reverse().forEach((item) => {
+          const card = document.createElement("article");
+          card.className = "audit-event";
+          card.innerHTML = `
+            <div class="tagline">
+              <span class="tag"></span>
+              <span class="tag"></span>
+            </div>
+            <strong></strong>
+            <div class="audit-meta"></div>
+          `;
+          const tags = card.querySelectorAll(".tag");
+          tags[0].textContent = item.event_type || "event";
+          tags[1].textContent = item.success === false ? "failed" : "recorded";
+          card.querySelector("strong").textContent = item.message || item.intent || item.summary || "Runtime event";
+          const meta = [
+            item.timestamp,
+            item.agent ? `agent: ${item.agent}` : null,
+            item.task_id ? `task: ${item.task_id}` : null,
+            item.confidence !== undefined ? `confidence: ${item.confidence}` : null,
+          ].filter(Boolean);
+          card.querySelector(".audit-meta").textContent = meta.join(" | ");
+          auditList.appendChild(card);
         });
       }
     </script>
