@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     ORCHESTRATOR_URL: str = ""
     AUDIT_LOG_ENABLED: bool = True
     AUDIT_LOG_PATH: str = "logs/audit.jsonl"
+    AUDIT_LOG_MAX_BYTES: int = 10_485_760
+    AUDIT_LOG_BACKUP_COUNT: int = 5
+    AUTONOMY_MONITOR_ENABLED: bool = False
+    AUTONOMY_MONITOR_INTERVAL_SECONDS: int = 300
+    AUTONOMY_MONITOR_RUN_ON_STARTUP: bool = True
+    AUTONOMY_ACTIONS_ENABLED: bool = False
 
 
 @lru_cache
