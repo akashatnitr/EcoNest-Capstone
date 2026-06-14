@@ -16,6 +16,7 @@ from orchestrator.agents.sensor_agent import SensorAgent
 from orchestrator.core.database import arcadedb_query
 from orchestrator.core.permissions import Role, normalize_role
 from orchestrator.llm.client import LLMClient
+from orchestrator.llm.models import LLMMessage
 
 MAX_RETRIES = 3
 NIGHT_CONTROL_START_HOUR = 23
@@ -260,11 +261,16 @@ class AgentOrchestrator:
 
         try:
             classification = await self.llm.generate_structured(
-                (
-                    "Classify this smart-home task into one category: "
-                    "energy, security, sensor, device, multi, or unknown.\n"
-                    f"Intent: {task.intent}\nPayload: {task.payload}"
-                ),
+                [
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            "Classify this smart-home task into one category: "
+                            "energy, security, sensor, device, multi, or unknown.\n"
+                            f"Intent: {task.intent}\nPayload: {task.payload}"
+                        ),
+                    )
+                ],
                 IntentClassification,
                 temperature=0.0,
             )

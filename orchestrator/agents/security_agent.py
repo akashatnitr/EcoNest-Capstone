@@ -10,8 +10,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from orchestrator.agents.base import BaseAgent, Result, Task
-from orchestrator.llm.memory import get_recent_interactions
 from orchestrator.core.database import arcadedb_query
+from orchestrator.llm.memory import get_recent_interactions
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "security.j2"
 

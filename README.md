@@ -314,6 +314,18 @@ Sensor scripts should use a `service` JWT through:
 SERVICE_ACCOUNT_TOKEN=eyJ...
 ```
 
+Create or rotate a local service-account token from the orchestrator container:
+
+```bash
+docker compose -f docker-compose.real.yml exec orchestrator \
+  poetry run python scripts/create_service_account.py \
+  --email service@econest.local
+```
+
+Copy the printed `SERVICE_ACCOUNT_TOKEN` into the Mac mini `.env` used by
+trusted automation scripts. Re-running the command rotates the account password
+and refresh sessions by default.
+
 During migration from legacy scripts, a long-lived fallback key may be supplied:
 
 ```env

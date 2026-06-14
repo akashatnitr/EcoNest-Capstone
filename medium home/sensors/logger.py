@@ -21,7 +21,8 @@ HA_TOKEN = os.getenv("HA_TOKEN")
 if not HA_TOKEN:
     raise ValueError("HA_TOKEN not found in .env file — please add it")
 
-BACKEND_URL = "http://127.0.0.1:5000/readings/add"
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://127.0.0.1:8001").rstrip("/")
+BACKEND_URL = os.getenv("BACKEND_URL", f"{ORCHESTRATOR_URL}/readings/add")
 SERVICE_ACCOUNT_TOKEN = os.getenv("SERVICE_ACCOUNT_TOKEN")
 LEGACY_API_KEY = os.getenv("LEGACY_API_KEY")
 

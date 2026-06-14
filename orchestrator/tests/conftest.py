@@ -1,10 +1,7 @@
-"""Shared pytest fixtures for the orchestrator test suite."""
-"""
-Shared pytest fixtures.
+"""Shared pytest fixtures for the orchestrator test suite.
 
-Database access is isolated through dependency overrides
-and AsyncMock instances. Tests never use production
-MySQL or ArcadeDB connections.
+Database access is isolated through dependency overrides and AsyncMock instances.
+Tests never use production MySQL or ArcadeDB connections.
 """
 
 from unittest.mock import AsyncMock
@@ -95,6 +92,7 @@ def override_current_user(test_user):
     app.dependency_overrides[get_current_user] = lambda: test_user
     yield test_user
     app.dependency_overrides.pop(get_current_user, None)
+
 
 @pytest.fixture
 def mysql_pool():

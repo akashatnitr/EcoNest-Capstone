@@ -1,15 +1,16 @@
 """Device control agent."""
 
 from __future__ import annotations
-from typing import Any
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel
 
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.core.database import arcadedb_query
-from orchestrator.mcp.registry import tool_registry
-from orchestrator.mcp.tools.device_tools import (
-    DeviceActionInput,
-    DeviceBrightnessInput,
+from orchestrator.mcp.tools.ha_tools import (
+    HACallServiceInput,
+    HAGetStateInput,
+    ha_call_service_handler,
+    ha_get_state_handler,
 )
 
 
@@ -17,6 +18,8 @@ class DeviceActionRequest(BaseModel):
     device_id: str
     action: str | None = None
     brightness: int | None = None
+    domain: str | None = None
+    entity_id: str | None = None
 
 
 class CapabilityCheck(BaseModel):
@@ -35,6 +38,15 @@ class DeviceActionResult(BaseModel):
     capability_check: CapabilityCheck
     permission_check: PermissionCheck
     verified: bool
+    execution_source: str
+
+
+class DeviceExecution(BaseModel):
+    success: bool
+    state: str
+    source: str
+    verified: bool = False
+    warnings: list[str] = []
 
 
 class DeviceAgent(BaseAgent):
@@ -73,6 +85,12 @@ class DeviceAgent(BaseAgent):
             ),
             brightness=task.payload.get(
                 "brightness",
+            ),
+            domain=task.payload.get(
+                "domain",
+            ),
+            entity_id=task.payload.get(
+                "entity_id",
             ),
         )
 
@@ -116,23 +134,34 @@ class DeviceAgent(BaseAgent):
                 message=permission.reason,
             )
 
-        state = await self._execute_action(
+        execution = await self._execute_action(
             request,
         )
 
-        verified = await self._verify_state(
-            request,
-            state,
-        )
+        if not execution.success:
+            return Result(
+                success=False,
+                confidence=0.0,
+                data={
+                    "error": "; ".join(execution.warnings) or "Device action failed",
+                    "execution_source": execution.source,
+                },
+                message="Device action failed",
+                metadata={
+                    "agent_type": "device",
+                    "execution_source": execution.source,
+                },
+            )
 
-        confidence = 0.95 if verified else 0.7
+        confidence = 0.95 if execution.verified else 0.7
 
         result = DeviceActionResult(
             action=request.action,
-            state=state,
+            state=execution.state,
             capability_check=capability,
             permission_check=permission,
-            verified=verified,
+            verified=execution.verified,
+            execution_source=execution.source,
         )
 
         return Result(
@@ -142,7 +171,8 @@ class DeviceAgent(BaseAgent):
             message="Device action completed",
             metadata={
                 "agent_type": "device",
-                "verified": verified,
+                "verified": execution.verified,
+                "execution_source": execution.source,
             },
         )
 
@@ -187,12 +217,13 @@ class DeviceAgent(BaseAgent):
                 reason=("Capability verification unavailable"),
             )
 
+        if not capabilities:
+            return CapabilityCheck(
+                allowed=True,
+                reason=("No capability metadata available"),
+            )
+
         if required in capabilities:
-            if not capabilities:
-                return CapabilityCheck(
-                    allowed=True,
-                    reason=("No capability metadata available"),
-                )
             return CapabilityCheck(
                 allowed=True,
                 reason="Capability available",
@@ -257,23 +288,111 @@ class DeviceAgent(BaseAgent):
     async def _execute_action(
         self,
         request: DeviceActionRequest,
-    ) -> str:
+    ) -> DeviceExecution:
+        ha_entity_id = self._ha_entity_id(request)
+        if ha_entity_id is not None:
+            return await self._execute_home_assistant_action(request, ha_entity_id)
 
         if request.action == "turn_on":
-            return "on"
+            return DeviceExecution(
+                success=True,
+                state="on",
+                source="local_fallback",
+                verified=True,
+            )
 
         if request.action == "turn_off":
-            return "off"
+            return DeviceExecution(
+                success=True,
+                state="off",
+                source="local_fallback",
+                verified=True,
+            )
 
         if request.action == "set_brightness":
-            return f"brightness:{request.brightness}"
+            return DeviceExecution(
+                success=True,
+                state=f"brightness:{request.brightness}",
+                source="local_fallback",
+                verified=True,
+            )
 
         raise ValueError(f"Unsupported action: {request.action}")
 
-    async def _verify_state(
+    async def _execute_home_assistant_action(
         self,
         request: DeviceActionRequest,
-        state: str,
-    ) -> bool:
+        entity_id: str,
+    ) -> DeviceExecution:
+        domain = request.domain or entity_id.split(".", 1)[0]
+        service = self._ha_service(request)
+        service_data = self._ha_service_data(request)
+        result = await ha_call_service_handler(
+            HACallServiceInput(
+                domain=domain,
+                service=service,
+                entity_id=entity_id,
+                service_data=service_data,
+            )
+        )
+        if not result.success:
+            return DeviceExecution(
+                success=False,
+                state="unknown",
+                source="home_assistant",
+                warnings=result.warnings,
+            )
 
-        return state != "unknown"
+        expected_state = self._expected_state(request)
+        verified = await self._verify_home_assistant_state(entity_id, expected_state)
+        return DeviceExecution(
+            success=True,
+            state=expected_state,
+            source="home_assistant",
+            verified=verified,
+            warnings=result.warnings,
+        )
+
+    async def _verify_home_assistant_state(
+        self,
+        entity_id: str,
+        expected_state: str,
+    ) -> bool:
+        if expected_state.startswith("brightness:"):
+            return True
+        result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
+        if not result.success or not isinstance(result.result, dict):
+            return False
+        return str(result.result.get("state", "")).lower() == expected_state
+
+    def _ha_entity_id(self, request: DeviceActionRequest) -> str | None:
+        if request.entity_id:
+            return request.entity_id
+        if "." in request.device_id:
+            return request.device_id
+        return None
+
+    def _ha_service(self, request: DeviceActionRequest) -> str:
+        if request.action == "turn_on":
+            return "turn_on"
+        if request.action == "turn_off":
+            return "turn_off"
+        if request.action == "set_brightness":
+            return "turn_on"
+        raise ValueError(f"Unsupported action: {request.action}")
+
+    def _ha_service_data(self, request: DeviceActionRequest) -> dict | None:
+        if request.action != "set_brightness":
+            return None
+        if request.brightness is None:
+            return None
+        return {"brightness_pct": request.brightness}
+
+    def _expected_state(self, request: DeviceActionRequest) -> str:
+        if request.action == "turn_on":
+            return "on"
+        if request.action == "turn_off":
+            return "off"
+        if request.action == "set_brightness":
+            return f"brightness:{request.brightness}"
+        return "unknown"

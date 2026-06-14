@@ -11,7 +11,8 @@ ROOT_ENV = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".env"))
 load_dotenv(ROOT_ENV)
 load_dotenv(override=False)
 
-API_URL = "http://127.0.0.1:5000/readings/add"
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://127.0.0.1:8001").rstrip("/")
+API_URL = os.getenv("BACKEND_URL", f"{ORCHESTRATOR_URL}/readings/add")
 DEVICE_ID = 6
 SERVICE_ACCOUNT_TOKEN = os.getenv("SERVICE_ACCOUNT_TOKEN")
 LEGACY_API_KEY = os.getenv("LEGACY_API_KEY")

@@ -15,6 +15,7 @@ from orchestrator.agents.energy_agent import EnergyAgent
 from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.agents.security_agent import SecurityAgent
 from orchestrator.agents.sensor_agent import SensorAgent
+from orchestrator.mcp.models import ToolExecutionResult
 
 # ------------------------------------------------------------------
 # Base models and execution
@@ -82,14 +83,16 @@ class _FlakyAgent(_StaticAgent):
 class _FakeLLM:
     def __init__(self, category: str) -> None:
         self.category = category
+        self.messages: list[Any] = []
 
     async def generate_structured(
         self,
-        prompt: str,
+        messages: list[Any],
         output_model: type[Any],
         system: str | None = None,
         temperature: float = 0.7,
     ) -> Any:
+        self.messages = messages
         return output_model(category=self.category)
 
 
@@ -432,7 +435,8 @@ async def test_orchestrator_ha_webhook_intake_adds_source():
 @pytest.mark.anyio
 async def test_orchestrator_llm_fallback_routes_unknown_intent():
     agent = _StaticAgent("sensor", can_handle_task=False)
-    orch = AgentOrchestrator(agents=[agent], llm=_FakeLLM("sensor"))
+    llm = _FakeLLM("sensor")
+    orch = AgentOrchestrator(agents=[agent], llm=llm)
     task = Task(id="llm-1", intent="please inspect the silent readings", payload={})
 
     await orch._run_with_lifecycle(task)
@@ -441,6 +445,7 @@ async def test_orchestrator_llm_fallback_routes_unknown_intent():
     assert result is not None
     assert result.success
     assert result.agent == "sensor"
+    assert llm.messages[0].role == "user"
 
 
 @pytest.mark.anyio
@@ -779,6 +784,51 @@ async def test_device_agent_metadata():
     )
 
     assert result.metadata["agent_type"] == "device"
+
+
+@pytest.mark.anyio
+async def test_device_agent_calls_home_assistant_for_entity_id():
+    agent = DeviceAgent()
+
+    with (
+        patch(
+            "orchestrator.agents.device_agent.ha_call_service_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_call_service",
+                    result={"status": "ok"},
+                )
+            ),
+        ) as call_service,
+        patch(
+            "orchestrator.agents.device_agent.ha_get_state_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_get_state",
+                    result={"state": "on"},
+                )
+            ),
+        ),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-ha",
+                intent="turn on kitchen light",
+                payload={
+                    "device_id": "light.kitchen",
+                    "action": "turn_on",
+                },
+            )
+        )
+
+    assert result.success
+    assert result.data["execution_source"] == "home_assistant"
+    assert result.data["verified"] is True
+    call_service.assert_awaited_once()
+    service_input = call_service.await_args.args[0]
+    assert service_input.domain == "light"
+    assert service_input.service == "turn_on"
+    assert service_input.entity_id == "light.kitchen"
 
 
 @pytest.mark.anyio
