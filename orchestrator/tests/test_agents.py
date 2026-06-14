@@ -361,6 +361,25 @@ async def test_orchestrator_routes_device():
 
 
 @pytest.mark.anyio
+async def test_orchestrator_routes_device_action_before_motion_security():
+    orch = AgentOrchestrator()
+    task = Task(
+        id="",
+        intent="motion detected in media room, turn on media room light",
+        payload={
+            "action": "turn_on",
+            "domain": "light",
+            "device_id": "light.upstairs_media_light_1",
+        },
+    )
+
+    agent = await orch._classify_and_route(task)
+
+    assert agent is not None
+    assert agent.name == "device"
+
+
+@pytest.mark.anyio
 async def test_orchestrator_healthcheck():
     orch = AgentOrchestrator()
     health = await orch.healthcheck()
