@@ -180,3 +180,19 @@ CREATE TABLE home_assistant_entities (
     INDEX idx_ha_entities_area_id (ha_area_id),
     FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+CREATE TABLE audit_events (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    event_time TIMESTAMP(6) NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    task_id VARCHAR(64),
+    agent VARCHAR(100),
+    success BOOLEAN,
+    source VARCHAR(100),
+    payload JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_audit_event_time (event_time),
+    INDEX idx_audit_event_type (event_type),
+    INDEX idx_audit_task_id (task_id),
+    INDEX idx_audit_agent (agent)
+) ENGINE=InnoDB;

@@ -310,6 +310,35 @@ def test_demo_audit_returns_recent_events(client, monkeypatch):
     assert data["events"][0]["agent"] == "device"
 
 
+def test_demo_audit_summary_returns_metrics(client, monkeypatch):
+    monkeypatch.setattr(
+        demo,
+        "read_recent_audit_events",
+        lambda limit: [
+            {
+                "event_type": "task.completed",
+                "task_id": "task-1",
+                "agent": "device",
+                "success": True,
+            },
+            {
+                "event_type": "task.completed",
+                "task_id": "task-2",
+                "agent": "device",
+                "success": False,
+            },
+        ],
+    )
+
+    response = client.get("/demo/audit/summary?limit=9999")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["limit"] == 5000
+    assert data["summary"]["task_completed_count"] == 2
+    assert data["summary"]["task_success_rate"] == 0.5
+
+
 def test_light_policy_reasoning_guard_replaces_contradiction():
     reasoning = demo._guard_light_policy_reasoning(
         "The media room light should remain on even though no motion was detected.",

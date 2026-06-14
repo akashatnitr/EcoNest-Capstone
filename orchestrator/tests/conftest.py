@@ -22,6 +22,8 @@ def disable_audit_log(monkeypatch):
     class AuditSettings:
         AUDIT_LOG_ENABLED = False
         AUDIT_LOG_PATH = "logs/test-audit.jsonl"
+        AUDIT_LOG_MAX_BYTES = 10_485_760
+        AUDIT_LOG_BACKUP_COUNT = 5
 
     from orchestrator.core import audit
 

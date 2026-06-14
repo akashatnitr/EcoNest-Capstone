@@ -182,6 +182,11 @@ class DeviceAgent(BaseAgent):
                 "agent_type": "device",
                 "verified": execution.verified,
                 "execution_source": execution.source,
+                "actual_outcome": {
+                    "device_id": request.entity_id or request.device_id,
+                    "state": execution.state,
+                    "verified": execution.verified,
+                },
             },
         )
 

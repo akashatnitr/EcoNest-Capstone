@@ -47,6 +47,9 @@ async def init_databases() -> None:
         timeout=httpx.Timeout(30.0),
         headers={"Content-Type": "application/json"},
     )
+    from orchestrator.core.audit import ensure_audit_table
+
+    await ensure_audit_table()
 
 
 async def close_databases() -> None:

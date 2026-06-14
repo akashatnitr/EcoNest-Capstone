@@ -91,6 +91,12 @@ services:
       HA_TOKEN: ${HA_TOKEN:?Set HA_TOKEN in your .env before starting econest-real}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
       SECRET_KEY: ${SECRET_KEY:-replace-this-for-local-demo-only}
+      AUDIT_LOG_MAX_BYTES: ${AUDIT_LOG_MAX_BYTES:-10485760}
+      AUDIT_LOG_BACKUP_COUNT: ${AUDIT_LOG_BACKUP_COUNT:-5}
+      AUTONOMY_MONITOR_ENABLED: ${AUTONOMY_MONITOR_ENABLED:-true}
+      AUTONOMY_MONITOR_INTERVAL_SECONDS: ${AUTONOMY_MONITOR_INTERVAL_SECONDS:-300}
+      AUTONOMY_MONITOR_RUN_ON_STARTUP: ${AUTONOMY_MONITOR_RUN_ON_STARTUP:-true}
+      AUTONOMY_ACTIONS_ENABLED: ${AUTONOMY_ACTIONS_ENABLED:-false}
     depends_on:
       arcadedb:
         condition: service_healthy

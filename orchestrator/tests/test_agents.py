@@ -578,6 +578,36 @@ async def test_orchestrator_blocks_guest_device_control_at_night():
 
 
 @pytest.mark.anyio
+async def test_orchestrator_blocks_autonomous_device_actions_by_default():
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("device")],
+        current_hour_provider=lambda: 12,
+    )
+    task = Task(
+        id="policy-auto-1",
+        intent="autonomous turn off light",
+        payload={
+            "action": "turn_off",
+            "domain": "light",
+            "expected_outcome": {"state": "off"},
+        },
+        metadata={"source": "background_monitor", "user_role": "homeowner"},
+    )
+
+    with patch(
+        "orchestrator.agents.orchestrator.arcadedb_query",
+        new=AsyncMock(return_value={"result": []}),
+    ):
+        await orch._run_with_lifecycle(task)
+
+    result = await orch.get_result("policy-auto-1")
+    assert result is not None
+    assert not result.success
+    assert result.error == "policy_autonomous_action_restricted"
+    assert result.metadata["expected_outcome"] == {"state": "off"}
+
+
+@pytest.mark.anyio
 async def test_orchestrator_allows_homeowner_device_control_at_night():
     orch = AgentOrchestrator(
         agents=[_StaticAgent("device")],

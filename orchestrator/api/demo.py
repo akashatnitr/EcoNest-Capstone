@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 from orchestrator.agents.base import Result, Task
 from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.config import get_settings
-from orchestrator.core.audit import read_recent_audit_events, write_audit_event
+from orchestrator.core.audit import (
+    read_recent_audit_events,
+    summarize_audit_events,
+    write_audit_event_async,
+)
 from orchestrator.core.database import healthcheck_arcadedb, healthcheck_mysql
 from orchestrator.core.permissions import Role
 from orchestrator.llm.client import LLMClient
@@ -109,14 +113,21 @@ async def run_demo2(req: DemoRequest) -> StreamingResponse:
 @router.get("/feedback")
 async def periodic_feedback() -> dict[str, Any]:
     """Return passive LLM-backed household feedback without taking actions."""
+    return await collect_periodic_feedback(trigger="api")
+
+
+async def collect_periodic_feedback(trigger: str = "manual") -> dict[str, Any]:
+    """Collect suggestion-only household feedback for UI or background monitoring."""
     states = await _read_all_ha_states()
     snapshot = _build_household_feedback_snapshot(states)
     feedback = await _llm_periodic_feedback(snapshot)
-    write_audit_event(
+    await write_audit_event_async(
         "feedback.generated",
         {
             "mode": "suggestions_only",
             "source": feedback["source"],
+            "summary": feedback["summary"],
+            "suggestions": feedback["suggestions"],
             "suggestion_count": len(feedback["suggestions"]),
             "occupancy_status": snapshot["occupancy_status"],
             "lights_on_count": len(snapshot["lights_on"]),
@@ -124,6 +135,7 @@ async def periodic_feedback() -> dict[str, Any]:
             "active_motion_count": len(snapshot["active_motion"]),
             "top_power_now_w": snapshot["top_power_now_w"][:3],
             "warning": feedback["warning"],
+            "trigger": trigger,
         },
     )
     return {
@@ -143,6 +155,17 @@ async def recent_audit(limit: int = 50) -> dict[str, Any]:
     return {
         "events": read_recent_audit_events(bounded_limit),
         "limit": bounded_limit,
+    }
+
+
+@router.get("/audit/summary")
+async def audit_summary(limit: int = 500) -> dict[str, Any]:
+    """Return aggregate health metrics from recent audit events."""
+    bounded_limit = max(1, min(limit, 5000))
+    events = read_recent_audit_events(bounded_limit)
+    return {
+        "limit": bounded_limit,
+        "summary": summarize_audit_events(events),
     }
 
 
@@ -228,6 +251,10 @@ async def _demo1_events() -> AsyncIterator[str]:
             "entity_id": DEMO_MEDIA_LIGHT_ENTITY,
             "domain": "light",
             "action": "turn_on",
+            "expected_outcome": {
+                "entity_id": DEMO_MEDIA_LIGHT_ENTITY,
+                "state": "on",
+            },
             "trigger": "Demo1",
             "user_role": Role.HOMEOWNER.value,
         },
@@ -307,6 +334,10 @@ async def _demo1_events() -> AsyncIterator[str]:
                 "entity_id": DEMO_MEDIA_LIGHT_ENTITY,
                 "domain": "light",
                 "action": "turn_off",
+                "expected_outcome": {
+                    "entity_id": DEMO_MEDIA_LIGHT_ENTITY,
+                    "state": "off",
+                },
                 "trigger": "Demo1",
                 "user_role": Role.HOMEOWNER.value,
             },
@@ -448,6 +479,11 @@ async def _demo2_events() -> AsyncIterator[str]:
             "domain": "climate",
             "action": "set_temperature",
             "temperature": setpoint,
+            "expected_outcome": {
+                "entity_id": DEMO_MEDIA_THERMOSTAT_ENTITY,
+                "attribute": "temperature",
+                "value": setpoint,
+            },
             "trigger": "Demo2",
             "user_role": Role.HOMEOWNER.value,
         },

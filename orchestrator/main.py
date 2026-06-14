@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from orchestrator.api import auth, demo, devices, graph, mcp, ontology, readings, users
 from orchestrator.config import get_settings
+from orchestrator.core.autonomy import AutonomousMonitor
 from orchestrator.core.database import (
     close_databases,
     healthcheck_arcadedb,
@@ -17,14 +18,28 @@ from orchestrator.core.database import (
 from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
+autonomous_monitor: AutonomousMonitor | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage database connections across the application lifespan."""
+    global autonomous_monitor
     await init_databases()
-    yield
-    await close_databases()
+    if settings.AUTONOMY_MONITOR_ENABLED:
+        autonomous_monitor = AutonomousMonitor(
+            lambda: demo.collect_periodic_feedback(trigger="background_monitor"),
+            interval_seconds=settings.AUTONOMY_MONITOR_INTERVAL_SECONDS,
+            run_on_startup=settings.AUTONOMY_MONITOR_RUN_ON_STARTUP,
+        )
+        autonomous_monitor.start()
+    try:
+        yield
+    finally:
+        if autonomous_monitor is not None:
+            await autonomous_monitor.stop()
+            autonomous_monitor = None
+        await close_databases()
 
 
 app = FastAPI(
@@ -62,3 +77,19 @@ async def health_check() -> dict[str, Any]:
             "arcadedb": arcadedb_ok,
         },
     }
+
+
+@app.get("/autonomy/status")
+async def autonomy_status() -> dict[str, Any]:
+    """Read-only status for the background autonomous monitor."""
+    if autonomous_monitor is None:
+        return {
+            "enabled": settings.AUTONOMY_MONITOR_ENABLED,
+            "running": False,
+            "interval_seconds": settings.AUTONOMY_MONITOR_INTERVAL_SECONDS,
+            "run_on_startup": settings.AUTONOMY_MONITOR_RUN_ON_STARTUP,
+            "actions_enabled": settings.AUTONOMY_ACTIONS_ENABLED,
+        }
+    status = autonomous_monitor.status()
+    status["actions_enabled"] = settings.AUTONOMY_ACTIONS_ENABLED
+    return status

@@ -13,9 +13,10 @@ from orchestrator.agents.device_agent import DeviceAgent
 from orchestrator.agents.energy_agent import EnergyAgent
 from orchestrator.agents.security_agent import SecurityAgent
 from orchestrator.agents.sensor_agent import SensorAgent
-from orchestrator.core.audit import write_audit_event
+from orchestrator.core.audit import write_audit_event, write_audit_event_async
 from orchestrator.core.database import arcadedb_query
 from orchestrator.core.permissions import Role, normalize_role
+from orchestrator.core.policy import evaluate_autonomous_action_policy
 from orchestrator.llm.client import LLMClient
 from orchestrator.llm.models import LLMMessage
 
@@ -165,7 +166,7 @@ class AgentOrchestrator:
         policy_result = await self._enforce_global_policy(task)
         if policy_result is not None:
             self._results[task.id] = policy_result
-            self._audit_task_result(task, policy_result, policy_blocked=True)
+            await self._audit_task_result(task, policy_result, policy_blocked=True)
             if self._is_device_control_task(task):
                 await self._log_device_control_to_graph(task, policy_result)
             return
@@ -180,7 +181,7 @@ class AgentOrchestrator:
                 error="no_agent",
             )
             self._results[task.id] = result
-            self._audit_task_result(task, result)
+            await self._audit_task_result(task, result)
             return
 
         results = await asyncio.gather(
@@ -195,7 +196,7 @@ class AgentOrchestrator:
 
         if self._is_device_control_task(task):
             await self._log_device_control_to_graph(task, result)
-        self._audit_task_result(task, result)
+        await self._audit_task_result(task, result)
 
     async def _run_agent_with_retries(self, agent: BaseAgent, task: Task) -> Result:
         routed_task = task.model_copy(
@@ -379,13 +380,13 @@ class AgentOrchestrator:
             },
         )
 
-    def _audit_task_result(
+    async def _audit_task_result(
         self,
         task: Task,
         result: Result,
         policy_blocked: bool = False,
     ) -> None:
-        write_audit_event(
+        await write_audit_event_async(
             "task.completed",
             {
                 "task_id": task.id,
@@ -399,10 +400,32 @@ class AgentOrchestrator:
                 "policy_blocked": policy_blocked,
                 "metadata": result.metadata,
                 "payload": _audit_payload(task.payload),
+                "expected_outcome": task.payload.get("expected_outcome")
+                or task.metadata.get("expected_outcome"),
+                "actual_outcome": result.metadata.get("actual_outcome")
+                or result.metadata.get("verified"),
             },
         )
 
     async def _enforce_global_policy(self, task: Task) -> Result | None:
+        action_policy = evaluate_autonomous_action_policy(
+            task.payload,
+            task.metadata,
+            self._is_device_control_task(task),
+        )
+        if not action_policy.allowed:
+            return Result(
+                success=False,
+                data={},
+                message=action_policy.reason,
+                task_id=task.id,
+                error="policy_autonomous_action_restricted",
+                metadata={
+                    "source": task.metadata.get("source") or task.payload.get("source"),
+                    "expected_outcome": task.payload.get("expected_outcome"),
+                },
+            )
+
         role = self._task_role(task)
         if self._is_device_control_task(task) and self._is_restricted_control_hour():
             if role not in {Role.HOMEOWNER, Role.SUPERADMIN}:
@@ -497,5 +520,6 @@ def _audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "temperature",
         "trigger",
         "type",
+        "expected_outcome",
     }
     return {key: payload[key] for key in allowed_keys if key in payload}
