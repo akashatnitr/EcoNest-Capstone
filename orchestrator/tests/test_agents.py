@@ -832,6 +832,54 @@ async def test_device_agent_calls_home_assistant_for_entity_id():
 
 
 @pytest.mark.anyio
+async def test_device_agent_retries_home_assistant_state_verification():
+    agent = DeviceAgent()
+
+    with (
+        patch(
+            "orchestrator.agents.device_agent.ha_call_service_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_call_service",
+                    result={"status": "ok"},
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.agents.device_agent.ha_get_state_handler",
+            new=AsyncMock(
+                side_effect=[
+                    ToolExecutionResult(
+                        capability="ha_get_state",
+                        result={"state": "off"},
+                    ),
+                    ToolExecutionResult(
+                        capability="ha_get_state",
+                        result={"state": "on"},
+                    ),
+                ]
+            ),
+        ) as get_state,
+        patch("orchestrator.agents.device_agent.asyncio.sleep", new=AsyncMock()),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-ha-retry",
+                intent="turn on kitchen light",
+                payload={
+                    "device_id": "light.kitchen",
+                    "action": "turn_on",
+                },
+            )
+        )
+
+    assert result.success
+    assert result.data["verified"] is True
+    assert result.confidence == 0.95
+    assert get_state.await_count == 2
+
+
+@pytest.mark.anyio
 async def test_device_agent_permission_allowed():
 
     agent = DeviceAgent()
