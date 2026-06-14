@@ -254,6 +254,9 @@ class AgentOrchestrator:
 
     async def _classify_intent(self, task: Task) -> str:
         """Classify intent with rules first and LLM fallback second."""
+        if self._is_device_control_task(task):
+            return "device"
+
         intent_lower = task.intent.lower()
         for category, keywords in INTENT_KEYWORDS.items():
             if any(kw in intent_lower for kw in keywords):

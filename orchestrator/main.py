@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from orchestrator.api import auth, devices, graph, mcp, ontology, readings, users
+from orchestrator.api import auth, demo, devices, graph, mcp, ontology, readings, users
 from orchestrator.config import get_settings
 from orchestrator.core.database import (
     close_databases,
@@ -36,6 +36,7 @@ app = FastAPI(
 
 
 app.include_router(auth.router)
+app.include_router(demo.router)
 app.include_router(devices.router)
 app.include_router(graph.router)
 app.include_router(mcp.router)
