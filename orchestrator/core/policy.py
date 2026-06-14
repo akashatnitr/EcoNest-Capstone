@@ -39,9 +39,45 @@ def evaluate_autonomous_action_policy(
         return PolicyDecision(allowed=True)
 
     if get_settings().AUTONOMY_ACTIONS_ENABLED:
+        allowlist_decision = _evaluate_autonomous_allowlist(payload)
+        if not allowlist_decision.allowed:
+            return allowlist_decision
         return PolicyDecision(allowed=True)
 
     return PolicyDecision(
         allowed=False,
         reason="Autonomous device actions require AUTONOMY_ACTIONS_ENABLED=true",
     )
+
+
+def _evaluate_autonomous_allowlist(payload: dict[str, Any]) -> PolicyDecision:
+    settings = get_settings()
+    domain = str(payload.get("domain") or "").lower()
+    action = str(payload.get("action") or "").lower()
+    entity_id = str(payload.get("entity_id") or payload.get("device_id") or "")
+    action_key = f"{domain}.{action}"
+
+    allowed_actions = _csv_set(settings.AUTONOMY_ALLOWED_ACTIONS)
+    if action_key not in allowed_actions:
+        return PolicyDecision(
+            allowed=False,
+            reason=f"Autonomous action {action_key} is not allowlisted",
+        )
+
+    allowed_entities = _csv_set(settings.AUTONOMY_ALLOWED_ENTITIES)
+    if not allowed_entities:
+        return PolicyDecision(
+            allowed=False,
+            reason="Autonomous actions require at least one allowlisted entity",
+        )
+    if entity_id not in allowed_entities:
+        return PolicyDecision(
+            allowed=False,
+            reason=f"Autonomous entity {entity_id} is not allowlisted",
+        )
+
+    return PolicyDecision(allowed=True)
+
+
+def _csv_set(value: str) -> set[str]:
+    return {item.strip() for item in value.split(",") if item.strip()}

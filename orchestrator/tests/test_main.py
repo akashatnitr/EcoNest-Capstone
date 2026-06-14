@@ -17,3 +17,11 @@ def test_autonomy_status_reports_disabled_monitor(client, monkeypatch):
     assert data["enabled"] is False
     assert data["running"] is False
     assert data["actions_enabled"] is False
+
+
+def test_autonomy_run_once_reports_disabled_monitor(client, monkeypatch):
+    monkeypatch.setattr(main, "autonomous_monitor", None)
+
+    response = client.post("/autonomy/run-once")
+
+    assert response.status_code == 409

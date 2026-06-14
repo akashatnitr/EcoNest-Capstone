@@ -412,7 +412,7 @@
         <div>
           <h1>EcoNest Demo Console</h1>
           <p class="subtitle">
-            Trigger Demo1 or Demo2 and watch EcoNest inspect Home Assistant, route
+            Trigger Demo1, Demo2, Demo3, or Demo4 and watch EcoNest inspect Home Assistant, route
             smart-home events to agents, reason with the local model, act through
             Home Assistant, and verify the result.
           </p>
@@ -651,6 +651,8 @@
       function resolveDemoPath(value) {
         const normalized = value.trim().toLowerCase();
         if (normalized === "demo2") return "/demo/demo2";
+        if (normalized === "demo3") return "/demo/demo3";
+        if (normalized === "demo4") return "/demo/demo4";
         return "/demo/demo1";
       }
 

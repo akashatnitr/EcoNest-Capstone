@@ -27,6 +27,18 @@ def test_demo2_rejects_invalid_code(client):
     assert response.status_code == 403
 
 
+def test_demo3_rejects_invalid_code(client):
+    response = client.post("/demo/demo3", json={"code": "wrong"})
+
+    assert response.status_code == 403
+
+
+def test_demo4_rejects_invalid_code(client):
+    response = client.post("/demo/demo4", json={"code": "wrong"})
+
+    assert response.status_code == 403
+
+
 def test_demo1_streams_readable_progress(client, monkeypatch):
     class FakeOrchestrator:
         async def submit(self, task):
@@ -225,6 +237,116 @@ def test_demo2_streams_thermostat_reasoning_and_action(client, monkeypatch):
     assert '"bounded_temperature": 78.0' in response.text
 
 
+def test_demo3_streams_sprinkler_action(client, monkeypatch):
+    class FakeOrchestrator:
+        async def submit(self, task):
+            assert task.payload["action"] == "turn_off"
+            assert task.payload["domain"] == "switch"
+            assert task.payload["entity_id"] == demo.DEMO_SPRINKLER_ENTITY
+            return "task-sprinkler-1"
+
+        async def get_result(self, task_id):
+            assert task_id == "task-sprinkler-1"
+            return Result(
+                success=True,
+                data={
+                    "action": "turn_off",
+                    "state": "off",
+                    "verified": True,
+                    "execution_source": "home_assistant",
+                },
+                message="Device action completed",
+                agent="device",
+                task_id=task_id,
+                confidence=0.95,
+                metadata={
+                    "verified": True,
+                    "execution_source": "home_assistant",
+                },
+            )
+
+    class FakeLLMClient:
+        async def generate(self, *args, **kwargs):
+            return "The watering switch should be turned off to conserve water."
+
+        async def close(self):
+            return None
+
+    state = ToolExecutionResult(
+        capability="ha_get_state",
+        result={"entity_id": demo.DEMO_SPRINKLER_ENTITY, "state": "on"},
+    )
+
+    monkeypatch.setattr(demo, "healthcheck_mysql", AsyncMock(return_value=True))
+    monkeypatch.setattr(demo, "healthcheck_arcadedb", AsyncMock(return_value=True))
+    monkeypatch.setattr(demo, "ha_get_state_handler", AsyncMock(return_value=state))
+    monkeypatch.setattr(demo, "LLMClient", FakeLLMClient)
+    monkeypatch.setattr(demo, "_demo_orchestrator", FakeOrchestrator())
+
+    response = client.post("/demo/demo3", json={"code": "Demo3"})
+
+    assert response.status_code == 200
+    assert "Demo3 started" in response.text
+    assert "Sprinkler LLM reasoning" in response.text
+    assert "Sprinkler action result" in response.text
+    assert "Demo3 complete" in response.text
+
+
+def test_demo4_streams_garage_close_action(client, monkeypatch):
+    class FakeOrchestrator:
+        async def submit(self, task):
+            assert task.payload["action"] == "close"
+            assert task.payload["domain"] == "cover"
+            assert task.payload["entity_id"] == demo.DEMO_GARAGE_ENTITY
+            return "task-garage-1"
+
+        async def get_result(self, task_id):
+            assert task_id == "task-garage-1"
+            return Result(
+                success=True,
+                data={
+                    "action": "close",
+                    "state": "closed",
+                    "verified": True,
+                    "execution_source": "home_assistant",
+                },
+                message="Device action completed",
+                agent="device",
+                task_id=task_id,
+                confidence=0.95,
+                metadata={
+                    "verified": True,
+                    "execution_source": "home_assistant",
+                },
+            )
+
+    class FakeLLMClient:
+        async def generate(self, *args, **kwargs):
+            return "The garage should be secured with a close-only command."
+
+        async def close(self):
+            return None
+
+    state = ToolExecutionResult(
+        capability="ha_get_state",
+        result={"entity_id": demo.DEMO_GARAGE_ENTITY, "state": "open"},
+    )
+
+    monkeypatch.setattr(demo, "healthcheck_mysql", AsyncMock(return_value=True))
+    monkeypatch.setattr(demo, "healthcheck_arcadedb", AsyncMock(return_value=True))
+    monkeypatch.setattr(demo, "ha_get_state_handler", AsyncMock(return_value=state))
+    monkeypatch.setattr(demo, "LLMClient", FakeLLMClient)
+    monkeypatch.setattr(demo, "_demo_orchestrator", FakeOrchestrator())
+
+    response = client.post("/demo/demo4", json={"code": "Demo4"})
+
+    assert response.status_code == 200
+    assert "Demo4 started" in response.text
+    assert "Garage LLM reasoning" in response.text
+    assert "Garage action result" in response.text
+    assert "Demo4 complete" in response.text
+
+
 def test_periodic_feedback_returns_suggestions_only(client, monkeypatch):
     class FakeLLMClient:
         async def generate(
@@ -337,6 +459,62 @@ def test_demo_audit_summary_returns_metrics(client, monkeypatch):
     assert data["limit"] == 5000
     assert data["summary"]["task_completed_count"] == 2
     assert data["summary"]["task_success_rate"] == 0.5
+
+
+async def test_autonomous_action_recommendation_uses_allowed_light(monkeypatch):
+    class FakeLLMClient:
+        async def generate_structured(
+            self,
+            messages,
+            output_model,
+            system=None,
+            temperature=0.7,
+        ):
+            return output_model(
+                should_act=True,
+                confidence=0.93,
+                domain="light",
+                action="turn_off",
+                entity_id=demo.DEMO_MEDIA_LIGHT_ENTITY,
+                reason="The allowlisted media room light is on with no active motion.",
+                expected_outcome={
+                    "entity_id": demo.DEMO_MEDIA_LIGHT_ENTITY,
+                    "state": "off",
+                },
+                risk_level="LOW",
+            )
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(demo, "LLMClient", FakeLLMClient)
+    monkeypatch.setattr(
+        demo.settings,
+        "AUTONOMY_ALLOWED_ENTITIES",
+        demo.DEMO_MEDIA_LIGHT_ENTITY,
+    )
+    monkeypatch.setattr(demo.settings, "AUTONOMY_ALLOWED_ACTIONS", "light.turn_off")
+
+    recommendation = await demo.recommend_autonomous_action(
+        {
+            "snapshot": {
+                "lights_on": [
+                    {
+                        "entity_id": demo.DEMO_MEDIA_LIGHT_ENTITY,
+                        "name": "Media Room Light",
+                        "state": "on",
+                    }
+                ],
+                "active_motion": [],
+            },
+            "suggestions": [],
+        }
+    )
+
+    assert recommendation is not None
+    assert recommendation["entity_id"] == demo.DEMO_MEDIA_LIGHT_ENTITY
+    assert recommendation["action"] == "turn_off"
+    assert recommendation["expected_outcome"]["state"] == "off"
 
 
 def test_light_policy_reasoning_guard_replaces_contradiction():

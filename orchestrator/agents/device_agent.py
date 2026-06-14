@@ -73,6 +73,12 @@ class DeviceAgent(BaseAgent):
             "light",
             "switch",
             "brightness",
+            "sprinkler",
+            "watering",
+            "garage",
+            "cover",
+            "close",
+            "open",
         ]
         return any(kw in task.intent.lower() for kw in keywords)
 
@@ -200,6 +206,8 @@ class DeviceAgent(BaseAgent):
             "turn_off": "OnOff",
             "set_brightness": "Dimmable",
             "set_temperature": "Thermostat",
+            "open": "OpenClose",
+            "close": "OpenClose",
         }
 
         required = required_capabilities.get(request.action)
@@ -340,6 +348,22 @@ class DeviceAgent(BaseAgent):
                 verified=True,
             )
 
+        if request.action == "open":
+            return DeviceExecution(
+                success=True,
+                state="open",
+                source="local_fallback",
+                verified=True,
+            )
+
+        if request.action == "close":
+            return DeviceExecution(
+                success=True,
+                state="closed",
+                source="local_fallback",
+                verified=True,
+            )
+
         raise ValueError(f"Unsupported action: {request.action}")
 
     async def _execute_home_assistant_action(
@@ -425,6 +449,10 @@ class DeviceAgent(BaseAgent):
             return "turn_on"
         if request.action == "set_temperature":
             return "set_temperature"
+        if request.action == "open":
+            return "open_cover" if request.domain == "cover" else "turn_on"
+        if request.action == "close":
+            return "close_cover" if request.domain == "cover" else "turn_off"
         raise ValueError(f"Unsupported action: {request.action}")
 
     def _ha_service_data(self, request: DeviceActionRequest) -> dict | None:
@@ -447,4 +475,8 @@ class DeviceAgent(BaseAgent):
             return f"brightness:{request.brightness}"
         if request.action == "set_temperature":
             return f"target_temperature:{request.temperature}"
+        if request.action == "open":
+            return "open"
+        if request.action == "close":
+            return "closed"
         return "unknown"

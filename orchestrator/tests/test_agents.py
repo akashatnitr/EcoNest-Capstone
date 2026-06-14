@@ -608,6 +608,73 @@ async def test_orchestrator_blocks_autonomous_device_actions_by_default():
 
 
 @pytest.mark.anyio
+async def test_orchestrator_allows_allowlisted_autonomous_device_action(monkeypatch):
+    class Settings:
+        AUTONOMY_ACTIONS_ENABLED = True
+        AUTONOMY_ALLOWED_ACTIONS = "light.turn_off"
+        AUTONOMY_ALLOWED_ENTITIES = "light.upstairs_media_light_1"
+
+    monkeypatch.setattr(
+        "orchestrator.core.policy.get_settings",
+        lambda: Settings(),
+    )
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("device")],
+        current_hour_provider=lambda: 12,
+    )
+    task = Task(
+        id="policy-auto-2",
+        intent="autonomous turn off light",
+        payload={
+            "action": "turn_off",
+            "domain": "light",
+            "entity_id": "light.upstairs_media_light_1",
+        },
+        metadata={"source": "background_monitor", "user_role": "homeowner"},
+    )
+
+    await orch._run_with_lifecycle(task)
+
+    result = await orch.get_result("policy-auto-2")
+    assert result is not None
+    assert result.success
+
+
+@pytest.mark.anyio
+async def test_orchestrator_blocks_non_allowlisted_autonomous_entity(monkeypatch):
+    class Settings:
+        AUTONOMY_ACTIONS_ENABLED = True
+        AUTONOMY_ALLOWED_ACTIONS = "light.turn_off"
+        AUTONOMY_ALLOWED_ENTITIES = "light.upstairs_media_light_1"
+
+    monkeypatch.setattr(
+        "orchestrator.core.policy.get_settings",
+        lambda: Settings(),
+    )
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("device")],
+        current_hour_provider=lambda: 12,
+    )
+    task = Task(
+        id="policy-auto-3",
+        intent="autonomous turn off light",
+        payload={
+            "action": "turn_off",
+            "domain": "light",
+            "entity_id": "light.bedroom_1_light_1",
+        },
+        metadata={"source": "background_monitor", "user_role": "homeowner"},
+    )
+
+    await orch._run_with_lifecycle(task)
+
+    result = await orch.get_result("policy-auto-3")
+    assert result is not None
+    assert not result.success
+    assert result.error == "policy_autonomous_action_restricted"
+
+
+@pytest.mark.anyio
 async def test_orchestrator_allows_homeowner_device_control_at_night():
     orch = AgentOrchestrator(
         agents=[_StaticAgent("device")],
@@ -928,6 +995,51 @@ async def test_device_agent_calls_home_assistant_for_entity_id():
     assert service_input.domain == "light"
     assert service_input.service == "turn_on"
     assert service_input.entity_id == "light.kitchen"
+
+
+@pytest.mark.anyio
+async def test_device_agent_closes_home_assistant_cover():
+    agent = DeviceAgent()
+
+    with (
+        patch(
+            "orchestrator.agents.device_agent.ha_call_service_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_call_service",
+                    result={"status": "ok"},
+                )
+            ),
+        ) as call_service,
+        patch(
+            "orchestrator.agents.device_agent.ha_get_state_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_get_state",
+                    result={"state": "closed"},
+                )
+            ),
+        ),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-cover",
+                intent="close garage door",
+                payload={
+                    "device_id": "cover.garage12",
+                    "entity_id": "cover.garage12",
+                    "domain": "cover",
+                    "action": "close",
+                },
+            )
+        )
+
+    assert result.success
+    assert result.data["verified"] is True
+    service_input = call_service.await_args.args[0]
+    assert service_input.domain == "cover"
+    assert service_input.service == "close_cover"
+    assert service_input.entity_id == "cover.garage12"
 
 
 @pytest.mark.anyio

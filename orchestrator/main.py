@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 
 from orchestrator.api import auth, demo, devices, graph, mcp, ontology, readings, users
 from orchestrator.config import get_settings
@@ -31,6 +31,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             lambda: demo.collect_periodic_feedback(trigger="background_monitor"),
             interval_seconds=settings.AUTONOMY_MONITOR_INTERVAL_SECONDS,
             run_on_startup=settings.AUTONOMY_MONITOR_RUN_ON_STARTUP,
+            action_recommender=demo.recommend_autonomous_action,
+            action_executor=demo.execute_autonomous_action,
+            action_confidence_threshold=settings.AUTONOMY_ACTION_CONFIDENCE_THRESHOLD,
         )
         autonomous_monitor.start()
     try:
@@ -89,7 +92,27 @@ async def autonomy_status() -> dict[str, Any]:
             "interval_seconds": settings.AUTONOMY_MONITOR_INTERVAL_SECONDS,
             "run_on_startup": settings.AUTONOMY_MONITOR_RUN_ON_STARTUP,
             "actions_enabled": settings.AUTONOMY_ACTIONS_ENABLED,
+            "action_confidence_threshold": settings.AUTONOMY_ACTION_CONFIDENCE_THRESHOLD,
+            "allowed_actions": settings.AUTONOMY_ALLOWED_ACTIONS,
+            "allowed_entities": settings.AUTONOMY_ALLOWED_ENTITIES,
         }
     status = autonomous_monitor.status()
     status["actions_enabled"] = settings.AUTONOMY_ACTIONS_ENABLED
+    status["allowed_actions"] = settings.AUTONOMY_ALLOWED_ACTIONS
+    status["allowed_entities"] = settings.AUTONOMY_ALLOWED_ENTITIES
     return status
+
+
+@app.post("/autonomy/run-once")
+async def autonomy_run_once() -> dict[str, Any]:
+    """Run one autonomous monitor cycle immediately for demos/tests."""
+    if autonomous_monitor is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Autonomous monitor is not enabled",
+        )
+    result = await autonomous_monitor.run_once()
+    return {
+        "result": result,
+        "status": autonomous_monitor.status(),
+    }
