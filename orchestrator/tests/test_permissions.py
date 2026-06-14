@@ -33,9 +33,9 @@ def test_has_permission_accepts_string_roles() -> None:
 
 def test_service_account_permissions_are_limited() -> None:
     assert has_permission("service_account", DEVICE_READ)
+    assert has_permission("service_account", DEVICE_WRITE)
     assert has_permission("service_account", ROOM_READ)
     assert has_permission("service_account", AGENT_RUN)
-    assert not has_permission("service_account", DEVICE_WRITE)
 
 
 def test_role_rank_unknown_role_is_lowest() -> None:

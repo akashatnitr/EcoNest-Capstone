@@ -27,7 +27,8 @@ DEVICES = {
 
 ENERGY_LOG_FILE = "energy_log.csv"
 SOUND_LOG_FILE = "sound_log.csv"
-BACKEND_URL = os.getenv("BACKEND_URL")
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://127.0.0.1:8001").rstrip("/")
+BACKEND_URL = os.getenv("BACKEND_URL", f"{ORCHESTRATOR_URL}/readings/add")
 SERVICE_ACCOUNT_TOKEN = os.getenv("SERVICE_ACCOUNT_TOKEN")
 LEGACY_API_KEY = os.getenv("LEGACY_API_KEY")
 

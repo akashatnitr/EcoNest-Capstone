@@ -1,21 +1,13 @@
 """MCP protocol implementation (tools/resources/prompts)."""
 
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.permissions import has_permission
-from orchestrator.mcp.tools import db_tools, device_tools, graph_tools, ha_tools
 from orchestrator.mcp.middleware import require_permissions
-
-router = APIRouter(prefix="/mcp", tags=["mcp"])
-
-# ------------------------------------------------------------------
-# Registry
-# ------------------------------------------------------------------
-
 from orchestrator.mcp.prompts import (
     DEVICE_CONTROL_PROMPT,
     ENERGY_REVIEW_PROMPT,
@@ -37,6 +29,9 @@ from orchestrator.mcp.resources import (
     ontology_resource,
     recent_memory_resource,
 )
+from orchestrator.mcp.tools import db_tools, device_tools, graph_tools, ha_tools
+
+router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 # ------------------------------------------------------------------
 # Built-in tools registration

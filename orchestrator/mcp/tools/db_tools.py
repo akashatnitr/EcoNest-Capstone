@@ -5,8 +5,8 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from orchestrator.mcp.models import ToolExecutionResult
 from orchestrator.core.database import mysql_session_context
+from orchestrator.mcp.models import ToolExecutionResult
 
 READ_ONLY_SQL_COMMANDS = {"select", "show", "describe", "explain"}
 

@@ -50,7 +50,7 @@ ROLE_PERMISSIONS: dict[Role, FrozenSet[str]] = {
             USER_WRITE,
         }
     ),
-    Role.SERVICE_ACCOUNT: frozenset({DEVICE_READ, ROOM_READ, AGENT_RUN}),
+    Role.SERVICE_ACCOUNT: frozenset({DEVICE_READ, DEVICE_WRITE, ROOM_READ, AGENT_RUN}),
     Role.SUPERADMIN: frozenset(
         {
             DEVICE_READ,

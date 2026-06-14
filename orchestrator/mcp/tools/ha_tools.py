@@ -6,8 +6,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from orchestrator.mcp.models import ToolExecutionResult
 from orchestrator.config import get_settings
+from orchestrator.mcp.models import ToolExecutionResult
 
 settings = get_settings()
 
