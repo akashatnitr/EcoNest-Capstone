@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     # Orchestrator
     ORCHESTRATOR_URL: str = ""
+    AUDIT_LOG_ENABLED: bool = True
+    AUDIT_LOG_PATH: str = "logs/audit.jsonl"
 
 
 @lru_cache

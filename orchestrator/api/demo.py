@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from orchestrator.agents.base import Result, Task
 from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.config import get_settings
+from orchestrator.core.audit import read_recent_audit_events, write_audit_event
 from orchestrator.core.database import healthcheck_arcadedb, healthcheck_mysql
 from orchestrator.core.permissions import Role
 from orchestrator.llm.client import LLMClient
@@ -111,6 +112,20 @@ async def periodic_feedback() -> dict[str, Any]:
     states = await _read_all_ha_states()
     snapshot = _build_household_feedback_snapshot(states)
     feedback = await _llm_periodic_feedback(snapshot)
+    write_audit_event(
+        "feedback.generated",
+        {
+            "mode": "suggestions_only",
+            "source": feedback["source"],
+            "suggestion_count": len(feedback["suggestions"]),
+            "occupancy_status": snapshot["occupancy_status"],
+            "lights_on_count": len(snapshot["lights_on"]),
+            "switches_on_count": len(snapshot["switches_on"]),
+            "active_motion_count": len(snapshot["active_motion"]),
+            "top_power_now_w": snapshot["top_power_now_w"][:3],
+            "warning": feedback["warning"],
+        },
+    )
     return {
         "mode": "suggestions_only",
         "source": feedback["source"],
@@ -118,6 +133,16 @@ async def periodic_feedback() -> dict[str, Any]:
         "summary": feedback["summary"],
         "suggestions": feedback["suggestions"],
         "snapshot": snapshot,
+    }
+
+
+@router.get("/audit")
+async def recent_audit(limit: int = 50) -> dict[str, Any]:
+    """Return recent autonomous runtime events from the durable audit log."""
+    bounded_limit = max(1, min(limit, 200))
+    return {
+        "events": read_recent_audit_events(bounded_limit),
+        "limit": bounded_limit,
     }
 
 

@@ -13,6 +13,7 @@ from orchestrator.agents.device_agent import DeviceAgent
 from orchestrator.agents.energy_agent import EnergyAgent
 from orchestrator.agents.security_agent import SecurityAgent
 from orchestrator.agents.sensor_agent import SensorAgent
+from orchestrator.core.audit import write_audit_event
 from orchestrator.core.database import arcadedb_query
 from orchestrator.core.permissions import Role, normalize_role
 from orchestrator.llm.client import LLMClient
@@ -143,6 +144,16 @@ class AgentOrchestrator:
     async def submit(self, task: Task) -> str:
         """Submit a task and return a task ID."""
         task = task.model_copy(update={"id": task.id or str(uuid.uuid4())})
+        write_audit_event(
+            "task.submitted",
+            {
+                "task_id": task.id,
+                "intent": task.intent,
+                "user_id": task.user_id,
+                "metadata": task.metadata,
+                "payload": _audit_payload(task.payload),
+            },
+        )
         running_task = asyncio.create_task(self._run_with_lifecycle(task))
         self._tasks[task.id] = running_task
         self._stats["submitted"] += 1
@@ -154,19 +165,22 @@ class AgentOrchestrator:
         policy_result = await self._enforce_global_policy(task)
         if policy_result is not None:
             self._results[task.id] = policy_result
+            self._audit_task_result(task, policy_result, policy_blocked=True)
             if self._is_device_control_task(task):
                 await self._log_device_control_to_graph(task, policy_result)
             return
 
         agents = await self._select_agents(task)
         if not agents:
-            self._results[task.id] = Result(
+            result = Result(
                 success=False,
                 data={},
                 message="No agent could handle this task",
                 task_id=task.id,
                 error="no_agent",
             )
+            self._results[task.id] = result
+            self._audit_task_result(task, result)
             return
 
         results = await asyncio.gather(
@@ -181,6 +195,7 @@ class AgentOrchestrator:
 
         if self._is_device_control_task(task):
             await self._log_device_control_to_graph(task, result)
+        self._audit_task_result(task, result)
 
     async def _run_agent_with_retries(self, agent: BaseAgent, task: Task) -> Result:
         routed_task = task.model_copy(
@@ -364,6 +379,29 @@ class AgentOrchestrator:
             },
         )
 
+    def _audit_task_result(
+        self,
+        task: Task,
+        result: Result,
+        policy_blocked: bool = False,
+    ) -> None:
+        write_audit_event(
+            "task.completed",
+            {
+                "task_id": task.id,
+                "intent": task.intent,
+                "user_id": task.user_id,
+                "success": result.success,
+                "agent": result.agent,
+                "message": result.message,
+                "error": result.error,
+                "confidence": result.confidence,
+                "policy_blocked": policy_blocked,
+                "metadata": result.metadata,
+                "payload": _audit_payload(task.payload),
+            },
+        )
+
     async def _enforce_global_policy(self, task: Task) -> Result | None:
         role = self._task_role(task)
         if self._is_device_control_task(task) and self._is_restricted_control_hour():
@@ -443,3 +481,21 @@ class AgentOrchestrator:
 def _sql_string(value: Any) -> str:
     text = str(value).replace("\\", "\\\\").replace("'", "\\'")
     return f"'{text}'"
+
+
+def _audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep audit payloads useful without logging large or sensitive blobs."""
+    allowed_keys = {
+        "action",
+        "baseline_w",
+        "current_power_w",
+        "device_id",
+        "domain",
+        "entity_id",
+        "event_type",
+        "room",
+        "temperature",
+        "trigger",
+        "type",
+    }
+    return {key: payload[key] for key in allowed_keys if key in payload}

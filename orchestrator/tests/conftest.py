@@ -15,6 +15,19 @@ from orchestrator.core.security import create_access_token
 from orchestrator.main import app
 
 
+@pytest.fixture(autouse=True)
+def disable_audit_log(monkeypatch):
+    """Keep routine tests from writing runtime audit logs into the repo."""
+
+    class AuditSettings:
+        AUDIT_LOG_ENABLED = False
+        AUDIT_LOG_PATH = "logs/test-audit.jsonl"
+
+    from orchestrator.core import audit
+
+    monkeypatch.setattr(audit, "get_settings", lambda: AuditSettings())
+
+
 @pytest.fixture
 def client():
     """Return a TestClient for the FastAPI app."""

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from orchestrator.core.audit import write_audit_event
 from orchestrator.core.permissions import AGENT_RUN
 from orchestrator.llm.client import LLMClient
 
@@ -150,3 +151,11 @@ class BaseAgent(ABC):
         }
         log_method = logger.info if result.success else logger.warning
         log_method(json.dumps(event, sort_keys=True))
+        write_audit_event(
+            "agent.run",
+            {
+                **event,
+                "confidence": result.confidence,
+                "metadata": result.metadata,
+            },
+        )
