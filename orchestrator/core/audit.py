@@ -18,7 +18,11 @@ from orchestrator.core.database import mysql_session_context
 _LOCK = threading.Lock()
 
 
-def write_audit_event(event_type: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+def write_audit_event(
+    event_type: str,
+    payload: dict[str, Any],
+    persist_mysql: bool = True,
+) -> dict[str, Any] | None:
     """Append a structured audit event to the local JSONL log."""
     settings = get_settings()
     if not settings.AUDIT_LOG_ENABLED:
@@ -39,7 +43,8 @@ def write_audit_event(event_type: str, payload: dict[str, Any]) -> dict[str, Any
             _rotate_if_needed(path)
     except Exception:
         return None
-    _schedule_mysql_persist(event)
+    if persist_mysql:
+        _schedule_mysql_persist(event)
     return event
 
 
@@ -48,7 +53,7 @@ async def write_audit_event_async(
     payload: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Write an audit event to JSONL and persist it to MySQL when available."""
-    event = write_audit_event(event_type, payload)
+    event = write_audit_event(event_type, payload, persist_mysql=False)
     if event is not None:
         await persist_audit_event(event)
     return event

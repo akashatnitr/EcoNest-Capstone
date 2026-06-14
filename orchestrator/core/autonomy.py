@@ -10,6 +10,8 @@ from typing import Any
 from orchestrator.core.audit import write_audit_event, write_audit_event_async
 
 FeedbackCollector = Callable[[], Awaitable[dict[str, Any]]]
+ActionRecommender = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
+ActionExecutor = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 class AutonomousMonitor:
@@ -20,8 +22,14 @@ class AutonomousMonitor:
         collect_feedback: FeedbackCollector,
         interval_seconds: int,
         run_on_startup: bool = True,
+        action_recommender: ActionRecommender | None = None,
+        action_executor: ActionExecutor | None = None,
+        action_confidence_threshold: float = 0.85,
     ) -> None:
         self.collect_feedback = collect_feedback
+        self.action_recommender = action_recommender
+        self.action_executor = action_executor
+        self.action_confidence_threshold = action_confidence_threshold
         self.interval_seconds = max(15, interval_seconds)
         self.run_on_startup = run_on_startup
         self._task: asyncio.Task[None] | None = None
@@ -34,6 +42,9 @@ class AutonomousMonitor:
         self.run_count = 0
         self.success_count = 0
         self.failure_count = 0
+        self.action_recommendation_count = 0
+        self.action_execution_count = 0
+        self.action_skip_count = 0
 
     def start(self) -> None:
         """Start the monitor loop if it is not already running."""
@@ -77,6 +88,10 @@ class AutonomousMonitor:
             "run_count": self.run_count,
             "success_count": self.success_count,
             "failure_count": self.failure_count,
+            "action_confidence_threshold": self.action_confidence_threshold,
+            "action_recommendation_count": self.action_recommendation_count,
+            "action_execution_count": self.action_execution_count,
+            "action_skip_count": self.action_skip_count,
         }
 
     async def _run(self) -> None:
@@ -124,8 +139,71 @@ class AutonomousMonitor:
                 "occupancy_status": result.get("snapshot", {}).get("occupancy_status"),
             },
         )
+        await self._maybe_execute_action(result)
         return result
+
+    async def _maybe_execute_action(self, feedback: dict[str, Any]) -> None:
+        if self.action_recommender is None:
+            return
+
+        recommendation = await self.action_recommender(feedback)
+        if not recommendation:
+            return
+
+        self.action_recommendation_count += 1
+        await write_audit_event_async(
+            "autonomy.action.recommended",
+            {
+                "recommendation": recommendation,
+                "confidence": recommendation.get("confidence"),
+                "entity_id": recommendation.get("entity_id"),
+                "action": recommendation.get("action"),
+            },
+        )
+
+        confidence = _float_or_zero(recommendation.get("confidence"))
+        if confidence < self.action_confidence_threshold:
+            self.action_skip_count += 1
+            await write_audit_event_async(
+                "autonomy.action.skipped",
+                {
+                    "reason": "confidence_below_threshold",
+                    "confidence": confidence,
+                    "threshold": self.action_confidence_threshold,
+                    "recommendation": recommendation,
+                },
+            )
+            return
+
+        if self.action_executor is None:
+            self.action_skip_count += 1
+            await write_audit_event_async(
+                "autonomy.action.skipped",
+                {
+                    "reason": "no_action_executor",
+                    "recommendation": recommendation,
+                },
+            )
+            return
+
+        result = await self.action_executor(recommendation)
+        self.action_execution_count += 1
+        await write_audit_event_async(
+            "autonomy.action.executed",
+            {
+                "success": bool(result.get("success")),
+                "recommendation": recommendation,
+                "result": result,
+            },
+        )
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _float_or_zero(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

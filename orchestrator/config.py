@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     AUTONOMY_MONITOR_INTERVAL_SECONDS: int = 300
     AUTONOMY_MONITOR_RUN_ON_STARTUP: bool = True
     AUTONOMY_ACTIONS_ENABLED: bool = False
+    AUTONOMY_ACTION_CONFIDENCE_THRESHOLD: float = 0.85
+    AUTONOMY_ALLOWED_ACTIONS: str = "light.turn_off"
+    AUTONOMY_ALLOWED_ENTITIES: str = ""
 
 
 @lru_cache
