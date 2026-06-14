@@ -81,8 +81,9 @@ class _FlakyAgent(_StaticAgent):
 
 
 class _FakeLLM:
-    def __init__(self, category: str) -> None:
+    def __init__(self, category: str, confidence: float = 1.0) -> None:
         self.category = category
+        self.confidence = confidence
         self.messages: list[Any] = []
 
     async def generate_structured(
@@ -93,7 +94,18 @@ class _FakeLLM:
         temperature: float = 0.7,
     ) -> Any:
         self.messages = messages
-        return output_model(category=self.category)
+        return output_model(category=self.category, confidence=self.confidence)
+
+
+class _FailingClassifierLLM:
+    async def generate_structured(
+        self,
+        messages: list[Any],
+        output_model: type[Any],
+        system: str | None = None,
+        temperature: float = 0.7,
+    ) -> Any:
+        raise RuntimeError("LLM unavailable")
 
 
 async def _wait_for_result(orch: AgentOrchestrator, task_id: str) -> Result | None:
@@ -380,6 +392,44 @@ async def test_orchestrator_routes_device_action_before_motion_security():
 
 
 @pytest.mark.anyio
+async def test_orchestrator_uses_llm_classification_before_rules():
+    llm = _FakeLLM("security")
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("energy"), _StaticAgent("security")],
+        llm=llm,
+    )
+    task = Task(id="", intent="check my power usage", payload={})
+
+    agent = await orch._classify_and_route(task)
+
+    assert agent is not None
+    assert agent.name == "security"
+    assert llm.messages
+
+
+@pytest.mark.anyio
+async def test_orchestrator_falls_back_to_rules_when_llm_fails():
+    orch = AgentOrchestrator(llm=_FailingClassifierLLM())
+    task = Task(id="", intent="check my power usage", payload={})
+
+    agent = await orch._classify_and_route(task)
+
+    assert agent is not None
+    assert agent.name == "energy"
+
+
+@pytest.mark.anyio
+async def test_orchestrator_falls_back_to_rules_for_low_confidence_llm():
+    orch = AgentOrchestrator(llm=_FakeLLM("security", confidence=0.2))
+    task = Task(id="", intent="turn off the bedroom light", payload={})
+
+    agent = await orch._classify_and_route(task)
+
+    assert agent is not None
+    assert agent.name == "device"
+
+
+@pytest.mark.anyio
 async def test_orchestrator_healthcheck():
     orch = AgentOrchestrator()
     health = await orch.healthcheck()
@@ -403,7 +453,7 @@ async def test_orchestrator_submit_and_result():
 @pytest.mark.anyio
 async def test_orchestrator_http_api_intake_adds_source_and_role():
     agent = _StaticAgent("energy")
-    orch = AgentOrchestrator(agents=[agent])
+    orch = AgentOrchestrator(agents=[agent], llm=_FailingClassifierLLM())
 
     task_id = await orch.submit_http_api(
         intent="energy overview",
@@ -421,7 +471,7 @@ async def test_orchestrator_http_api_intake_adds_source_and_role():
 @pytest.mark.anyio
 async def test_orchestrator_scheduled_intake_adds_source():
     agent = _StaticAgent("energy")
-    orch = AgentOrchestrator(agents=[agent])
+    orch = AgentOrchestrator(agents=[agent], llm=_FailingClassifierLLM())
 
     task_id = await orch.submit_scheduled(
         intent="energy check",
@@ -438,7 +488,7 @@ async def test_orchestrator_scheduled_intake_adds_source():
 @pytest.mark.anyio
 async def test_orchestrator_ha_webhook_intake_adds_source():
     agent = _StaticAgent("security")
-    orch = AgentOrchestrator(agents=[agent])
+    orch = AgentOrchestrator(agents=[agent], llm=_FailingClassifierLLM())
 
     task_id = await orch.submit_home_assistant_webhook(
         event_type="motion alert",
@@ -896,6 +946,55 @@ async def test_device_agent_retries_home_assistant_state_verification():
     assert result.data["verified"] is True
     assert result.confidence == 0.95
     assert get_state.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_device_agent_sets_home_assistant_temperature():
+    agent = DeviceAgent()
+
+    with (
+        patch(
+            "orchestrator.agents.device_agent.ha_call_service_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_call_service",
+                    result={"status": "ok"},
+                )
+            ),
+        ) as call_service,
+        patch(
+            "orchestrator.agents.device_agent.ha_get_state_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_get_state",
+                    result={"attributes": {"temperature": 78.0}},
+                )
+            ),
+        ),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-temp",
+                intent="set media room thermostat",
+                payload={
+                    "device_id": "climate.media_room",
+                    "entity_id": "climate.media_room",
+                    "domain": "climate",
+                    "action": "set_temperature",
+                    "temperature": 78.0,
+                },
+            )
+        )
+
+    assert result.success
+    assert result.data["state"] == "target_temperature:78.0"
+    assert result.data["execution_source"] == "home_assistant"
+    assert result.data["verified"] is True
+    service_input = call_service.await_args.args[0]
+    assert service_input.domain == "climate"
+    assert service_input.service == "set_temperature"
+    assert service_input.entity_id == "climate.media_room"
+    assert service_input.service_data == {"temperature": 78.0}
 
 
 @pytest.mark.anyio

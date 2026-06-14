@@ -4,9 +4,21 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from orchestrator.api import mcp
 from orchestrator.api.auth import get_current_user
 from orchestrator.core.database import get_mysql_session
 from orchestrator.main import app
+
+
+class _InstantClassifierLLM:
+    async def generate_structured(
+        self,
+        messages,
+        output_model,
+        system=None,
+        temperature=0.7,
+    ):
+        return output_model(category="energy", confidence=1.0)
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +174,8 @@ def test_mcp_stats_endpoint(client):
 
 
 @pytest.mark.anyio
-async def test_task_result_contains_agent_metadata(client):
+async def test_task_result_contains_agent_metadata(client, monkeypatch):
+    monkeypatch.setattr(mcp._orchestrator, "llm", _InstantClassifierLLM())
 
     response = client.post(
         "/mcp/task",
