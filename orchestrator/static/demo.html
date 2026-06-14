@@ -152,7 +152,8 @@
       }
 
       .summary,
-      .timeline {
+      .timeline,
+      .feedback {
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--panel);
@@ -283,6 +284,79 @@
         text-align: center;
       }
 
+      .feedback {
+        margin-top: 18px;
+        padding: 18px;
+      }
+
+      .feedback-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 14px;
+      }
+
+      .feedback-head h2 {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .secondary {
+        min-width: 112px;
+        min-height: 36px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .feedback-summary {
+        margin: 0 0 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .suggestions {
+        display: grid;
+        gap: 10px;
+      }
+
+      .suggestion {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fbfcfb;
+      }
+
+      .suggestion h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+
+      .suggestion p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
+      .tagline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+
+      .tag {
+        border-radius: 999px;
+        padding: 3px 7px;
+        background: #edf2ee;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
       @media (max-width: 820px) {
         header,
         .controls,
@@ -310,9 +384,9 @@
         <div>
           <h1>EcoNest Demo Console</h1>
           <p class="subtitle">
-            Trigger Demo1 and watch EcoNest inspect Home Assistant, route a smart-home
-            event to the correct agent, act on the media room light, and verify the
-            result.
+            Trigger Demo1 or Demo2 and watch EcoNest inspect Home Assistant, route
+            smart-home events to agents, reason with the local model, act through
+            Home Assistant, and verify the result.
           </p>
         </div>
         <div class="status-pill" aria-live="polite">
@@ -370,6 +444,19 @@
           </div>
         </section>
       </section>
+
+      <section class="feedback" aria-live="polite">
+        <div class="feedback-head">
+          <h2>Periodic Feedback</h2>
+          <button id="feedbackButton" class="secondary" type="button">Refresh</button>
+        </div>
+        <p id="feedbackSummary" class="feedback-summary">
+          Suggestion-only feedback will appear here. EcoNest will not take actions from this panel.
+        </p>
+        <div id="suggestions" class="suggestions">
+          <div class="empty">Waiting for feedback refresh.</div>
+        </div>
+      </section>
     </main>
 
     <script>
@@ -384,6 +471,9 @@
       const verification = document.getElementById("verification");
       const confidence = document.getElementById("confidence");
       const backend = document.getElementById("backend");
+      const feedbackButton = document.getElementById("feedbackButton");
+      const feedbackSummary = document.getElementById("feedbackSummary");
+      const suggestions = document.getElementById("suggestions");
       const apiBase = resolveApiBase();
 
       if (shouldRedirectToBackend(apiBase)) {
@@ -391,6 +481,9 @@
       }
 
       backend.textContent = apiBase;
+      feedbackButton.addEventListener("click", refreshFeedback);
+      window.setTimeout(refreshFeedback, 800);
+      window.setInterval(refreshFeedback, 120000);
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -399,7 +492,8 @@
         button.disabled = true;
 
         try {
-          const response = await fetch(`${apiBase}/demo/demo1`, {
+          const demoPath = resolveDemoPath(code.value);
+          const response = await fetch(`${apiBase}${demoPath}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ code: code.value }),
@@ -477,7 +571,7 @@
       }
 
       function resetRun() {
-        events.innerHTML = '<div class="empty">Starting Demo1...</div>';
+        events.innerHTML = `<div class="empty">Starting ${code.value.trim() || "demo"}...</div>`;
         stage.textContent = "Starting";
         agent.textContent = "Not selected";
         verification.textContent = "Pending";
@@ -508,6 +602,56 @@
         }
 
         return window.location.origin !== apiBase;
+      }
+
+      function resolveDemoPath(value) {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "demo2") return "/demo/demo2";
+        return "/demo/demo1";
+      }
+
+      async function refreshFeedback() {
+        feedbackButton.disabled = true;
+        try {
+          const response = await fetch(`${apiBase}/demo/feedback`);
+          if (!response.ok) throw new Error(`Feedback failed with ${response.status}`);
+          const data = await response.json();
+          renderFeedback(data);
+        } catch (error) {
+          feedbackSummary.textContent = error.message;
+          suggestions.innerHTML = '<div class="empty">Feedback unavailable.</div>';
+        } finally {
+          feedbackButton.disabled = false;
+        }
+      }
+
+      function renderFeedback(data) {
+        feedbackSummary.textContent = `${data.summary} Reasoning: ${data.source || "unknown"}.`;
+        suggestions.innerHTML = "";
+        const items = data.suggestions || [];
+        if (!items.length) {
+          suggestions.innerHTML = '<div class="empty">No suggestions right now.</div>';
+          return;
+        }
+
+        items.forEach((item) => {
+          const card = document.createElement("article");
+          card.className = "suggestion";
+          card.innerHTML = `
+            <div class="tagline">
+              <span class="tag"></span>
+              <span class="tag"></span>
+            </div>
+            <h3></h3>
+            <p></p>
+          `;
+          const tags = card.querySelectorAll(".tag");
+          tags[0].textContent = item.category || "feedback";
+          tags[1].textContent = item.priority || "LOW";
+          card.querySelector("h3").textContent = item.title || "Suggestion";
+          card.querySelector("p").textContent = item.detail || "";
+          suggestions.appendChild(card);
+        });
       }
     </script>
   </body>

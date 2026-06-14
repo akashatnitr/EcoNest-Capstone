@@ -21,12 +21,15 @@ from orchestrator.llm.models import LLMMessage
 MAX_RETRIES = 3
 NIGHT_CONTROL_START_HOUR = 23
 NIGHT_CONTROL_END_HOUR = 6
+MIN_LLM_CLASSIFICATION_CONFIDENCE = 0.45
 
 
 class IntentClassification(BaseModel):
-    """LLM fallback output for intent routing."""
+    """LLM output for intent routing."""
 
     category: str = Field(pattern="^(energy|security|sensor|device|multi|unknown)$")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    reasoning: str = ""
 
 
 INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -253,33 +256,53 @@ class AgentOrchestrator:
         return []
 
     async def _classify_intent(self, task: Task) -> str:
-        """Classify intent with rules first and LLM fallback second."""
-        if self._is_device_control_task(task):
-            return "device"
+        """Classify intent with LLM first and deterministic rules as fallback."""
+        llm_category = await self._classify_intent_with_llm(task)
+        if llm_category != "unknown":
+            return llm_category
 
-        intent_lower = task.intent.lower()
-        for category, keywords in INTENT_KEYWORDS.items():
-            if any(kw in intent_lower for kw in keywords):
-                return category
+        return self._classify_intent_with_rules(task)
 
+    async def _classify_intent_with_llm(self, task: Task) -> str:
+        """Use the local LLM as the primary intent classifier."""
         try:
             classification = await self.llm.generate_structured(
                 [
                     LLMMessage(
                         role="user",
                         content=(
-                            "Classify this smart-home task into one category: "
-                            "energy, security, sensor, device, multi, or unknown.\n"
-                            f"Intent: {task.intent}\nPayload: {task.payload}"
+                            "Classify this smart-home task into exactly one category: "
+                            "energy, security, sensor, device, multi, or unknown.\n\n"
+                            "Use the payload as the strongest signal. "
+                            "If the payload asks for a concrete device action such as "
+                            "turn_on, turn_off, set_brightness, open, close, or includes "
+                            "a controllable domain like light or switch, classify it as "
+                            "device even if the text also mentions motion or security.\n\n"
+                            f"Intent: {task.intent}\n"
+                            f"Payload: {task.payload}\n"
+                            f"Metadata: {task.metadata}"
                         ),
                     )
                 ],
                 IntentClassification,
                 temperature=0.0,
             )
-            return classification.category
         except Exception:
             return "unknown"
+
+        if classification.confidence < MIN_LLM_CLASSIFICATION_CONFIDENCE:
+            return "unknown"
+        return classification.category
+
+    def _classify_intent_with_rules(self, task: Task) -> str:
+        """Deterministic fallback when LLM classification is unavailable."""
+        if self._is_device_control_task(task):
+            return "device"
+        intent_lower = task.intent.lower()
+        for category, keywords in INTENT_KEYWORDS.items():
+            if any(kw in intent_lower for kw in keywords):
+                return category
+        return "unknown"
 
     async def _agent_for_category(
         self,

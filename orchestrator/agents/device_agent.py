@@ -23,6 +23,7 @@ class DeviceActionRequest(BaseModel):
     device_id: str
     action: str | None = None
     brightness: int | None = None
+    temperature: float | None = None
     domain: str | None = None
     entity_id: str | None = None
 
@@ -90,6 +91,9 @@ class DeviceAgent(BaseAgent):
             ),
             brightness=task.payload.get(
                 "brightness",
+            ),
+            temperature=task.payload.get(
+                "temperature",
             ),
             domain=task.payload.get(
                 "domain",
@@ -190,6 +194,7 @@ class DeviceAgent(BaseAgent):
             "turn_on": "OnOff",
             "turn_off": "OnOff",
             "set_brightness": "Dimmable",
+            "set_temperature": "Thermostat",
         }
 
         required = required_capabilities.get(request.action)
@@ -322,6 +327,14 @@ class DeviceAgent(BaseAgent):
                 verified=True,
             )
 
+        if request.action == "set_temperature":
+            return DeviceExecution(
+                success=True,
+                state=f"target_temperature:{request.temperature}",
+                source="local_fallback",
+                verified=True,
+            )
+
         raise ValueError(f"Unsupported action: {request.action}")
 
     async def _execute_home_assistant_action(
@@ -365,6 +378,22 @@ class DeviceAgent(BaseAgent):
     ) -> bool:
         if expected_state.startswith("brightness:"):
             return True
+        if expected_state.startswith("target_temperature:"):
+            expected_temperature = float(expected_state.split(":", 1)[1])
+            for attempt in range(HA_VERIFY_ATTEMPTS):
+                result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
+                if result.success and isinstance(result.result, dict):
+                    attributes = result.result.get("attributes", {})
+                    if isinstance(attributes, dict):
+                        observed = attributes.get("temperature")
+                        if (
+                            observed is not None
+                            and abs(float(observed) - expected_temperature) < 0.1
+                        ):
+                            return True
+                if attempt < HA_VERIFY_ATTEMPTS - 1:
+                    await asyncio.sleep(HA_VERIFY_DELAY_SECONDS)
+            return False
         for attempt in range(HA_VERIFY_ATTEMPTS):
             result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
             if result.success and isinstance(result.result, dict):
@@ -389,14 +418,20 @@ class DeviceAgent(BaseAgent):
             return "turn_off"
         if request.action == "set_brightness":
             return "turn_on"
+        if request.action == "set_temperature":
+            return "set_temperature"
         raise ValueError(f"Unsupported action: {request.action}")
 
     def _ha_service_data(self, request: DeviceActionRequest) -> dict | None:
-        if request.action != "set_brightness":
-            return None
-        if request.brightness is None:
-            return None
-        return {"brightness_pct": request.brightness}
+        if request.action == "set_brightness":
+            if request.brightness is None:
+                return None
+            return {"brightness_pct": request.brightness}
+        if request.action == "set_temperature":
+            if request.temperature is None:
+                return None
+            return {"temperature": request.temperature}
+        return None
 
     def _expected_state(self, request: DeviceActionRequest) -> str:
         if request.action == "turn_on":
@@ -405,4 +440,6 @@ class DeviceAgent(BaseAgent):
             return "off"
         if request.action == "set_brightness":
             return f"brightness:{request.brightness}"
+        if request.action == "set_temperature":
+            return f"target_temperature:{request.temperature}"
         return "unknown"
