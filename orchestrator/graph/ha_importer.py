@@ -7,15 +7,20 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
 
 import httpx
-from websockets.asyncio.client import connect as websocket_connect
 
 from orchestrator.config import get_settings
 from orchestrator.core.database import (
     arcadedb_query,
     ensure_arcadedb_database,
+)
+from orchestrator.core.ha_registry import (
+    RegistryContext,
+    fetch_registry_context,
+)
+from orchestrator.core.ha_registry import (
+    _home_assistant_websocket_url as _registry_websocket_url,
 )
 from orchestrator.graph.models import (
     DeviceType,
@@ -69,56 +74,11 @@ REASONING_DOMAINS = {
 }
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "arcade_schema.sql"
-AREA_REGISTRY_PATH = ROOT / "ha_area_registry.json"
-DEVICE_REGISTRY_PATH = ROOT / "ha_device_registry.json"
-ENTITY_REGISTRY_PATH = ROOT / "ha_entity_registry.json"
 
 
-class RegistryContext:
-    """Local Home Assistant registry mappings exported from HA."""
-
-    def __init__(
-        self,
-        areas: list[dict[str, Any]],
-        devices: list[dict[str, Any]],
-        entities: list[dict[str, Any]],
-        source: str = "local",
-    ) -> None:
-        self.source = source
-        self.areas_by_id = {
-            str(area.get("area_id")): area for area in areas if area.get("area_id")
-        }
-        self.devices_by_id = {
-            str(device.get("id")): device for device in devices if device.get("id")
-        }
-        self.entities_by_id = {
-            str(entity.get("entity_id")): entity
-            for entity in entities
-            if entity.get("entity_id")
-        }
-
-    @property
-    def has_data(self) -> bool:
-        return bool(self.areas_by_id or self.devices_by_id or self.entities_by_id)
-
-    def room_for_entity(self, entity_id: str) -> dict[str, str]:
-        entity = self.entities_by_id.get(entity_id, {})
-        area_id = _optional_text(entity.get("area_id"))
-        device = self.devices_by_id.get(str(entity.get("device_id") or ""), {})
-        if area_id is None:
-            area_id = _optional_text(device.get("area_id"))
-        if area_id is None:
-            return {"area_id": "home_assistant", "name": "Home Assistant"}
-        area = self.areas_by_id.get(area_id, {})
-        return {
-            "area_id": area_id,
-            "name": _optional_text(area.get("name")) or _title_from_id(area_id),
-        }
-
-    def device_for_entity(self, entity_id: str) -> dict[str, Any]:
-        entity = self.entities_by_id.get(entity_id, {})
-        device = self.devices_by_id.get(str(entity.get("device_id") or ""), {})
-        return {"entity": entity, "device": device}
+def _home_assistant_websocket_url(ha_url: str) -> str:
+    """Compatibility export for graph callers; implementation is shared."""
+    return _registry_websocket_url(ha_url)
 
 
 async def bootstrap_home_assistant_graph(limit: int | None = None) -> dict[str, Any]:
@@ -250,72 +210,6 @@ async def fetch_home_assistant_states() -> list[dict[str, Any]]:
     if not isinstance(data, list):
         raise RuntimeError("Home Assistant /api/states did not return a list.")
     return [item for item in data if isinstance(item, dict)]
-
-
-async def fetch_registry_context() -> RegistryContext:
-    """Fetch HA registry metadata live, falling back to local exports if needed."""
-    settings = get_settings()
-    if settings.HA_REGISTRY_SOURCE.lower() == "local":
-        return load_registry_context()
-
-    try:
-        registry = await fetch_home_assistant_registry()
-    except Exception as exc:
-        logger.warning("Falling back to local Home Assistant registry exports: %s", exc)
-        return load_registry_context(source="local_fallback")
-    if registry.has_data:
-        return registry
-    return load_registry_context(source="local_fallback")
-
-
-async def fetch_home_assistant_registry() -> RegistryContext:
-    """Fetch HA area/device/entity registries through the HA websocket API."""
-    settings = get_settings()
-    if not settings.HA_TOKEN:
-        raise RuntimeError("HA_TOKEN is required to import Home Assistant registries.")
-
-    websocket_url = _home_assistant_websocket_url(settings.HA_URL)
-    async with websocket_connect(websocket_url) as websocket:
-        auth_required = json.loads(await websocket.recv())
-        if auth_required.get("type") != "auth_required":
-            raise RuntimeError("Home Assistant websocket did not request auth.")
-
-        await websocket.send(
-            json.dumps({"type": "auth", "access_token": settings.HA_TOKEN})
-        )
-        auth_response = json.loads(await websocket.recv())
-        if auth_response.get("type") != "auth_ok":
-            raise RuntimeError("Home Assistant websocket auth failed.")
-
-        areas = await _ha_websocket_command(websocket, 1, "config/area_registry/list")
-        devices = await _ha_websocket_command(
-            websocket, 2, "config/device_registry/list"
-        )
-        entities = await _ha_websocket_command(
-            websocket, 3, "config/entity_registry/list"
-        )
-
-    return RegistryContext(
-        areas=_dict_list(areas),
-        devices=_dict_list(devices),
-        entities=_dict_list(entities),
-        source="live",
-    )
-
-
-def load_registry_context(
-    area_path: Path = AREA_REGISTRY_PATH,
-    device_path: Path = DEVICE_REGISTRY_PATH,
-    entity_path: Path = ENTITY_REGISTRY_PATH,
-    source: str = "local",
-) -> RegistryContext:
-    """Load local HA registry exports when present."""
-    return RegistryContext(
-        areas=_read_registry_list(area_path),
-        devices=_read_registry_list(device_path),
-        entities=_read_registry_list(entity_path),
-        source=source,
-    )
 
 
 async def _ensure_home(ha_url: str) -> None:
@@ -681,21 +575,6 @@ async def _ha_websocket_command(
                 f"Home Assistant websocket command failed: {command_type}"
             )
         return message.get("result")
-
-
-def _home_assistant_websocket_url(ha_url: str) -> str:
-    parsed = urlparse(ha_url)
-    scheme = "wss" if parsed.scheme == "https" else "ws"
-    return urlunparse(
-        (
-            scheme,
-            parsed.netloc,
-            "/api/websocket",
-            "",
-            "",
-            "",
-        )
-    )
 
 
 def _dict_list(value: Any) -> list[dict[str, Any]]:

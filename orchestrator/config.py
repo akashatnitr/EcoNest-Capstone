@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     HA_URL: str = "http://localhost:8123"
     HA_TOKEN: str = ""
     HA_REGISTRY_SOURCE: str = "live"
+    HA_INGEST_ENABLED: bool = False
+    HA_INGEST_INTERVAL_SECONDS: int = 60
+    HA_REGISTRY_REFRESH_SECONDS: int = 300
+    GRAPH_SYNC_ENABLED: bool = True
+    GRAPH_SYNC_INTERVAL_SECONDS: int = 300
+    DEVICE_CAPABILITY_FAIL_CLOSED: bool = False
 
     # Security
     SECRET_KEY: str = "change-me-in-production"

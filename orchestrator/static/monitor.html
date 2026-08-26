@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EcoNest Data Explorer</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; color: #17221b; background: #f4f7f3; }
+      body { margin: 0; } main { max-width: 1200px; margin: auto; padding: 24px; }
+      h1 { margin-bottom: 4px; } .muted { color: #5d6b61; }
+      .card { background: white; border: 1px solid #d7dfd9; border-radius: 10px; padding: 16px; margin: 16px 0; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+      .metric { background: #f8faf8; border-radius: 8px; padding: 12px; } .metric b { display: block; font-size: 22px; }
+      input, select, textarea, button { font: inherit; padding: 10px; border-radius: 6px; border: 1px solid #b8c5ba; }
+      textarea { width: 100%; min-height: 100px; box-sizing: border-box; font-family: ui-monospace, monospace; }
+      button { background: #1d6f42; border: 0; color: white; cursor: pointer; font-weight: 650; }
+      button:hover { background: #155732; } .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; } th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e3e8e4; vertical-align: top; }
+      th { white-space: nowrap; } .scroll { overflow-x: auto; } pre { margin: 0; white-space: pre-wrap; max-width: 460px; }
+      #message { min-height: 20px; color: #9c251d; } .hidden { display: none; }
+      #explorer { display: flex; flex-direction: column; }
+      .summary-card { order: 0; } .query-card { order: 1; } .readings-card { order: 2; } .browse-card { order: 3; }
+      details summary { cursor: pointer; color: #1d6f42; font-weight: 650; } pre { max-height: 260px; overflow: auto; }
+      .query-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; }
+      .presets { display: grid; align-content: start; gap: 8px; } .presets h3 { margin: 0 0 4px; }
+      .presets button { text-align: left; background: #edf4ef; color: #1d6f42; border: 1px solid #c9dccd; }
+      .presets button:hover { background: #dcecdf; }
+      @media (max-width: 700px) { .query-layout { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>EcoNest Data Explorer</h1>
+      <p class="muted">Read-only view of the MySQL data stored on this EcoNest system.</p>
+
+      <p id="message"></p>
+
+      <div id="explorer">
+        <section class="card summary-card"><div class="grid" id="summary"></div></section>
+
+        <section class="card readings-card">
+          <div class="controls"><h2>Recent readings</h2><button id="refresh-readings">Refresh</button></div>
+          <div class="scroll" id="recent-readings"></div>
+        </section>
+
+        <section class="card browse-card">
+          <div class="controls">
+            <h2>Browse a table</h2>
+            <select id="table-select"></select>
+            <button id="browse-table">Load table</button>
+          </div>
+          <div class="scroll" id="table-results"></div>
+        </section>
+
+        <section class="card query-card">
+          <h2>Read-only query</h2>
+          <p class="muted">Choose a quick query or write one SELECT statement. Results are limited to 200 rows.</p>
+          <div class="query-layout">
+            <div class="presets">
+              <h3>Quick queries</h3>
+              <button data-preset="latest">Latest readings</button>
+              <button data-preset="freshness">Latest reading per device</button>
+              <button data-preset="active">Most active devices</button>
+              <button data-preset="missing">Devices with no readings</button>
+              <button data-preset="types">Readings by device type</button>
+              <button data-preset="audit">Recent audit events</button>
+            </div>
+            <div>
+              <textarea id="sql">SELECT id, timestamp, data FROM sensor_readings ORDER BY timestamp DESC</textarea>
+              <p><button id="run-query">Run query</button></p>
+            </div>
+          </div>
+          <div class="scroll" id="query-results"></div>
+        </section>
+      </div>
+    </main>
+    <script>
+      const presets = {
+        latest: `SELECT sr.id, sr.timestamp, d.name AS device, d.ha_entity_id, sr.data
+FROM sensor_readings sr
+JOIN devices d ON d.id = sr.device_id
+ORDER BY sr.timestamp DESC
+LIMIT 25`,
+        freshness: `SELECT d.name AS device, d.ha_entity_id, MAX(sr.timestamp) AS newest_reading
+FROM devices d
+LEFT JOIN sensor_readings sr ON sr.device_id = d.id
+GROUP BY d.id, d.name, d.ha_entity_id
+ORDER BY newest_reading DESC`,
+        active: `SELECT d.name AS device, COUNT(sr.id) AS readings_last_hour, MAX(sr.timestamp) AS newest_reading
+FROM devices d
+JOIN sensor_readings sr ON sr.device_id = d.id
+WHERE sr.timestamp >= NOW() - INTERVAL 1 HOUR
+GROUP BY d.id, d.name
+ORDER BY readings_last_hour DESC`,
+        missing: `SELECT d.id, d.name, d.ha_entity_id
+FROM devices d
+LEFT JOIN sensor_readings sr ON sr.device_id = d.id
+WHERE sr.id IS NULL
+ORDER BY d.name`,
+        types: `SELECT d.device_type, COUNT(sr.id) AS reading_count, MAX(sr.timestamp) AS newest_reading
+FROM devices d
+LEFT JOIN sensor_readings sr ON sr.device_id = d.id
+GROUP BY d.device_type
+ORDER BY reading_count DESC`,
+        audit: `SELECT event_time, event_type, agent, success, source
+FROM audit_events
+ORDER BY event_time DESC
+LIMIT 50`,
+      };
+      const message = document.querySelector("#message");
+
+      async function api(path, options = {}) {
+        const response = await fetch(path, {
+          ...options,
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || "Request failed");
+        return body;
+      }
+
+      function showRows(target, rows) {
+        if (!rows.length) { target.innerHTML = "<p class='muted'>No rows found.</p>"; return; }
+        const columns = Object.keys(rows[0]);
+        target.innerHTML = `<table><thead><tr>${columns.map(c => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(c => `<td>${formatValue(row[c])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+      }
+
+      function formatValue(value) {
+        if (value === null || value === undefined) return "";
+        if (typeof value === "object") {
+          const keys = Object.keys(value).join(", ") || "empty object";
+          return `<details><summary>JSON: ${escapeHtml(keys)}</summary><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></details>`;
+        }
+        return escapeHtml(String(value));
+      }
+
+      function escapeHtml(value) {
+        return value.replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[char]));
+      }
+
+      async function loadSummary() {
+        const data = await api("/monitor/api/summary");
+        document.querySelector("#summary").innerHTML = Object.entries(data).map(([key, value]) => `<div class="metric"><span>${escapeHtml(key.replaceAll("_", " "))}</span><b>${escapeHtml(String(value ?? "—"))}</b></div>`).join("");
+      }
+
+      async function loadReadings() { showRows(document.querySelector("#recent-readings"), (await api("/monitor/api/readings")).rows); }
+
+      async function loadTables() {
+        const tables = (await api("/monitor/api/tables")).tables;
+        document.querySelector("#table-select").innerHTML = tables.map(table => `<option value="${escapeHtml(table.name)}">${escapeHtml(table.name)} (${table.count})</option>`).join("");
+      }
+
+      async function loadExplorer() {
+        await Promise.all([loadSummary(), loadReadings(), loadTables()]);
+      }
+
+      document.querySelector("#refresh-readings").onclick = () => loadReadings().catch(error => message.textContent = error.message);
+      document.querySelector("#browse-table").onclick = async () => {
+        try { showRows(document.querySelector("#table-results"), (await api(`/monitor/api/tables/${document.querySelector("#table-select").value}`)).rows); }
+        catch (error) { message.textContent = error.message; }
+      };
+      document.querySelector("#run-query").onclick = async () => {
+        try { showRows(document.querySelector("#query-results"), (await api("/monitor/api/query", { method: "POST", body: JSON.stringify({ query: document.querySelector("#sql").value }) })).rows); }
+        catch (error) { message.textContent = error.message; }
+      };
+      document.querySelectorAll("[data-preset]").forEach(button => {
+        button.onclick = async () => {
+          document.querySelector("#sql").value = presets[button.dataset.preset];
+          document.querySelector("#run-query").click();
+        };
+      });
+      loadExplorer().catch(error => message.textContent = error.message);
+    </script>
+  </body>
+</html>

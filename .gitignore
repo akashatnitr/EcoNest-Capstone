@@ -12,3 +12,4 @@ ha_entity_registry.json
 ha_states.json
 econest_exports/
 logs/
+backups/

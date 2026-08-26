@@ -63,6 +63,11 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     entrypoint: ["ollama", "serve"]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   orchestrator:
     build:
@@ -76,8 +81,8 @@ services:
     environment:
       ARCADEDB_HOST: arcadedb
       ARCADEDB_PORT: 2480
-      ARCADEDB_USER: root
-      ARCADEDB_PASSWORD: playwithdata
+      ARCADEDB_USER: ${ARCADEDB_USER:?Set ARCADEDB_USER in your .env}
+      ARCADEDB_PASSWORD: ${ARCADEDB_PASSWORD:?Set ARCADEDB_PASSWORD in your .env}
       ARCADEDB_DATABASE: econest
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
@@ -87,9 +92,15 @@ services:
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b}
       OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-qwen2.5:0.5b}
-      HA_URL: http://host.docker.internal:8123
+      HA_URL: ${HA_URL:-http://host.docker.internal:8123}
       HA_TOKEN: ${HA_TOKEN:?Set HA_TOKEN in your .env before starting econest-real}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
+      HA_INGEST_ENABLED: ${HA_INGEST_ENABLED:-true}
+      HA_INGEST_INTERVAL_SECONDS: ${HA_INGEST_INTERVAL_SECONDS:-60}
+      HA_REGISTRY_REFRESH_SECONDS: ${HA_REGISTRY_REFRESH_SECONDS:-300}
+      GRAPH_SYNC_ENABLED: ${GRAPH_SYNC_ENABLED:-true}
+      GRAPH_SYNC_INTERVAL_SECONDS: ${GRAPH_SYNC_INTERVAL_SECONDS:-300}
+      DEVICE_CAPABILITY_FAIL_CLOSED: ${DEVICE_CAPABILITY_FAIL_CLOSED:-true}
       SECRET_KEY: ${SECRET_KEY:-replace-this-for-local-demo-only}
       AUDIT_LOG_MAX_BYTES: ${AUDIT_LOG_MAX_BYTES:-10485760}
       AUDIT_LOG_BACKUP_COUNT: ${AUDIT_LOG_BACKUP_COUNT:-5}
@@ -106,11 +117,16 @@ services:
       mysql:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - .:/app
     command: >
       sh -c 'poetry install --no-interaction && poetry run poe dev'
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 volumes:
   arcadedb-data:

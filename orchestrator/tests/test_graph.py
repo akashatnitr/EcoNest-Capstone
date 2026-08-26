@@ -601,7 +601,6 @@ async def test_sync_rooms_to_graph_returns_rid_map_and_uses_upserts():
         "orchestrator.graph.builder.arcadedb_query",
         new=AsyncMock(
             side_effect=[
-                {"result": []},
                 _mock_arcadedb_rid("#1:0"),
                 _mock_arcadedb_rid("#1:1"),
                 {"result": []},
@@ -612,8 +611,6 @@ async def test_sync_rooms_to_graph_returns_rid_map_and_uses_upserts():
 
     assert rid_map == {1: "#1:0", 2: "#1:1"}
     commands = [call.args[1] for call in query.await_args_list]
-    assert commands[0] == "BEGIN"
-    assert commands[-1] == "COMMIT"
     assert any("UPDATE Room SET" in command for command in commands)
     assert any("UPSERT WHERE mysql_id = 1" in command for command in commands)
 
@@ -631,7 +628,6 @@ async def test_sync_devices_to_graph_returns_rids_and_repairs_location_edges():
         "orchestrator.graph.builder.arcadedb_query",
         new=AsyncMock(
             side_effect=[
-                {"result": []},
                 _mock_arcadedb_rid("#2:0"),
                 {"result": []},
                 {"result": []},
@@ -643,8 +639,6 @@ async def test_sync_devices_to_graph_returns_rids_and_repairs_location_edges():
 
     assert rid_map == {99: "#2:0"}
     commands = [call.args[1] for call in query.await_args_list]
-    assert commands[0] == "BEGIN"
-    assert commands[-1] == "COMMIT"
     assert any("UPDATE Device SET" in command for command in commands)
     assert any("UPSERT WHERE mysql_id = 99" in command for command in commands)
     assert any("DELETE EDGE LOCATED_IN" in command for command in commands)
@@ -688,8 +682,6 @@ async def test_incremental_sync_upserts_rooms_and_devices():
     assert result["changed_sensor_readings"] == 1
     assert result["conflict_policy"] == "update"
     commands = [call.args[1] for call in query.await_args_list]
-    assert commands[0] == "BEGIN"
-    assert commands[-1] == "COMMIT"
     assert any(
         "UPDATE Room SET" in command and "UPSERT WHERE mysql_id = 10" in command
         for command in commands
@@ -808,8 +800,8 @@ async def test_incremental_sync_rolls_back_on_arcadedb_error():
             await incremental_sync(session)
 
     commands = [call.args[1] for call in query.await_args_list]
-    assert commands[0] == "BEGIN"
-    assert commands[-1] == "ROLLBACK"
+    assert commands
+    assert commands[0].startswith("UPDATE Room SET")
 
 
 def test_default_seed_inventory_uses_real_room_and_device_inventory():

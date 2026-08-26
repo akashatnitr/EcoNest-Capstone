@@ -1,6 +1,7 @@
 """Sync existing MySQL data into ArcadeDB."""
 
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal
@@ -18,6 +19,8 @@ from orchestrator.graph.models import (
     SensorReading,
     device_type_for_ha_domain,
 )
+
+logger = logging.getLogger(__name__)
 
 ConflictPolicy = Literal["update", "skip"]
 
@@ -96,7 +99,7 @@ async def incremental_sync(
     for incremental sync.
     """
     room_result = await mysql_session.execute(
-        text("SELECT id, name FROM rooms"),
+        text("SELECT id, name, description, ha_area_id FROM rooms"),
     )
     changed_rooms = _rows_as_dicts(room_result.mappings().all())
 
@@ -189,8 +192,9 @@ async def grant_access_to_graph(
 
 def _devices_select() -> Any:
     return text(
-        "SELECT d.id, d.name, d.device_type, d.room_id, d.is_active, "
-        "r.name AS room_name "
+        "SELECT d.id, d.name, d.device_type, d.room_id, d.is_active, d.ha_entity_id, "
+        "d.ha_device_id, d.ha_platform, d.manufacturer, d.model, d.ip_address, "
+        "r.name AS room_name, r.ha_area_id "
         "FROM devices d LEFT JOIN rooms r ON d.room_id = r.id"
     )
 
@@ -213,15 +217,20 @@ def _room_command(row: Mapping[str, Any], conflict_policy: ConflictPolicy) -> st
             "room_type": room.room_type,
             "description": room.description,
             "ha_area_id": room.ha_area_id,
-            "created_at": "datetime()",
+            "created_at": "sysdate()",
         }
+    )
+    identity = (
+        f"ha_area_id = {_sql_value(str(room.ha_area_id))}"
+        if room.ha_area_id
+        else f"mysql_id = {int(row['id'])}"
     )
     if conflict_policy == "skip":
         return (
             f"CREATE VERTEX Room SET {fields} "
-            f"IF NOT EXISTS WHERE mysql_id = {int(row['id'])}"
+            f"IF NOT EXISTS WHERE {identity}"
         )
-    return f"UPDATE Room SET {fields} UPSERT WHERE mysql_id = {int(row['id'])}"
+    return f"UPDATE Room SET {fields} UPSERT WHERE {identity}"
 
 
 def _device_command(row: Mapping[str, Any], conflict_policy: ConflictPolicy) -> str:
@@ -254,15 +263,20 @@ def _device_command(row: Mapping[str, Any], conflict_policy: ConflictPolicy) -> 
             "model": device.model,
             "ip_address": device.ip_address,
             "is_active": device.is_active,
-            "created_at": "datetime()",
+            "created_at": "sysdate()",
         }
+    )
+    identity = (
+        f"ha_entity_id = {_sql_value(str(device.ha_entity_id))}"
+        if device.ha_entity_id
+        else f"mysql_id = {int(row['id'])}"
     )
     if conflict_policy == "skip":
         return (
             f"CREATE VERTEX Device SET {fields} "
-            f"IF NOT EXISTS WHERE mysql_id = {int(row['id'])}"
+            f"IF NOT EXISTS WHERE {identity}"
         )
-    return f"UPDATE Device SET {fields} UPSERT WHERE mysql_id = {int(row['id'])}"
+    return f"UPDATE Device SET {fields} UPSERT WHERE {identity}"
 
 
 def _device_room_edge_commands(row: Mapping[str, Any]) -> list[str]:
@@ -333,19 +347,22 @@ async def _create_access_edge(
 
 
 async def _execute_transaction(commands: Sequence[str]) -> list[dict]:
-    """Execute ArcadeDB commands in one transaction-like batch."""
+    """Execute idempotent ArcadeDB upserts.
+
+    HTTP commands use independent requests, so server-side BEGIN/COMMIT cannot
+    span them reliably. Every sync command is an idempotent upsert or edge
+    repair; execute each request directly and surface the exact failure.
+    """
     if not commands:
         return []
 
     responses: list[dict] = []
-    await arcadedb_query("sql", "BEGIN", readonly=False)
-    try:
-        for command in commands:
+    for command in commands:
+        try:
             responses.append(await arcadedb_query("sql", command, readonly=False))
-        await arcadedb_query("sql", "COMMIT", readonly=False)
-    except Exception:
-        await arcadedb_query("sql", "ROLLBACK", readonly=False)
-        raise
+        except Exception:
+            logger.exception("ArcadeDB graph sync command failed: %s", command)
+            raise
     return responses
 
 
@@ -460,8 +477,8 @@ def _has_value(value: Any) -> bool:
 
 
 def _sql_value(value: Any) -> str:
-    if value == "datetime()":
-        return "datetime()"
+    if value == "sysdate()":
+        return "sysdate()"
     if isinstance(value, bool):
         return str(value).lower()
     if isinstance(value, (int, float)):

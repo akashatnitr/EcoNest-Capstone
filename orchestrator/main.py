@@ -6,7 +6,17 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
 
-from orchestrator.api import auth, demo, devices, graph, mcp, ontology, readings, users
+from orchestrator.api import (
+    auth,
+    demo,
+    devices,
+    graph,
+    mcp,
+    monitor,
+    ontology,
+    readings,
+    users,
+)
 from orchestrator.config import get_settings
 from orchestrator.core.autonomy import AutonomousMonitor
 from orchestrator.core.database import (
@@ -15,17 +25,27 @@ from orchestrator.core.database import (
     healthcheck_mysql,
     init_databases,
 )
+from orchestrator.core.graph_sync import GraphSyncMonitor
+from orchestrator.core.ha_ingest import HomeAssistantIngestor
 from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
 autonomous_monitor: AutonomousMonitor | None = None
+ha_ingestor: HomeAssistantIngestor | None = None
+graph_sync_monitor: GraphSyncMonitor | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage database connections across the application lifespan."""
-    global autonomous_monitor
+    global autonomous_monitor, ha_ingestor, graph_sync_monitor
     await init_databases()
+    if settings.HA_INGEST_ENABLED:
+        ha_ingestor = HomeAssistantIngestor(settings)
+        ha_ingestor.start()
+    if settings.GRAPH_SYNC_ENABLED:
+        graph_sync_monitor = GraphSyncMonitor(settings)
+        graph_sync_monitor.start()
     if settings.AUTONOMY_MONITOR_ENABLED:
         autonomous_monitor = AutonomousMonitor(
             lambda: demo.collect_periodic_feedback(trigger="background_monitor"),
@@ -39,6 +59,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if graph_sync_monitor is not None:
+            await graph_sync_monitor.stop()
+            graph_sync_monitor = None
+        if ha_ingestor is not None:
+            await ha_ingestor.stop()
+            ha_ingestor = None
         if autonomous_monitor is not None:
             await autonomous_monitor.stop()
             autonomous_monitor = None
@@ -59,9 +85,33 @@ app.include_router(devices.router)
 app.include_router(graph.router)
 app.include_router(mcp.router)
 app.include_router(mcp_server.router)
+app.include_router(monitor.router)
 app.include_router(ontology.router)
 app.include_router(readings.router)
 app.include_router(users.router)
+
+
+@app.get("/ingestion/status")
+async def ingestion_status() -> dict[str, Any]:
+    """Return Home Assistant sensor-ingestion status."""
+    if ha_ingestor is None:
+        return {
+            "enabled": settings.HA_INGEST_ENABLED,
+            "running": False,
+            "interval_seconds": settings.HA_INGEST_INTERVAL_SECONDS,
+        }
+    return ha_ingestor.status()
+
+
+@app.post("/ingestion/run-once")
+async def ingestion_run_once() -> dict[str, Any]:
+    """Immediately collect and persist one Home Assistant sensor snapshot."""
+    if ha_ingestor is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Home Assistant ingestion is not enabled",
+        )
+    return await ha_ingestor.run_once()
 
 
 @app.get("/health")
@@ -79,6 +129,19 @@ async def health_check() -> dict[str, Any]:
             "mysql": mysql_ok,
             "arcadedb": arcadedb_ok,
         },
+    }
+
+
+@app.get("/recovery/status")
+async def recovery_status() -> dict[str, Any]:
+    """Read-only Mac Mini recovery evidence and remediation guidance."""
+    mysql_ok = await healthcheck_mysql()
+    arcade_ok = await healthcheck_arcadedb()
+    return {
+        "services": {"mysql": mysql_ok, "arcadedb": arcade_ok},
+        "ingestion": ha_ingestor.status() if ha_ingestor else {"running": False},
+        "graph_sync": graph_sync_monitor.status() if graph_sync_monitor else {"running": False},
+        "remediation": [] if mysql_ok and arcade_ok else ["Check Docker Desktop, then run docker compose -f docker-compose.real.yml up -d."],
     }
 
 

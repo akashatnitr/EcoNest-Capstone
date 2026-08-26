@@ -7,6 +7,7 @@ import asyncio
 from pydantic import BaseModel
 
 from orchestrator.agents.base import BaseAgent, Result, Task
+from orchestrator.config import get_settings
 from orchestrator.core.database import arcadedb_query
 from orchestrator.mcp.tools.ha_tools import (
     HACallServiceInput,
@@ -219,11 +220,18 @@ class DeviceAgent(BaseAgent):
             )
 
         try:
+            selector = (
+                f".has('ha_entity_id','{request.entity_id}')"
+                if request.entity_id
+                else f".has('mysql_id',{int(request.device_id)})"
+                if request.device_id.isdigit()
+                else f".has('ha_entity_id','{request.device_id}')"
+            )
             result = await arcadedb_query(
                 "gremlin",
                 (
                     f"g.V()"
-                    f".has('id','{request.device_id}')"
+                    f".hasLabel('Device'){selector}"
                     ".out('HAS_CAPABILITY')"
                     ".values('name')"
                 ),
@@ -235,16 +243,14 @@ class DeviceAgent(BaseAgent):
             )
 
         except Exception:
-            return CapabilityCheck(
-                allowed=True,
-                reason=("Capability verification unavailable"),
-            )
+            if not get_settings().DEVICE_CAPABILITY_FAIL_CLOSED:
+                return CapabilityCheck(allowed=True, reason="Capability verification unavailable")
+            return CapabilityCheck(allowed=False, reason="Capability verification unavailable")
 
         if not capabilities:
-            return CapabilityCheck(
-                allowed=True,
-                reason=("No capability metadata available"),
-            )
+            if not get_settings().DEVICE_CAPABILITY_FAIL_CLOSED:
+                return CapabilityCheck(allowed=True, reason="No capability metadata available")
+            return CapabilityCheck(allowed=False, reason="No capability metadata available")
 
         if required in capabilities:
             return CapabilityCheck(
