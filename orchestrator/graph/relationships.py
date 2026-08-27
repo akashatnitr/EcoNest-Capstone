@@ -181,7 +181,9 @@ async def _sync_action_capability_edges() -> int:
 async def _sync_device_capability_edges() -> int:
     await _clear_edges("HAS_CAPABILITY")
     count = 0
-    for device in await _graph_rows("g.V().hasLabel('Device').valueMap(true)"):
+    for device in await _graph_rows(
+        "g.V().hasLabel('Device').elementMap('device_type')"
+    ):
         device_rid = _rid(device)
         device_type = _first_string(device.get("device_type"))
         if not device_rid or not device_type:
@@ -200,7 +202,9 @@ async def _sync_room_circuit_edges() -> tuple[int, int]:
     await _clear_edges("POWERED_BY")
     circuits = 0
     powered_by = 0
-    for room in await _graph_rows("g.V().hasLabel('Room').valueMap(true)"):
+    for room in await _graph_rows(
+        "g.V().hasLabel('Room').elementMap('name', 'ha_area_id')"
+    ):
         room_rid = _rid(room)
         room_name = _first_string(room.get("name"))
         area_id = _first_string(room.get("ha_area_id"))
@@ -223,7 +227,7 @@ async def _sync_room_circuit_edges() -> tuple[int, int]:
 
         device_result = await arcadedb_query(
             "gremlin",
-            f"g.V('{_escape_gremlin(room_rid)}').in('LOCATED_IN').hasLabel('Device').valueMap(true)",
+            f"g.V('{_escape_gremlin(room_rid)}').in('LOCATED_IN').hasLabel('Device').elementMap('device_type')",
         )
         for device in _result_values(device_result):
             if not isinstance(device, Mapping):
@@ -243,7 +247,9 @@ async def _sync_room_circuit_edges() -> tuple[int, int]:
 async def _sync_device_dependency_edges() -> int:
     await _clear_edges("DEPENDS_ON")
     count = 0
-    for device in await _graph_rows("g.V().hasLabel('Device').valueMap(true)"):
+    for device in await _graph_rows(
+        "g.V().hasLabel('Device').elementMap('via_device_id')"
+    ):
         device_rid = _rid(device)
         via_device_id = _first_string(device.get("via_device_id"))
         if not device_rid or not via_device_id:
@@ -259,7 +265,9 @@ async def _sync_device_dependency_edges() -> int:
 async def _sync_observation_sensor_edges() -> int:
     await _clear_edges("DERIVED_FROM")
     count = 0
-    for sensor in await _graph_rows("g.V().hasLabel('Sensor').valueMap(true)"):
+    for sensor in await _graph_rows(
+        "g.V().hasLabel('Sensor').elementMap('ha_entity_id')"
+    ):
         sensor_rid = _rid(sensor)
         entity_id = _first_string(sensor.get("ha_entity_id"))
         if not sensor_rid or not entity_id:
@@ -300,7 +308,7 @@ async def _sync_user_home_edges() -> int:
 async def _sync_user_action_edges() -> int:
     await _clear_edges("CAN_PERFORM")
     count = 0
-    for user in await _graph_rows("g.V().hasLabel('User').valueMap(true)"):
+    for user in await _graph_rows("g.V().hasLabel('User').elementMap('role')"):
         user_rid = _rid(user)
         role = _first_string(user.get("role"))
         if not user_rid or not role:

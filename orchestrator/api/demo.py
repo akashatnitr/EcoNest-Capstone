@@ -85,6 +85,7 @@ class AutonomousActionRecommendation(BaseModel):
     reason: str = ""
     expected_outcome: dict[str, Any] = Field(default_factory=dict)
     risk_level: str = Field(default="LOW", pattern="^(LOW|MEDIUM|HIGH)$")
+    fallback_reason: str | None = None
 
 
 @router.get("", response_class=HTMLResponse)
@@ -223,8 +224,11 @@ async def recommend_autonomous_action(
             AutonomousActionRecommendation,
             temperature=0.0,
         )
-    except Exception:
-        recommendation = _fallback_autonomous_action(feedback)
+    except Exception as exc:
+        recommendation = _fallback_autonomous_action(
+            feedback,
+            fallback_reason=_autonomy_model_failure_reason(exc),
+        )
     finally:
         await client.close()
 
@@ -1232,6 +1236,7 @@ def _merge_feedback_suggestions(
 
 def _fallback_autonomous_action(
     feedback: dict[str, Any],
+    fallback_reason: str | None = None,
 ) -> AutonomousActionRecommendation:
     snapshot = feedback.get("snapshot", {})
     allowed_entities = _allowed_autonomous_entities()
@@ -1251,13 +1256,28 @@ def _fallback_autonomous_action(
                 ),
                 expected_outcome={"entity_id": entity_id, "state": "off"},
                 risk_level="LOW",
+                fallback_reason=fallback_reason,
             )
     return AutonomousActionRecommendation(
         should_act=False,
         source="fallback_policy",
         confidence=0.0,
         reason="No allowlisted low-risk action is currently justified.",
+        fallback_reason=fallback_reason,
     )
+
+
+def _autonomy_model_failure_reason(exc: Exception) -> str:
+    """Return a safe, useful explanation for an action-model fallback."""
+    if isinstance(exc, httpx.TimeoutException):
+        return "Ollama did not respond within EcoNest's 60-second model timeout."
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"Ollama returned HTTP {exc.response.status_code}."
+    if isinstance(exc, httpx.RequestError):
+        return "EcoNest could not connect to Ollama for the structured action decision."
+    if exc.__class__.__name__ == "ValidationError":
+        return "Ollama returned an action response that did not match EcoNest's required format."
+    return f"Ollama action decision failed: {exc.__class__.__name__}."
 
 
 def _guard_autonomous_action(
@@ -1268,13 +1288,20 @@ def _guard_autonomous_action(
         return recommendation
 
     action_key = f"{recommendation.domain}.{recommendation.action}"
+
     if action_key not in _allowed_autonomous_actions():
         return None
+
     if recommendation.entity_id not in _allowed_autonomous_entities():
         return None
+
     if recommendation.risk_level != "LOW":
         return None
-    if recommendation.domain != "light" or recommendation.action != "turn_off":
+
+    if recommendation.domain != "light" or recommendation.action not in {
+        "turn_on",
+        "turn_off",
+    }:
         return None
 
     lights_on = {
@@ -1282,14 +1309,22 @@ def _guard_autonomous_action(
         for light in snapshot.get("lights_on", [])
         if isinstance(light, dict)
     }
-    if recommendation.entity_id not in lights_on:
-        return None
+
+    # turn_off is valid only when the allowlisted light is currently ON.
+    if recommendation.action == "turn_off":
+        if recommendation.entity_id not in lights_on:
+            return None
+
+    # turn_on is valid only when the allowlisted light is currently OFF.
+    elif recommendation.action == "turn_on":
+        if recommendation.entity_id in lights_on:
+            return None
 
     return recommendation.model_copy(
         update={
             "expected_outcome": {
                 "entity_id": recommendation.entity_id,
-                "state": "off",
+                "state": "on" if recommendation.action == "turn_on" else "off",
             }
         }
     )

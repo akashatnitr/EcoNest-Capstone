@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -28,7 +28,7 @@ class GraphSyncMonitor:
         self.last_success_at: str | None = None
         self.last_error: str | None = None
         self.last_result: dict[str, Any] | None = None
-        self._watermark = "1970-01-01 00:00:00"
+        self._watermark: str | None = None
 
     def start(self) -> None:
         self._stop.clear()
@@ -51,6 +51,8 @@ class GraphSyncMonitor:
         while not self._stop.is_set():
             try:
                 async with mysql_session_context() as session:
+                    if self._watermark is None:
+                        self._watermark = await self._initial_watermark(session)
                     result = await incremental_sync(session, self._watermark)
                     relationships = await sync_graph_relationships(session)
                     latest = await session.execute(text("SELECT MAX(timestamp) AS value FROM sensor_readings"))
@@ -68,3 +70,15 @@ class GraphSyncMonitor:
                 await asyncio.wait_for(self._stop.wait(), timeout=self.interval_seconds)
             except TimeoutError:
                 pass
+
+    async def _initial_watermark(self, session: Any) -> str:
+        """Start from recent data instead of replaying all historical readings."""
+        result = await session.execute(
+            text("SELECT MAX(timestamp) AS value FROM sensor_readings")
+        )
+        value = result.mappings().one()["value"]
+        if value is None:
+            return "1970-01-01 00:00:00"
+        if self.settings.GRAPH_SYNC_INITIAL_LOOKBACK_SECONDS:
+            value -= timedelta(seconds=self.settings.GRAPH_SYNC_INITIAL_LOOKBACK_SECONDS)
+        return value.strftime("%Y-%m-%d %H:%M:%S")

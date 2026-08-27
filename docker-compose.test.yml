@@ -47,7 +47,7 @@ services:
     environment:
       HA_TOKEN: ${HA_TOKEN:-}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b}
-      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-qwen2.5:0.5b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-gemma4}
     ports: !override
       - "8001:8000"

@@ -13,3 +13,7 @@ ha_states.json
 econest_exports/
 logs/
 backups/
+
+# Local / personal files
+.DS_Store
+*.pdf

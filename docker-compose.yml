@@ -51,13 +51,12 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
-    # Pre-pull gemma4 on first start (idempotent)
+    # Pre-pull the sole EcoNest language model on first start (idempotent)
     entrypoint: >
       sh -c '
         ollama serve &
         sleep 5
         ollama pull gemma4 || true
-        ollama pull mistral || true
         wait
       '
 

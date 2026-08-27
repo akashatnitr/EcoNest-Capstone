@@ -6,6 +6,7 @@ from orchestrator.agents.base import Result
 from orchestrator.api import demo
 from orchestrator.mcp.models import ToolExecutionResult
 
+import pytest
 
 def test_demo_page_serves_frontend(client):
     response = client.get("/demo")
@@ -516,6 +517,65 @@ async def test_autonomous_action_recommendation_uses_allowed_light(monkeypatch):
     assert recommendation["action"] == "turn_off"
     assert recommendation["expected_outcome"]["state"] == "off"
 
+@pytest.mark.anyio
+async def test_autonomous_action_recommendation_allows_turn_on_media_light(monkeypatch):
+    class FakeLLMClient:
+        async def generate_structured(
+            self,
+            messages,
+            output_model,
+            system=None,
+            temperature=0.7,
+        ):
+            return output_model(
+                should_act=True,
+                confidence=0.93,
+                domain="light",
+                action="turn_on",
+                entity_id=demo.DEMO_MEDIA_LIGHT_ENTITY,
+                reason="Motion is detected in the media room and the media room light is off.",
+                expected_outcome={
+                    "entity_id": demo.DEMO_MEDIA_LIGHT_ENTITY,
+                    "state": "on",
+                },
+                risk_level="LOW",
+            )
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(demo, "LLMClient", FakeLLMClient)
+    monkeypatch.setattr(
+        demo.settings,
+        "AUTONOMY_ALLOWED_ENTITIES",
+        demo.DEMO_MEDIA_LIGHT_ENTITY,
+    )
+    monkeypatch.setattr(
+        demo.settings,
+        "AUTONOMY_ALLOWED_ACTIONS",
+        "light.turn_on,light.turn_off",
+    )
+
+    recommendation = await demo.recommend_autonomous_action(
+        {
+            "snapshot": {
+                "lights_on": [],
+                "active_motion": [
+                    {
+                        "entity_id": "binary_sensor.media_room_motion",
+                        "name": "Media Room Motion",
+                        "state": "on",
+                    }
+                ],
+            },
+            "suggestions": [],
+        }
+    )
+
+    assert recommendation is not None
+    assert recommendation["entity_id"] == demo.DEMO_MEDIA_LIGHT_ENTITY
+    assert recommendation["action"] == "turn_on"
+    assert recommendation["expected_outcome"]["state"] == "on"
 
 def test_light_policy_reasoning_guard_replaces_contradiction():
     reasoning = demo._guard_light_policy_reasoning(

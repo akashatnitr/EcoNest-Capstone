@@ -7,7 +7,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, status
 
 from orchestrator.api import (
+    autonomy,
     auth,
+    command,
     demo,
     devices,
     graph,
@@ -27,6 +29,7 @@ from orchestrator.core.database import (
 )
 from orchestrator.core.graph_sync import GraphSyncMonitor
 from orchestrator.core.ha_ingest import HomeAssistantIngestor
+from orchestrator.core.event_dispatcher import EventDispatcher
 from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
@@ -41,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global autonomous_monitor, ha_ingestor, graph_sync_monitor
     await init_databases()
     if settings.HA_INGEST_ENABLED:
-        ha_ingestor = HomeAssistantIngestor(settings)
+        ha_ingestor = HomeAssistantIngestor(settings, EventDispatcher(settings))
         ha_ingestor.start()
     if settings.GRAPH_SYNC_ENABLED:
         graph_sync_monitor = GraphSyncMonitor(settings)
@@ -54,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             action_recommender=demo.recommend_autonomous_action,
             action_executor=demo.execute_autonomous_action,
             action_confidence_threshold=settings.AUTONOMY_ACTION_CONFIDENCE_THRESHOLD,
+            actions_enabled=settings.AUTONOMY_ACTIONS_ENABLED,
         )
         autonomous_monitor.start()
     try:
@@ -80,6 +84,8 @@ app = FastAPI(
 
 
 app.include_router(auth.router)
+app.include_router(autonomy.router)
+app.include_router(command.router)
 app.include_router(demo.router)
 app.include_router(devices.router)
 app.include_router(graph.router)

@@ -641,8 +641,11 @@ async def test_sync_devices_to_graph_returns_rids_and_repairs_location_edges():
     commands = [call.args[1] for call in query.await_args_list]
     assert any("UPDATE Device SET" in command for command in commands)
     assert any("UPSERT WHERE mysql_id = 99" in command for command in commands)
-    assert any("DELETE EDGE LOCATED_IN" in command for command in commands)
-    assert any("CREATE EDGE LOCATED_IN" in command for command in commands)
+    assert any("DELETE FROM LOCATED_IN" in command for command in commands)
+    assert any(
+        "CREATE EDGE LOCATED_IN" in command and "IF NOT EXISTS" in command
+        for command in commands
+    )
 
 
 @pytest.mark.anyio
@@ -960,7 +963,7 @@ async def test_sync_graph_relationships_repairs_inferred_edges():
     )
 
     async def fake_query(language, command, database=None, readonly=True):
-        if language == "gremlin" and "hasLabel('Device').valueMap(true)" in command:
+        if language == "gremlin" and "hasLabel('Device').elementMap" in command:
             return {
                 "result": [
                     {
@@ -971,7 +974,7 @@ async def test_sync_graph_relationships_repairs_inferred_edges():
                     }
                 ]
             }
-        if language == "gremlin" and "hasLabel('Room').valueMap(true)" in command:
+        if language == "gremlin" and "hasLabel('Room').elementMap" in command:
             return {
                 "result": [
                     {
@@ -983,7 +986,7 @@ async def test_sync_graph_relationships_repairs_inferred_edges():
             }
         if language == "gremlin" and ".in('LOCATED_IN')" in command:
             return {"result": [{"@rid": "#1:0", "name": ["Counter Light"]}]}
-        if language == "gremlin" and "hasLabel('Sensor').valueMap(true)" in command:
+        if language == "gremlin" and "hasLabel('Sensor').elementMap" in command:
             return {
                 "result": [
                     {
@@ -995,7 +998,7 @@ async def test_sync_graph_relationships_repairs_inferred_edges():
             }
         if language == "gremlin" and "hasLabel('User').values('@rid')" in command:
             return {"result": ["#4:0"]}
-        if language == "gremlin" and "hasLabel('User').valueMap(true)" in command:
+        if language == "gremlin" and "hasLabel('User').elementMap" in command:
             return {
                 "result": [
                     {

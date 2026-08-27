@@ -1,5 +1,7 @@
 """Tests for background autonomous monitoring."""
 
+import pytest
+
 from orchestrator.core import autonomy
 from orchestrator.core.autonomy import AutonomousMonitor
 
@@ -103,6 +105,7 @@ async def test_autonomous_monitor_executes_high_confidence_action(monkeypatch):
         action_recommender=recommend_action,
         action_executor=execute_action,
         action_confidence_threshold=0.85,
+        actions_enabled=True,
     )
 
     await monitor.run_once()
@@ -147,3 +150,38 @@ async def test_autonomous_monitor_skips_low_confidence_action(monkeypatch):
     assert monitor.status()["action_skip_count"] == 1
     assert events[-1][0] == "autonomy.action.skipped"
     assert events[-1][1]["reason"] == "confidence_below_threshold"
+
+
+@pytest.mark.asyncio
+async def test_autonomous_monitor_records_but_does_not_execute_when_disabled(monkeypatch):
+    """Observe-only mode must retain recommendations without device control."""
+    events = []
+    executed = []
+
+    async def collect_feedback():
+        return {"source": "ollama", "suggestions": [], "snapshot": {}}
+
+    async def recommend_action(feedback):
+        return {"confidence": 0.95, "entity_id": "light.safe", "action": "turn_off"}
+
+    async def execute_action(recommendation):
+        executed.append(recommendation)
+        return {"success": True}
+
+    async def fake_write(event_type, payload):
+        events.append((event_type, payload))
+
+    monkeypatch.setattr(autonomy, "write_audit_event_async", fake_write)
+    monitor = AutonomousMonitor(
+        collect_feedback,
+        interval_seconds=1,
+        action_recommender=recommend_action,
+        action_executor=execute_action,
+        actions_enabled=False,
+    )
+
+    await monitor.run_once()
+
+    assert executed == []
+    assert monitor.status()["action_skip_count"] == 1
+    assert events[-1][1]["reason"] == "actions_disabled"
