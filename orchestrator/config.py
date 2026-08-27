@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Ollama / LLM
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "gemma4"
-    OLLAMA_FALLBACK_MODEL: str = "mistral"
+    OLLAMA_FALLBACK_MODEL: str = "gemma4"
 
     # Home Assistant
     HA_URL: str = "http://localhost:8123"
@@ -42,9 +42,12 @@ class Settings(BaseSettings):
     HA_REGISTRY_SOURCE: str = "live"
     HA_INGEST_ENABLED: bool = False
     HA_INGEST_INTERVAL_SECONDS: int = 60
+    HA_EVENT_DISPATCH_ENABLED: bool = True
+    HA_EVENT_DISPATCH_COOLDOWN_SECONDS: int = 300
     HA_REGISTRY_REFRESH_SECONDS: int = 300
     GRAPH_SYNC_ENABLED: bool = True
     GRAPH_SYNC_INTERVAL_SECONDS: int = 300
+    GRAPH_SYNC_INITIAL_LOOKBACK_SECONDS: int = 0
     DEVICE_CAPABILITY_FAIL_CLOSED: bool = False
 
     # Security
@@ -64,7 +67,7 @@ class Settings(BaseSettings):
     AUTONOMY_MONITOR_RUN_ON_STARTUP: bool = True
     AUTONOMY_ACTIONS_ENABLED: bool = False
     AUTONOMY_ACTION_CONFIDENCE_THRESHOLD: float = 0.85
-    AUTONOMY_ALLOWED_ACTIONS: str = "light.turn_off"
+    AUTONOMY_ALLOWED_ACTIONS: str = "light.turn_off,light.turn_on"
     AUTONOMY_ALLOWED_ENTITIES: str = ""
 
 

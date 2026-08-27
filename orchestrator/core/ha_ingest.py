@@ -14,6 +14,7 @@ from sqlalchemy import text
 from orchestrator.config import Settings
 from orchestrator.core.database import mysql_session_context
 from orchestrator.core.ha_registry import RegistryContext, fetch_registry_context
+from orchestrator.core.event_dispatcher import EventDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,9 @@ logger = logging.getLogger(__name__)
 class HomeAssistantIngestor:
     """Poll Home Assistant and persist sensor state snapshots in MySQL."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, event_dispatcher: EventDispatcher | None = None) -> None:
         self.settings = settings
+        self.event_dispatcher = event_dispatcher
         self.interval_seconds = max(15, settings.HA_INGEST_INTERVAL_SECONDS)
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
@@ -89,7 +91,9 @@ class HomeAssistantIngestor:
         self.last_run_at = _utc_now()
         try:
             states = await self._fetch_states()
-            result = await self._store_states(states)
+            result, changed = await self._store_states(states)
+            if self.event_dispatcher is not None:
+                result["events_dispatched"] = await self.event_dispatcher.dispatch(changed)
         except Exception as exc:
             self.failure_count += 1
             self.last_error = f"{exc.__class__.__name__}: {exc}"
@@ -137,7 +141,7 @@ class HomeAssistantIngestor:
             raise RuntimeError("Home Assistant /api/states did not return a list")
         return [state for state in states if isinstance(state, dict)]
 
-    async def _store_states(self, states: list[dict[str, Any]]) -> dict[str, int]:
+    async def _store_states(self, states: list[dict[str, Any]]) -> tuple[dict[str, int], list[dict[str, Any]]]:
         selected = [state for state in states if _is_sensor_state(state)]
         changed = [state for state in selected if self._is_changed(state)]
         registry, registry_available = await self._get_registry()
@@ -189,12 +193,12 @@ class HomeAssistantIngestor:
             except Exception:
                 await session.rollback()
                 raise
-        return {
+        return ({
             "states_received": len(states),
             "sensor_states": len(selected),
             "unchanged_skipped": len(selected) - len(changed),
             "readings_inserted": inserted,
-        }
+        }, changed)
 
     async def _get_registry(self) -> tuple[RegistryContext | None, bool]:
         """Refresh registry metadata periodically while retaining a good cache."""

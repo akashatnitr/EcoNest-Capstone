@@ -25,11 +25,13 @@ class AutonomousMonitor:
         action_recommender: ActionRecommender | None = None,
         action_executor: ActionExecutor | None = None,
         action_confidence_threshold: float = 0.85,
+        actions_enabled: bool = False,
     ) -> None:
         self.collect_feedback = collect_feedback
         self.action_recommender = action_recommender
         self.action_executor = action_executor
         self.action_confidence_threshold = action_confidence_threshold
+        self.actions_enabled = actions_enabled
         self.interval_seconds = max(15, interval_seconds)
         self.run_on_startup = run_on_startup
         self._task: asyncio.Task[None] | None = None
@@ -89,6 +91,7 @@ class AutonomousMonitor:
             "success_count": self.success_count,
             "failure_count": self.failure_count,
             "action_confidence_threshold": self.action_confidence_threshold,
+            "actions_enabled": self.actions_enabled,
             "action_recommendation_count": self.action_recommendation_count,
             "action_execution_count": self.action_execution_count,
             "action_skip_count": self.action_skip_count,
@@ -170,6 +173,17 @@ class AutonomousMonitor:
                     "reason": "confidence_below_threshold",
                     "confidence": confidence,
                     "threshold": self.action_confidence_threshold,
+                    "recommendation": recommendation,
+                },
+            )
+            return
+
+        if not self.actions_enabled:
+            self.action_skip_count += 1
+            await write_audit_event_async(
+                "autonomy.action.skipped",
+                {
+                    "reason": "actions_disabled",
                     "recommendation": recommendation,
                 },
             )

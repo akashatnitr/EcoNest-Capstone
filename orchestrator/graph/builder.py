@@ -285,8 +285,9 @@ def _device_room_edge_commands(row: Mapping[str, Any]) -> list[str]:
     device_selector = f"(SELECT FROM Device WHERE mysql_id = {int(row['id'])})"
     room_selector = f"(SELECT FROM Room WHERE mysql_id = {int(row['room_id'])})"
     return [
-        f"DELETE EDGE LOCATED_IN FROM {device_selector} TO {room_selector}",
-        f"CREATE EDGE LOCATED_IN FROM {device_selector} TO {room_selector}",
+        "DELETE FROM LOCATED_IN "
+        f"WHERE @out IN {device_selector} AND @in IN {room_selector}",
+        f"CREATE EDGE LOCATED_IN FROM {device_selector} TO {room_selector} IF NOT EXISTS",
     ]
 
 

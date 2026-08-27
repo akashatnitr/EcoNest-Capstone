@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EcoNest Command Console</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #08130e; color: #eef8f1; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top left, #19513b, #08130e 55%); }
+    main { width: min(860px, calc(100% - 32px)); margin: auto; padding: 48px 0 80px; }
+    h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.25rem); letter-spacing: -.04em; } h2 { margin-top: 0; font-size: 1.1rem; }
+    p { color: #bbd1c1; line-height: 1.5; } .card { margin-top: 24px; padding: 24px; border: 1px solid #346149; border-radius: 18px; background: rgba(10, 29, 20, .9); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; } label { display: grid; gap: 7px; color: #cce2d3; font-size: .9rem; }
+    input, select, textarea { width: 100%; box-sizing: border-box; border: 1px solid #44745a; border-radius: 9px; background: #091c13; color: inherit; padding: 11px; font: inherit; } textarea { min-height: 90px; resize: vertical; }
+    button { border: 0; border-radius: 9px; padding: 12px 16px; cursor: pointer; background: #63e69d; color: #062113; font: inherit; font-weight: 750; } button.secondary { background: #244b37; color: #e0f4e7; } button:disabled { opacity: .6; cursor: wait; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; } .hide { display: none; } .notice, pre { margin: 16px 0 0; padding: 13px; border-radius: 10px; background: #112f20; color: #c4f2d4; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .warning { background: #3d3011; color: #ffe2a5; } .error { background: #401d22; color: #ffc1c8; } .success { background: #16472d; color: #c2f7d4; } .status { color: #a9cbb5; font-size: .9rem; }
+    @media (max-width: 620px) { .grid { grid-template-columns: 1fr; } main { padding-top: 28px; } }
+  </style>
+</head>
+<body><main>
+  <header><p>ECONEST / COMMAND CENTER</p><h1>Ask your home.</h1><p>Describe an action, confirm the exact Home Assistant target, and EcoNest will route it through the right agent.</p></header>
+  <section id="loginCard" class="card"><h2>Sign in</h2><form id="loginForm" class="grid">
+    <label>Email<input id="email" type="email" autocomplete="username" required></label>
+    <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+    <div class="row"><button type="submit">Sign in</button><button id="register" type="button" class="secondary">Create homeowner account</button><span id="loginStatus" class="status"></span></div>
+  </form></section>
+  <section id="commandCard" class="card hide"><div class="row" style="justify-content:space-between;margin-top:0"><h2>New command</h2><button id="logout" type="button" class="secondary">Sign out</button></div>
+    <form id="commandForm"><label>What should EcoNest do?<textarea id="intent" placeholder="Turn off the bedroom light" required></textarea></label>
+      <div class="grid" style="margin-top:16px"><label>Home Assistant entity ID<input id="entityId" placeholder="light.bedroom" pattern="[a-z_]+\.[a-zA-Z0-9_]+" required></label>
+      <label>Action<select id="action"><option value="turn_off">Turn off</option><option value="turn_on">Turn on</option><option value="set_brightness">Set brightness</option><option value="set_temperature">Set temperature</option><option value="open">Open</option><option value="close">Close</option></select></label>
+      <label id="brightnessWrap" class="hide">Brightness (0–100)<input id="brightness" type="number" min="0" max="100" value="50"></label>
+      <label id="temperatureWrap" class="hide">Temperature<input id="temperature" type="number" step="0.5" value="72"></label></div>
+      <div id="preview" class="notice">Enter a target entity to review the requested action.</div>
+      <div class="notice warning">The entity ID is required: EcoNest never guesses which real device should receive an action. Capability and permission checks still apply.</div>
+      <div class="row"><button id="submitCommand">Send command</button><span id="commandStatus" class="status"></span></div>
+    </form></section>
+  <section id="resultCard" class="card hide"><h2>Agent result</h2><div id="result"></div></section>
+</main>
+<script>
+  let token = sessionStorage.getItem("econest_access_token") || "";
+  const $ = (id) => document.getElementById(id), loginCard = $("loginCard"), commandCard = $("commandCard"), resultCard = $("resultCard");
+  const intent = $("intent"), entityId = $("entityId"), action = $("action"), preview = $("preview");
+  function signedIn(value) { loginCard.classList.toggle("hide", value); commandCard.classList.toggle("hide", !value); }
+  function updatePreview() { const selected = action.value; $("brightnessWrap").classList.toggle("hide", selected !== "set_brightness"); $("temperatureWrap").classList.toggle("hide", selected !== "set_temperature"); preview.textContent = `Review: ${selected.replace("_", " ")} → ${entityId.value.trim() || "an entity ID"}.`; }
+  function inferAction() { const text = intent.value.toLowerCase(); if (text.includes("turn on")) action.value = "turn_on"; else if (text.includes("turn off")) action.value = "turn_off"; else if (text.includes("open")) action.value = "open"; else if (text.includes("close")) action.value = "close"; updatePreview(); }
+  async function api(path, options = {}) { return fetch(path, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } }); }
+  async function responseData(response) { const text = await response.text(); if (!text) return {}; try { return JSON.parse(text); } catch { return { detail: `Server returned ${response.status} ${response.statusText}. Please try again or check the server logs.` }; } }
+  async function signIn() { const body = new URLSearchParams({ username: $("email").value, password: $("password").value }); const response = await fetch("/auth/login", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body }); const data = await responseData(response); if (!response.ok) throw Error(data.detail || "Sign-in failed"); token = data.access_token; sessionStorage.setItem("econest_access_token", token); signedIn(true); }
+  $("loginForm").addEventListener("submit", async (event) => { event.preventDefault(); const status = $("loginStatus"); status.textContent = "Signing in…"; try { await signIn(); } catch (error) { status.textContent = error.message; } });
+  $("register").addEventListener("click", async () => { const status = $("loginStatus"), email = $("email").value, password = $("password").value; if (!email || !password) { status.textContent = "Enter an email and password first."; return; } status.textContent = "Creating account…"; try { const response = await fetch("/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, role: "homeowner" }) }); const data = await responseData(response); if (!response.ok) throw Error(data.detail || "Account creation failed"); await signIn(); } catch (error) { status.textContent = error.message; } });
+  $("logout").addEventListener("click", () => { token = ""; sessionStorage.removeItem("econest_access_token"); resultCard.classList.add("hide"); signedIn(false); });
+  intent.addEventListener("input", inferAction); entityId.addEventListener("input", updatePreview); action.addEventListener("change", updatePreview);
+  $("commandForm").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("submitCommand"), status = $("commandStatus"), entity = entityId.value.trim(), selected = action.value; const payload = { device_id: entity, entity_id: entity, domain: entity.split(".", 1)[0], action: selected }; if (selected === "set_brightness") payload.brightness = Number($("brightness").value); if (selected === "set_temperature") payload.temperature = Number($("temperature").value); button.disabled = true; status.textContent = "Submitting to EcoNest…"; resultCard.classList.add("hide"); try { const response = await api("/mcp/task", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent: intent.value.trim(), payload }) }); const submitted = await responseData(response); if (!response.ok) throw Error(submitted.detail || "Command submission failed"); await poll(submitted.task_id); } catch (error) { status.textContent = error.message; } finally { button.disabled = false; } });
+  async function poll(taskId) { const status = $("commandStatus"), result = $("result"); for (let elapsed = 1; elapsed <= 30; elapsed += 1) { const response = await api(`/mcp/task/${taskId}`), data = await responseData(response); if (!response.ok) throw Error(data.detail || "Could not read result"); if (data.status !== "running") { status.textContent = data.status; resultCard.classList.remove("hide"); result.innerHTML = `<div class="notice ${data.status === "completed" ? "success" : "error"}"><strong>${data.status}</strong> · Agent: ${data.agent || "not selected"}<br>${data.message || ""}</div><pre>${escape(JSON.stringify(data, null, 2))}</pre>`; return; } status.textContent = `Agent is working… (${elapsed}s)`; await new Promise((resolve) => setTimeout(resolve, 1000)); } throw Error("Timed out while waiting for the agent"); }
+  function escape(value) { const node = document.createElement("div"); node.textContent = value; return node.innerHTML; }
+  signedIn(Boolean(token)); updatePreview();
+</script></body></html>

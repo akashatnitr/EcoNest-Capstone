@@ -65,7 +65,7 @@ ARCADEDB_DATABASE=econest
 
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=gemma4
-OLLAMA_FALLBACK_MODEL=mistral
+OLLAMA_FALLBACK_MODEL=gemma4
 
 HA_URL=http://localhost:8123
 HA_TOKEN=your_home_assistant_token

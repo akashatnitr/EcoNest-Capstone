@@ -22,6 +22,7 @@ dependencies = [
     "email-validator (>=2.3.0,<3.0.0)",
     "python-multipart>=0.0.20,<1.0",
     "rdflib (>=7.6.0,<8.0.0)",
+    "greenlet (>=3.5,<4.0)",
 ]
 
 [project.optional-dependencies]

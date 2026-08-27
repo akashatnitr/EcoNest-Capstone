@@ -90,8 +90,8 @@ services:
       MYSQL_PASSWORD: econest
       MYSQL_DATABASE: econest
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b}
-      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-qwen2.5:0.5b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-gemma4}
       HA_URL: ${HA_URL:-http://host.docker.internal:8123}
       HA_TOKEN: ${HA_TOKEN:?Set HA_TOKEN in your .env before starting econest-real}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
@@ -109,7 +109,7 @@ services:
       AUTONOMY_MONITOR_RUN_ON_STARTUP: ${AUTONOMY_MONITOR_RUN_ON_STARTUP:-true}
       AUTONOMY_ACTIONS_ENABLED: ${AUTONOMY_ACTIONS_ENABLED:-true}
       AUTONOMY_ACTION_CONFIDENCE_THRESHOLD: ${AUTONOMY_ACTION_CONFIDENCE_THRESHOLD:-0.85}
-      AUTONOMY_ALLOWED_ACTIONS: ${AUTONOMY_ALLOWED_ACTIONS:-light.turn_off}
+      AUTONOMY_ALLOWED_ACTIONS: ${AUTONOMY_ALLOWED_ACTIONS:-light.turn_off,light.turn_on}
       AUTONOMY_ALLOWED_ENTITIES: ${AUTONOMY_ALLOWED_ENTITIES:-light.upstairs_media_light_1}
     depends_on:
       arcadedb:
