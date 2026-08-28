@@ -1,9 +1,11 @@
-# EcoNest - Smart Home Energy Monitoring & Automation
+# EcoNest - Energy-Aware Smart Home Orchestrator
 
 EcoNest is a capstone smart home system for energy monitoring, anomaly
 detection, graph-based home context, and AI-assisted automation. The current
 architecture centers on a FastAPI orchestrator that coordinates MySQL,
-ArcadeDB, Home Assistant, MCP tools, sub-agents, and local Ollama models.
+ArcadeDB, Home Assistant, MCP tools, specialized agents, and a local Ollama
+model. It provides both a human-operated Command Center and a constrained,
+auditable autonomy path.
 
 ---
 
@@ -13,14 +15,16 @@ ArcadeDB, Home Assistant, MCP tools, sub-agents, and local Ollama models.
 2. [Architecture](#architecture)
 3. [Repository Structure](#repository-structure)
 4. [Quick Start](#quick-start)
-5. [Authentication](#authentication)
-6. [Orchestrator API](#orchestrator-api)
-7. [MCP Tools and Agents](#mcp-tools-and-agents)
-8. [Ontology and Graph](#ontology-and-graph)
-9. [Sensor Polling and ML Scripts](#sensor-polling-and-ml-scripts)
-10. [Home Assistant](#home-assistant)
-11. [Database Schema](#database-schema)
-12. [Documentation](#documentation)
+5. [Live Interfaces](#live-interfaces)
+6. [Command Center and Autonomy](#command-center-and-autonomy)
+7. [Authentication](#authentication)
+8. [Orchestrator API](#orchestrator-api)
+9. [MCP Tools and Agents](#mcp-tools-and-agents)
+10. [Ontology and Graph](#ontology-and-graph)
+11. [Sensor Polling and ML Scripts](#sensor-polling-and-ml-scripts)
+12. [Home Assistant](#home-assistant)
+13. [Database Schema](#database-schema)
+14. [Documentation](#documentation)
 
 ---
 
@@ -28,7 +32,7 @@ ArcadeDB, Home Assistant, MCP tools, sub-agents, and local Ollama models.
 
 EcoNest monitors energy consumption, motion, sound, and device state across a
 home. Sensor data is stored in MySQL, mapped into an ArcadeDB graph, interpreted
-through an RDF ontology, and routed through sub-agents for energy, security,
+through an RDF ontology, and routed through specialized agents for energy, security,
 sensor health, and device-control workflows.
 
 ### Key Features
@@ -41,11 +45,14 @@ sensor health, and device-control workflows.
   permissions, capabilities, and relationships.
 - **MCP tool layer** for database queries, graph lookups, Home Assistant state,
   and device actions.
-- **Sub-agents** for energy, security, sensor, and device workflows.
-- **Local LLM inference** through Ollama with Gemma4 as the primary model and
-  Mistral as fallback.
+- **Specialized agents** for energy, security, sensor, and device workflows.
+- **Local LLM inference** through Ollama with Gemma4 as both the primary and
+  configured fallback model.
 - **Home Assistant integration** for live device state, automations, and
   service calls.
+- **Command Center UI** for authenticated, explicit Home Assistant commands.
+- **Autonomy Activity UI** for recommendation history, confidence, reasoning,
+  fallback diagnostics, and execution outcomes.
 
 ---
 
@@ -58,7 +65,7 @@ Home Assistant access, graph context, model inference, MCP tools, and agent
 workflows.
 
 ```text
-Home Assistant + sensor/analytics scripts
+Home Assistant + sensor/analytics scripts + Command Center
         |
         | device state, service calls, sensor readings, anomaly events
         v
@@ -108,6 +115,10 @@ FastAPI orchestrator
                - Ollama-backed model client
                - optional MCP-assisted context gathering
                - fallback behavior when MCP tools are disabled
+        |
+        +-- Autonomous monitor
+               - periodic Home Assistant state snapshots
+               - recommendation, safety-gate, execution, and audit lifecycle
 ```
 
 ### Runtime Flow
@@ -125,6 +136,9 @@ FastAPI orchestrator
 6. If an action is needed, such as turning on a light or checking a device
    neighborhood, the orchestrator validates the request and calls the correct
    Home Assistant or graph/database tool.
+7. When enabled, the autonomous monitor separately collects periodic Home
+   Assistant snapshots, asks the local model for one safe recommendation, and
+   independently validates every proposed action before execution.
 
 ### Data Model Direction
 
@@ -177,7 +191,7 @@ FastAPI orchestrator
         |
         +-- MySQL
         +-- ArcadeDB
-        +-- Ollama (Gemma4, fallback Mistral)
+        +-- Ollama (Gemma4)
 -->
 
 ---
@@ -189,13 +203,14 @@ EcoNest-Capstone/
 ├── orchestrator/                 # FastAPI orchestrator package
 │   ├── main.py                    # Application entrypoint
 │   ├── config.py                  # Pydantic settings and env vars
-│   ├── api/                       # Auth, device, graph, MCP, ontology routes
+│   ├── api/                       # Auth, command, autonomy, device, graph, MCP, ontology routes
 │   ├── agents/                    # Energy, Security, Sensor, Device agents
-│   ├── core/                      # Database, permissions, security helpers
+│   ├── core/                      # Database, autonomy, audit, permissions, security helpers
 │   ├── graph/                     # ArcadeDB graph models, seeds, queries
-│   ├── llm/                       # Ollama client and memory helpers
+│   ├── llm/                       # Ollama client, prompts, and memory helpers
 │   ├── mcp/                       # MCP protocol server and tools
 │   ├── ontology/                  # RDF/Turtle ontology and reasoning helpers
+│   ├── static/                    # Command Center and Autonomy Activity pages
 │   └── tests/                     # pytest suite
 ├── Machine_learning/              # Analytics, trigger, inference, demo scripts
 ├── medium home/                   # Legacy backend, frontend, and sensor scripts
@@ -218,7 +233,7 @@ EcoNest-Capstone/
 | Docker Desktop | Recommended for the orchestrator stack |
 | Python 3.11+ | Required for local orchestrator development |
 | Home Assistant | Optional for live device state and actions |
-| Ollama | Used for local Gemma4/Mistral inference |
+| Ollama | Used for local Gemma4 inference |
 
 ### 1. Configure Environment
 
@@ -252,7 +267,19 @@ HA_TOKEN=your_long_lived_access_token
 SECRET_KEY=replace-this-for-local-dev
 ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# Optional constrained autonomy
+AUTONOMY_MONITOR_ENABLED=false
+AUTONOMY_MONITOR_INTERVAL_SECONDS=300
+AUTONOMY_ACTIONS_ENABLED=false
+AUTONOMY_ACTION_CONFIDENCE_THRESHOLD=0.85
+AUTONOMY_ALLOWED_ACTIONS=light.turn_off,light.turn_on
+AUTONOMY_ALLOWED_ENTITIES=
 ```
+
+Keep `AUTONOMY_ACTIONS_ENABLED=false` until entity allowlists and the Home
+Assistant token have been verified. The monitor can still record and explain
+recommendations while execution is disabled.
 
 ### 2. Start the Stack
 
@@ -283,6 +310,69 @@ poetry run poe lint
 poetry run poe test
 poetry run poe dev
 ```
+
+---
+
+## Live Interfaces
+
+These links are available to devices connected to the EcoNest Tailscale
+network. They are deployment-specific rather than public Internet URLs.
+
+| Link | What it is |
+|------|------------|
+| [Autonomy Activity](http://100.75.149.121:8001/autonomy) | Readable history of autonomous and energy recommendations, including confidence, reasoning, model/fallback source, and whether an action executed, was skipped, or failed. |
+| [EcoNest Command Center](http://100.75.149.121:8000/command) | The EcoNest web interface for signing in and sending an explicit command to an exact Home Assistant entity. |
+| [Home Assistant Overview](http://100.75.149.121:8123/home/overview) | The Home Assistant dashboard: the live source of device states and the system that ultimately carries out approved device service calls. |
+
+---
+
+## Command Center and Autonomy
+
+### Manual command path
+
+The Command Center at `/command` is the human-operated path. A homeowner signs
+in, enters a natural-language instruction, selects the exact Home Assistant
+entity ID and action, then submits it. EcoNest routes the resulting task to the
+DeviceAgent, checks permissions and capability data, calls Home Assistant, and
+verifies the resulting entity state.
+
+EcoNest deliberately does not guess which physical device should be changed:
+the exact Home Assistant entity ID is required.
+
+### Autonomous path
+
+When `AUTONOMY_MONITOR_ENABLED=true`, the background monitor runs once at
+startup and then at `AUTONOMY_MONITOR_INTERVAL_SECONDS` intervals. Each cycle:
+
+1. Reads the current Home Assistant `/api/states` snapshot.
+2. Builds a snapshot of people/device trackers, lights and switches on, open
+   covers, active motion, current power, and energy-today readings.
+3. Uses Gemma4 for suggestion-only household feedback and, separately, one
+   structured low-risk action recommendation.
+4. Applies independent safety gates: action allowlist, entity allowlist,
+   low-risk classification, valid current state, and confidence threshold.
+5. Routes a permitted action through the DeviceAgent only when
+   `AUTONOMY_ACTIONS_ENABLED=true`.
+6. Writes recommendation, fallback reason when applicable, and execution
+   outcome to the audit trail.
+
+The Autonomy Activity page is intentionally readable without the Command
+Center sign-in flow. It shows recommendation timestamp, reasoning, confidence,
+source (`ollama` or `fallback_policy`), and outcome. A fallback means the
+structured Ollama action response was unavailable or invalid; it does not
+allow the fallback policy to bypass the same safety gates.
+
+Current autonomous lighting is restricted to explicitly allowlisted low-risk
+actions. Home-level occupancy and live motion are useful signals, but they do
+not prove a particular room is vacant; add a room-specific presence signal
+before relying on autonomous room-vacancy decisions.
+
+### On-demand energy recommendations
+
+`POST /autonomy/energy-recommendations` queues an advisory-only EnergyAgent
+review. It uses recent MySQL history, current observations, and graph context
+to return energy recommendations, anomalies, routine estimates, and demand
+forecasts. This path does not control devices.
 
 ---
 
@@ -361,9 +451,12 @@ autonomous service coordination.
 The FastAPI application is defined in `orchestrator/main.py` and includes:
 
 - `/auth` for registration, login, refresh, logout, and profile lookup.
+- `/command` for the browser-based Command Center.
+- `/autonomy` for the Autonomy Activity page and recommendation APIs.
 - `/devices` for device listing, capabilities, actions, and basic control.
 - `/graph` for ArcadeDB-backed room/device graph access.
 - `/mcp` for task submission and MCP protocol routes.
+- `/monitor` and `/readings` for operational and sensor-reading APIs.
 - `/ontology` for ontology listing, validation, reasoning, and upload.
 - `/users` for admin user management.
 
@@ -385,10 +478,13 @@ Agent routing is handled by `orchestrator/agents/orchestrator.py`.
 
 Current agents:
 
-- `EnergyAgent`
-- `SecurityAgent`
-- `SensorAgent`
-- `DeviceAgent`
+- `EnergyAgent` — advisory energy analysis using recent readings, graph context,
+  demand/routine estimates, anomaly checks, and optional tariff context. It does
+  not control devices.
+- `SecurityAgent` — security and event-oriented analysis.
+- `SensorAgent` — sensor-health and reading diagnostics.
+- `DeviceAgent` — capability- and permission-checked Home Assistant control,
+  followed by state verification.
 
 ### Agent Runtime Flow
 

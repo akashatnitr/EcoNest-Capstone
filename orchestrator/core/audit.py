@@ -89,6 +89,27 @@ def read_recent_audit_events(limit: int = 50) -> list[dict[str, Any]]:
     return events
 
 
+async def read_recent_audit_events_async(limit: int = 50) -> list[dict[str, Any]]:
+    """Read durable audit history from MySQL, falling back to the local JSONL log."""
+    bounded_limit = max(1, min(limit, 1_000))
+    try:
+        async with mysql_session_context() as session:
+            result = await session.execute(
+                text(
+                    "SELECT payload FROM audit_events "
+                    "ORDER BY event_time DESC, id DESC LIMIT :limit"
+                ),
+                {"limit": bounded_limit},
+            )
+            rows = result.mappings().all()
+    except Exception:
+        return read_recent_audit_events(bounded_limit)
+
+    events = [_audit_payload_mapping(row.get("payload")) for row in rows]
+    valid_events = [event for event in events if event is not None]
+    return list(reversed(valid_events))
+
+
 async def ensure_audit_table() -> None:
     """Create the MySQL audit table used for long-term analysis."""
     try:
@@ -137,9 +158,11 @@ async def persist_audit_event(event: dict[str, Any]) -> None:
                     "event_type": str(event.get("event_type", ""))[:100],
                     "task_id": _optional_text(event.get("task_id"), 64),
                     "agent": _optional_text(event.get("agent"), 100),
-                    "success": event.get("success")
-                    if isinstance(event.get("success"), bool)
-                    else None,
+                    "success": (
+                        event.get("success")
+                        if isinstance(event.get("success"), bool)
+                        else None
+                    ),
                     "source": _optional_text(event.get("source"), 100),
                     "payload": json.dumps(event, default=str, sort_keys=True),
                 },
@@ -217,6 +240,19 @@ def _optional_text(value: Any, limit: int) -> str | None:
     if value is None:
         return None
     return str(value)[:limit]
+
+
+def _audit_payload_mapping(value: Any) -> dict[str, Any] | None:
+    """Normalize a JSON MySQL payload returned as a mapping or JSON string."""
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return decoded if isinstance(decoded, dict) else None
 
 
 def _suggestion_titles(event: dict[str, Any]) -> list[str]:

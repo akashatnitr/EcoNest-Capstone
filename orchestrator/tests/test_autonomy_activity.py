@@ -81,3 +81,30 @@ def test_recommendation_view_explains_access_failure() -> None:
 
     assert views[0]["outcome"]["state"] == "failed"
     assert views[0]["outcome"]["label"] == "Failed — Home Assistant access limitation"
+
+
+def test_energy_recommendations_are_shown_as_timestamped_advisory_cards() -> None:
+    """Show every stored, on-demand energy recommendation without an action outcome."""
+    views = _recommendation_views(
+        [
+            {
+                "timestamp": "2026-08-27T16:00:00+00:00",
+                "event_type": "energy.recommendations.generated",
+                "source": "http_api",
+                "recommendation_only": True,
+                "recommendations": [
+                    {
+                        "priority": "MEDIUM",
+                        "action": "Schedule flexible loads for 11pm–12am",
+                        "reasoning": "The tariff forecast is highest now.",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert len(views) == 1
+    assert views[0]["timestamp"] == "2026-08-27T16:00:00+00:00"
+    assert views[0]["risk_level"] == "MEDIUM"
+    assert views[0]["outcome"]["state"] == "advisory"
+    assert views[0]["outcome"]["detail"] == "EcoNest did not control any device."
