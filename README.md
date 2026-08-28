@@ -323,6 +323,8 @@ network. They are deployment-specific rather than public Internet URLs.
 | [Autonomy Activity](http://100.75.149.121:8001/autonomy) | Readable history of autonomous and energy recommendations, including confidence, reasoning, model/fallback source, and whether an action executed, was skipped, or failed. |
 | [EcoNest Command Center](http://100.75.149.121:8000/command) | The EcoNest web interface for signing in and sending an explicit command to an exact Home Assistant entity. |
 | [Home Assistant Overview](http://100.75.149.121:8123/home/overview) | The Home Assistant dashboard: the live source of device states and the system that ultimately carries out approved device service calls. |
+| [ArcadeDB Studio](http://100.75.149.121:2481/) | The browser interface for inspecting and querying EcoNest's ArcadeDB graph database, which stores room, device, sensor, and relationship context. |
+| [MySQL Monitor](http://100.75.149.121:8001/monitor) | EcoNest's browser-based monitoring view for inspecting MySQL-backed readings, tables, and operational data. |
 
 ---
 
