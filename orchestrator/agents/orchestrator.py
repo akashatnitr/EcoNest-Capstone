@@ -188,7 +188,6 @@ class AgentOrchestrator:
             *(self._run_agent_with_retries(agent, task) for agent in agents)
         )
         result = self._aggregate_results(task, results)
-        self._results[task.id] = result
         if result.success:
             self._stats["completed"] += 1
         else:
@@ -197,6 +196,8 @@ class AgentOrchestrator:
         if self._is_device_control_task(task):
             await self._log_device_control_to_graph(task, result)
         await self._audit_task_result(task, result)
+        await self._audit_energy_recommendations(task, result)
+        self._results[task.id] = result
 
     async def _run_agent_with_retries(self, agent: BaseAgent, task: Task) -> Result:
         routed_task = task.model_copy(
@@ -404,6 +405,33 @@ class AgentOrchestrator:
                 or task.metadata.get("expected_outcome"),
                 "actual_outcome": result.metadata.get("actual_outcome")
                 or result.metadata.get("verified"),
+            },
+        )
+
+    async def _audit_energy_recommendations(self, task: Task, result: Result) -> None:
+        """Persist each user-requested energy recommendation for the activity feed."""
+        if (
+            not result.success
+            or result.agent != "energy"
+            or not isinstance(result.data, dict)
+        ):
+            return
+        recommendations = result.data.get("recommendations")
+        if not isinstance(recommendations, list):
+            return
+        normalized = [item for item in recommendations if isinstance(item, dict)]
+        if not normalized:
+            return
+        await write_audit_event_async(
+            "energy.recommendations.generated",
+            {
+                "task_id": task.id,
+                "agent": "energy",
+                "source": task.metadata.get("source", "direct"),
+                "recommendation_only": True,
+                "recommendations": normalized,
+                "pricing": result.data.get("pricing"),
+                "household_routines": result.data.get("household_routines", []),
             },
         )
 

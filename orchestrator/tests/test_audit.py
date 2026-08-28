@@ -89,3 +89,15 @@ def test_audit_summary_calculates_operational_metrics():
     assert summary["common_suggestions"] == [
         {"name": "Review current load", "count": 1}
     ]
+
+
+def test_audit_payload_mapping_accepts_mysql_json_payloads() -> None:
+    event = audit._audit_payload_mapping(
+        '{"event_type":"energy.recommendations.generated","task_id":"energy-1"}'
+    )
+
+    assert event == {
+        "event_type": "energy.recommendations.generated",
+        "task_id": "energy-1",
+    }
+    assert audit._audit_payload_mapping("not-json") is None

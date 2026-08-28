@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     AUTONOMY_ALLOWED_ACTIONS: str = "light.turn_off,light.turn_on"
     AUTONOMY_ALLOWED_ENTITIES: str = ""
 
+    # Energy recommendations
+    ENERGY_HISTORY_LOOKBACK_DAYS: int = 28
+    ENERGY_HISTORY_MAX_SAMPLES: int = 1_000
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -223,9 +224,11 @@ class DeviceAgent(BaseAgent):
             selector = (
                 f".has('ha_entity_id','{request.entity_id}')"
                 if request.entity_id
-                else f".has('mysql_id',{int(request.device_id)})"
-                if request.device_id.isdigit()
-                else f".has('ha_entity_id','{request.device_id}')"
+                else (
+                    f".has('mysql_id',{int(request.device_id)})"
+                    if request.device_id.isdigit()
+                    else f".has('ha_entity_id','{request.device_id}')"
+                )
             )
             result = await arcadedb_query(
                 "gremlin",
@@ -237,20 +240,33 @@ class DeviceAgent(BaseAgent):
                 ),
             )
 
-            capabilities = result.get(
+            raw_capabilities = result.get(
                 "result",
                 [],
             )
+            capabilities = [
+                capability
+                for item in raw_capabilities
+                if (capability := _capability_name(item)) is not None
+            ]
 
         except Exception:
             if not get_settings().DEVICE_CAPABILITY_FAIL_CLOSED:
-                return CapabilityCheck(allowed=True, reason="Capability verification unavailable")
-            return CapabilityCheck(allowed=False, reason="Capability verification unavailable")
+                return CapabilityCheck(
+                    allowed=True, reason="Capability verification unavailable"
+                )
+            return CapabilityCheck(
+                allowed=False, reason="Capability verification unavailable"
+            )
 
         if not capabilities:
             if not get_settings().DEVICE_CAPABILITY_FAIL_CLOSED:
-                return CapabilityCheck(allowed=True, reason="No capability metadata available")
-            return CapabilityCheck(allowed=False, reason="No capability metadata available")
+                return CapabilityCheck(
+                    allowed=True, reason="No capability metadata available"
+                )
+            return CapabilityCheck(
+                allowed=False, reason="No capability metadata available"
+            )
 
         if required in capabilities:
             return CapabilityCheck(
@@ -416,7 +432,9 @@ class DeviceAgent(BaseAgent):
         if expected_state.startswith("target_temperature:"):
             expected_temperature = float(expected_state.split(":", 1)[1])
             for attempt in range(HA_VERIFY_ATTEMPTS):
-                result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
+                result = await ha_get_state_handler(
+                    HAGetStateInput(entity_id=entity_id)
+                )
                 if result.success and isinstance(result.result, dict):
                     attributes = result.result.get("attributes", {})
                     if isinstance(attributes, dict):
@@ -486,3 +504,15 @@ class DeviceAgent(BaseAgent):
         if request.action == "close":
             return "closed"
         return "unknown"
+
+
+def _capability_name(value: Any) -> str | None:
+    """Normalize scalar and ArcadeDB Gremlin value rows into capability names."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("result", "name"):
+            candidate = value.get(key)
+            if candidate is not None:
+                return str(candidate)
+    return None

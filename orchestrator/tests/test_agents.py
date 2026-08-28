@@ -218,7 +218,11 @@ async def test_energy_agent_run():
     assert result.success
     assert "recommendation" in result.data
     assert "recommendations" in result.data
-    assert result.data["pricing"]["current_tier"] in {"peak", "off_peak"}
+    assert result.data["pricing"]["current_tier"] in {
+        "peak",
+        "off_peak",
+        "unknown",
+    }
 
 
 @pytest.mark.anyio
@@ -237,6 +241,31 @@ async def test_energy_agent_peak_pricing_recommendation():
                         "scheduled": True,
                     }
                 ],
+                "history": [
+                    {
+                        "name": "Washer",
+                        "current_power_w": 900,
+                        "hour": 17,
+                        "flexible": True,
+                    },
+                    {
+                        "name": "Washer",
+                        "current_power_w": 850,
+                        "hour": 17,
+                        "flexible": True,
+                    },
+                    {
+                        "name": "Washer",
+                        "current_power_w": 100,
+                        "hour": 22,
+                        "flexible": True,
+                    },
+                ],
+                "tariff_forecast": [
+                    {"start_hour": 0, "end_hour": 16, "cents_per_kwh": 9},
+                    {"start_hour": 16, "end_hour": 21, "cents_per_kwh": 18},
+                    {"start_hour": 21, "end_hour": 24, "cents_per_kwh": 9},
+                ],
             },
         )
     )
@@ -244,10 +273,86 @@ async def test_energy_agent_peak_pricing_recommendation():
     assert result.success
     assert result.data["pricing"]["current_tier"] == "peak"
     assert any(
-        "Delay flexible high-load tasks" in item["action"]
+        "Schedule flexible loads" in item["action"]
         for item in result.data["recommendations"]
     )
-    assert result.data["alerts"][0].startswith("Peak pricing")
+    assert result.data["alerts"][0].startswith("Tariff forecast")
+    assert result.data["recommendation_only"] is True
+
+
+@pytest.mark.anyio
+async def test_energy_agent_learns_routine_and_low_demand_window_without_tariff():
+    agent = EnergyAgent()
+    result = await agent.run(
+        Task(
+            id="energy-routine",
+            intent="help me plan appliance use",
+            payload={
+                "history": [
+                    {
+                        "name": "Dishwasher",
+                        "current_power_w": 1100,
+                        "hour": 19,
+                        "flexible": True,
+                    },
+                    {
+                        "name": "Dishwasher",
+                        "current_power_w": 1000,
+                        "hour": 19,
+                        "flexible": True,
+                    },
+                    {
+                        "name": "Household load",
+                        "current_power_w": 150,
+                        "hour": 23,
+                    },
+                ],
+            },
+        )
+    )
+
+    assert result.success
+    assert result.data["pricing"]["source"] == "no_tariff_forecast"
+    assert result.data["household_routines"][0]["name"] == "Dishwasher"
+    assert any("11pm" in item["action"] for item in result.data["recommendations"])
+    assert "turn off" not in result.data["recommendation"].lower()
+
+
+@pytest.mark.anyio
+async def test_orchestrator_audits_energy_recommendations_for_activity_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def fake_audit(event_type: str, payload: dict[str, Any]) -> None:
+        events.append((event_type, payload))
+
+    monkeypatch.setattr(
+        "orchestrator.agents.orchestrator.write_audit_event_async", fake_audit
+    )
+    orchestrator = AgentOrchestrator()
+    await orchestrator._audit_energy_recommendations(
+        Task(id="energy-history", intent="energy review", payload={}),
+        Result(
+            success=True,
+            agent="energy",
+            data={
+                "recommendations": [
+                    {
+                        "priority": "LOW",
+                        "action": "Review standby loads",
+                        "reasoning": "Overnight demand is elevated.",
+                    }
+                ],
+                "pricing": {"source": "tariff_forecast"},
+                "household_routines": [],
+            },
+        ),
+    )
+
+    assert events[0][0] == "energy.recommendations.generated"
+    assert events[0][1]["recommendation_only"] is True
+    assert events[0][1]["recommendations"][0]["action"] == "Review standby loads"
 
 
 @pytest.mark.anyio
@@ -1166,6 +1271,51 @@ async def test_device_agent_permission_allowed():
         )
 
     assert result.success
+
+
+@pytest.mark.anyio
+async def test_device_agent_accepts_arcadedb_gremlin_capability_rows():
+    """ArcadeDB returns scalar Gremlin values wrapped in result mappings."""
+    agent = DeviceAgent()
+    with (
+        patch(
+            "orchestrator.agents.device_agent.arcadedb_query",
+            new=AsyncMock(return_value={"result": [{"result": "OnOff"}]}),
+        ),
+        patch(
+            "orchestrator.agents.device_agent.ha_call_service_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_call_service",
+                    result={"status": "ok"},
+                )
+            ),
+        ),
+        patch(
+            "orchestrator.agents.device_agent.ha_get_state_handler",
+            new=AsyncMock(
+                return_value=ToolExecutionResult(
+                    capability="ha_get_state",
+                    result={"state": "off"},
+                )
+            ),
+        ),
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-capability-row",
+                intent="turn off the media room light",
+                payload={
+                    "device_id": "light.upstairs_media_light_1",
+                    "entity_id": "light.upstairs_media_light_1",
+                    "domain": "light",
+                    "action": "turn_off",
+                },
+            )
+        )
+
+    assert result.success
+    assert result.data["capability_check"]["allowed"] is True
 
 
 @pytest.mark.anyio
