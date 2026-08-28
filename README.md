@@ -156,18 +156,6 @@ replace Home Assistant's device registry or automation runtime. Instead,
 EcoNest maps HA entities/devices/areas into its own schema and graph so agents
 can reason over them and call HA services safely.
 
-### Identity Model
-
-The current architecture intentionally keeps identities simple:
-
-- `admin`: a human operator or owner of the EcoNest system.
-- `service`: a non-human identity used by orchestrator internals, MCP tools,
-  agents, and trusted automation scripts.
-
-This is enough for the current dynamic/agentic migration. More user categories
-can be added later if the product needs resident, guest, or room-specific human
-accounts.
-
 ### Legacy Code Status
 
 Legacy Flask and standalone ML scripts are still present under `medium home/`
@@ -235,53 +223,7 @@ EcoNest-Capstone/
 | Home Assistant | Optional for live device state and actions |
 | Ollama | Used for local Gemma4 inference |
 
-### 1. Configure Environment
-
-Create a `.env` file at the repository root when running locally:
-
-```env
-# MySQL
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=econest
-MYSQL_DATABASE=econest
-
-# ArcadeDB
-ARCADEDB_HOST=localhost
-ARCADEDB_PORT=2480
-ARCADEDB_USER=root
-ARCADEDB_PASSWORD=playwithdata
-ARCADEDB_DATABASE=econest
-
-# Ollama
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=gemma4
-OLLAMA_FALLBACK_MODEL=gemma4
-
-# Home Assistant
-HA_URL=http://localhost:8123
-HA_TOKEN=your_long_lived_access_token
-
-# Auth
-SECRET_KEY=replace-this-for-local-dev
-ACCESS_TOKEN_EXPIRE_MINUTES=15
-REFRESH_TOKEN_EXPIRE_DAYS=7
-
-# Optional constrained autonomy
-AUTONOMY_MONITOR_ENABLED=false
-AUTONOMY_MONITOR_INTERVAL_SECONDS=300
-AUTONOMY_ACTIONS_ENABLED=false
-AUTONOMY_ACTION_CONFIDENCE_THRESHOLD=0.85
-AUTONOMY_ALLOWED_ACTIONS=light.turn_off,light.turn_on
-AUTONOMY_ALLOWED_ENTITIES=
-```
-
-Keep `AUTONOMY_ACTIONS_ENABLED=false` until entity allowlists and the Home
-Assistant token have been verified. The monitor can still record and explain
-recommendations while execution is disabled.
-
-### 2. Start the Stack
+### 1. Start the Stack
 
 ```bash
 docker compose up --build
@@ -300,7 +242,7 @@ The orchestrator health check is:
 curl http://localhost:8000/health
 ```
 
-### 3. Local Development Commands
+### 2. Local Development Commands
 
 The project defines `poethepoet` tasks in `pyproject.toml`:
 
