@@ -310,6 +310,16 @@ class Action(GraphModel):
         return value
 
 
+class ActionExecution(GraphModel):
+    """One runtime attempt to perform an action, separate from Action metadata."""
+
+    action: str = Field(min_length=1, max_length=100)
+    task_id: str = Field(default="", max_length=64)
+    user_id: str = Field(default="", max_length=255)
+    success: bool
+    timestamp: datetime = Field(default_factory=utc_now)
+
+
 class EdgeModel(GraphModel):
     """Base fields shared by all graph edges."""
 

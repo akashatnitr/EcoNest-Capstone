@@ -9,8 +9,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from orchestrator.core.audit import write_audit_event
-from orchestrator.core.permissions import AGENT_RUN
+from orchestrator.core.permissions import AGENT_RUN, Role, normalize_role
 from orchestrator.llm.client import LLMClient
+from orchestrator.mcp.executor import MCPToolExecutor
+from orchestrator.mcp.models import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +74,38 @@ class BaseAgent(ABC):
         self,
         llm: LLMClient | None = None,
         memory: Memory | None = None,
+        tool_executor: MCPToolExecutor | None = None,
     ) -> None:
         self.llm = llm or LLMClient()
         self.memory: Memory = memory or {}
+        self.tool_executor = tool_executor or MCPToolExecutor()
+
+    async def invoke_mcp_tool(
+        self,
+        task: Task,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> ToolExecutionResult:
+        """Dispatch an agent tool call through the shared MCP boundary."""
+        role = normalize_role(str(task.metadata.get("user_role", "")))
+        return await self.tool_executor.execute(
+            name,
+            arguments,
+            role=role or Role.SERVICE_ACCOUNT,
+            task_id=task.id,
+            agent=self.name,
+            source=str(task.metadata.get("source", "agent")),
+        )
+
+    async def read_mcp_resource(self, task: Task, uri: str) -> dict[str, Any]:
+        """Read an MCP resource with the task's available user context."""
+        return await self.tool_executor.read_resource(
+            uri,
+            user_id=task.user_id,
+            task_id=task.id,
+            agent=self.name,
+            source=str(task.metadata.get("source", "agent")),
+        )
 
     async def execute(self, task: Task) -> Result:
         """Run a task with shared capability checks and structured logging."""

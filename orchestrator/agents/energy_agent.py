@@ -9,11 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import text
-
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.config import get_settings
-from orchestrator.core.database import arcadedb_query, mysql_session_context
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "energy.j2"
 
@@ -130,9 +127,9 @@ class EnergyAgent(BaseAgent):
     async def run(self, task: Task) -> Result:
         context = await self._build_context(task)
         observations = self._observations_from_payload(task.payload)
-        observations.extend(await self._observations_from_graph())
+        observations.extend(await self._observations_from_graph(task))
         history = self._history_from_payload(task.payload)
-        history.extend(await self._history_from_mysql())
+        history.extend(await self._history_from_mysql(task))
         routines = self._learn_household_routines(history)
         forecast = self._forecast_demand(history)
         pricing = self._pricing_from_forecast(
@@ -195,7 +192,7 @@ class EnergyAgent(BaseAgent):
             or task.payload.get("trigger")
             or "manual",
         }
-        context["mysql"] = await self._mysql_energy_context()
+        context["mysql"] = await self._mysql_energy_context(task)
         return context
 
     def _pricing_from_forecast(
@@ -273,23 +270,29 @@ class EnergyAgent(BaseAgent):
             )
         return observations
 
-    async def _observations_from_graph(self) -> list[EnergyObservation]:
+    async def _observations_from_graph(self, task: Task) -> list[EnergyObservation]:
         try:
-            result = await arcadedb_query(
-                "sql",
-                (
-                    "SELECT source_sensor AS entity_id, value, name "
-                    "FROM Observation "
-                    "WHERE observation_type = 'ha_state' "
-                    "AND source_sensor LIKE 'sensor.%energy%' "
-                    "LIMIT 10"
-                ),
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_arcadedb",
+                {
+                    "language": "sql",
+                    "query": (
+                        "SELECT source_sensor AS entity_id, value, name "
+                        "FROM Observation "
+                        "WHERE observation_type = 'ha_state' "
+                        "AND source_sensor LIKE 'sensor.%energy%' "
+                        "LIMIT 10"
+                    ),
+                },
             )
         except Exception:
             return []
+        if not result.success:
+            return []
 
         observations: list[EnergyObservation] = []
-        for row in result.get("result", []):
+        for row in result.result or []:
             if isinstance(row, dict):
                 observations.append(
                     EnergyObservation(
@@ -302,22 +305,30 @@ class EnergyAgent(BaseAgent):
                 )
         return observations
 
-    async def _mysql_energy_context(self) -> dict[str, Any]:
+    async def _mysql_energy_context(self, task: Task) -> dict[str, Any]:
         try:
-            async with mysql_session_context() as session:
-                result = await session.execute(text("SELECT 1 AS available"))
-                row = result.mappings().first()
-                return dict(row) if row else {"available": True}
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_mysql",
+                {"sql": "SELECT 1 AS available"},
+            )
+            if not result.success:
+                return {"available": False}
+            rows = result.result if isinstance(result.result, list) else []
+            row = rows[0] if rows and isinstance(rows[0], dict) else None
+            return dict(row) if row else {"available": True}
         except Exception:
             return {"available": False}
 
-    async def _history_from_mysql(self) -> list[EnergyHistorySample]:
+    async def _history_from_mysql(self, task: Task) -> list[EnergyHistorySample]:
         """Learn from retained readings without requiring a fixed schedule."""
         settings = get_settings()
         try:
-            async with mysql_session_context() as session:
-                result = await session.execute(
-                    text(
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_mysql",
+                {
+                    "sql": (
                         "SELECT d.name, sr.timestamp, sr.data "
                         "FROM sensor_readings sr "
                         "JOIN devices d ON d.id = sr.device_id "
@@ -325,12 +336,15 @@ class EnergyAgent(BaseAgent):
                         "INTERVAL :lookback_days DAY "
                         "ORDER BY sr.timestamp DESC LIMIT :sample_limit"
                     ),
-                    {
+                    "params": {
                         "lookback_days": settings.ENERGY_HISTORY_LOOKBACK_DAYS,
                         "sample_limit": settings.ENERGY_HISTORY_MAX_SAMPLES,
                     },
-                )
-                rows = result.mappings().all()
+                },
+            )
+            if not result.success or not isinstance(result.result, list):
+                return []
+            rows = result.result
         except Exception:
             return []
 
@@ -504,6 +518,15 @@ class EnergyAgent(BaseAgent):
         recommendations: list[EnergyRecommendation],
     ) -> EnergyRecommendation | None:
         if task.payload.get("use_llm") is not True or not PROMPT_PATH.exists():
+            return None
+        # A language model must not invent a tariff window or energy anomaly.
+        # With no measured issue and no tariff forecast, the deterministic
+        # recommendation is the only evidence-based answer.
+        if (
+            pricing.source == "no_tariff_forecast"
+            and not anomalies
+            and not schedule_violations
+        ):
             return None
 
         prompt = _render_prompt(

@@ -420,11 +420,17 @@ async def test_energy_agent_uses_prompt_template_when_requested():
     agent = EnergyAgent(llm=_EnergyLLM())
     result = await agent.run(
         Task(
-            id="energy-llm",
-            intent="energy review",
-            payload={"use_llm": True, "current_hour": 17},
+                id="energy-llm",
+                intent="energy review",
+                payload={
+                    "use_llm": True,
+                    "current_hour": 17,
+                    "tariff_forecast": [
+                        {"start_hour": 0, "end_hour": 24, "cents_per_kwh": 18}
+                    ],
+                },
+            )
         )
-    )
 
     assert result.success
     assert result.data["recommendations"][0]["action"].startswith("Shift laundry")
@@ -669,17 +675,15 @@ async def test_orchestrator_blocks_guest_device_control_at_night():
         metadata={"user_role": "guest"},
     )
 
-    with patch(
-        "orchestrator.agents.orchestrator.arcadedb_query",
-        new=AsyncMock(return_value={"result": []}),
-    ) as query:
-        await orch._run_with_lifecycle(task)
+    execute = AsyncMock()
+    orch.tool_executor.execute = execute
+    await orch._run_with_lifecycle(task)
 
     result = await orch.get_result("policy-1")
     assert result is not None
     assert not result.success
     assert result.error == "policy_device_control_quiet_hours"
-    query.assert_awaited_once()
+    execute.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -699,11 +703,8 @@ async def test_orchestrator_blocks_autonomous_device_actions_by_default():
         metadata={"source": "background_monitor", "user_role": "homeowner"},
     )
 
-    with patch(
-        "orchestrator.agents.orchestrator.arcadedb_query",
-        new=AsyncMock(return_value={"result": []}),
-    ):
-        await orch._run_with_lifecycle(task)
+    orch.tool_executor.execute = AsyncMock()
+    await orch._run_with_lifecycle(task)
 
     result = await orch.get_result("policy-auto-1")
     assert result is not None
@@ -792,16 +793,14 @@ async def test_orchestrator_allows_homeowner_device_control_at_night():
         metadata={"user_role": "homeowner"},
     )
 
-    with patch(
-        "orchestrator.agents.orchestrator.arcadedb_query",
-        new=AsyncMock(return_value={"result": []}),
-    ) as query:
-        await orch._run_with_lifecycle(task)
+    execute = AsyncMock()
+    orch.tool_executor.execute = execute
+    await orch._run_with_lifecycle(task)
 
     result = await orch.get_result("policy-2")
     assert result is not None
     assert result.success
-    query.assert_awaited_once()
+    execute.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -1060,124 +1059,78 @@ async def test_device_agent_metadata():
 @pytest.mark.anyio
 async def test_device_agent_calls_home_assistant_for_entity_id():
     agent = DeviceAgent()
-
-    with (
-        patch(
-            "orchestrator.agents.device_agent.ha_call_service_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_call_service",
-                    result={"status": "ok"},
-                )
-            ),
-        ) as call_service,
-        patch(
-            "orchestrator.agents.device_agent.ha_get_state_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_get_state",
-                    result={"state": "on"},
-                )
-            ),
-        ),
-    ):
-        result = await agent.run(
-            Task(
-                id="dev-ha",
-                intent="turn on kitchen light",
-                payload={
-                    "device_id": "light.kitchen",
-                    "action": "turn_on",
-                },
-            )
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(capability="ha_get_state", result={"state": "on"}),
+        ]
+    )
+    agent.tool_executor.execute = execute
+    result = await agent.run(
+        Task(
+            id="dev-ha",
+            intent="turn on kitchen light",
+            payload={"device_id": "light.kitchen", "action": "turn_on"},
         )
+    )
 
     assert result.success
     assert result.data["execution_source"] == "home_assistant"
     assert result.data["verified"] is True
-    call_service.assert_awaited_once()
-    service_input = call_service.await_args.args[0]
-    assert service_input.domain == "light"
-    assert service_input.service == "turn_on"
-    assert service_input.entity_id == "light.kitchen"
+    assert execute.await_args_list[1].args[0] == "ha_call_service"
+    service_arguments = execute.await_args_list[1].args[1]
+    assert service_arguments == {
+        "domain": "light",
+        "service": "turn_on",
+        "entity_id": "light.kitchen",
+        "service_data": None,
+    }
 
 
 @pytest.mark.anyio
 async def test_device_agent_closes_home_assistant_cover():
     agent = DeviceAgent()
-
-    with (
-        patch(
-            "orchestrator.agents.device_agent.ha_call_service_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_call_service",
-                    result={"status": "ok"},
-                )
-            ),
-        ) as call_service,
-        patch(
-            "orchestrator.agents.device_agent.ha_get_state_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_get_state",
-                    result={"state": "closed"},
-                )
-            ),
-        ),
-    ):
-        result = await agent.run(
-            Task(
-                id="dev-cover",
-                intent="close garage door",
-                payload={
-                    "device_id": "cover.garage12",
-                    "entity_id": "cover.garage12",
-                    "domain": "cover",
-                    "action": "close",
-                },
-            )
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OpenClose"}]),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(capability="ha_get_state", result={"state": "closed"}),
+        ]
+    )
+    agent.tool_executor.execute = execute
+    result = await agent.run(
+        Task(
+            id="dev-cover",
+            intent="close garage door",
+            payload={
+                "device_id": "cover.garage12", "entity_id": "cover.garage12",
+                "domain": "cover", "action": "close",
+            },
         )
+    )
 
     assert result.success
     assert result.data["verified"] is True
-    service_input = call_service.await_args.args[0]
-    assert service_input.domain == "cover"
-    assert service_input.service == "close_cover"
-    assert service_input.entity_id == "cover.garage12"
+    service_arguments = execute.await_args_list[1].args[1]
+    assert service_arguments["domain"] == "cover"
+    assert service_arguments["service"] == "close_cover"
+    assert service_arguments["entity_id"] == "cover.garage12"
 
 
 @pytest.mark.anyio
 async def test_device_agent_retries_home_assistant_state_verification():
     agent = DeviceAgent()
-
-    with (
-        patch(
-            "orchestrator.agents.device_agent.ha_call_service_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_call_service",
-                    result={"status": "ok"},
-                )
-            ),
-        ),
-        patch(
-            "orchestrator.agents.device_agent.ha_get_state_handler",
-            new=AsyncMock(
-                side_effect=[
-                    ToolExecutionResult(
-                        capability="ha_get_state",
-                        result={"state": "off"},
-                    ),
-                    ToolExecutionResult(
-                        capability="ha_get_state",
-                        result={"state": "on"},
-                    ),
-                ]
-            ),
-        ) as get_state,
-        patch("orchestrator.agents.device_agent.asyncio.sleep", new=AsyncMock()),
-    ):
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(capability="ha_get_state", result={"state": "off"}),
+            ToolExecutionResult(capability="ha_get_state", result={"state": "on"}),
+        ]
+    )
+    agent.tool_executor.execute = execute
+    with patch("orchestrator.agents.device_agent.asyncio.sleep", new=AsyncMock()):
         result = await agent.run(
             Task(
                 id="dev-ha-retry",
@@ -1192,56 +1145,40 @@ async def test_device_agent_retries_home_assistant_state_verification():
     assert result.success
     assert result.data["verified"] is True
     assert result.confidence == 0.95
-    assert get_state.await_count == 2
+    assert execute.await_count == 4
 
 
 @pytest.mark.anyio
 async def test_device_agent_sets_home_assistant_temperature():
     agent = DeviceAgent()
-
-    with (
-        patch(
-            "orchestrator.agents.device_agent.ha_call_service_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_call_service",
-                    result={"status": "ok"},
-                )
-            ),
-        ) as call_service,
-        patch(
-            "orchestrator.agents.device_agent.ha_get_state_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_get_state",
-                    result={"attributes": {"temperature": 78.0}},
-                )
-            ),
-        ),
-    ):
-        result = await agent.run(
-            Task(
-                id="dev-temp",
-                intent="set media room thermostat",
-                payload={
-                    "device_id": "climate.media_room",
-                    "entity_id": "climate.media_room",
-                    "domain": "climate",
-                    "action": "set_temperature",
-                    "temperature": 78.0,
-                },
-            )
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "Thermostat"}]),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(capability="ha_get_state", result={"attributes": {"temperature": 78.0}}),
+        ]
+    )
+    agent.tool_executor.execute = execute
+    result = await agent.run(
+        Task(
+            id="dev-temp",
+            intent="set media room thermostat",
+            payload={
+                "device_id": "climate.media_room", "entity_id": "climate.media_room",
+                "domain": "climate", "action": "set_temperature", "temperature": 78.0,
+            },
         )
+    )
 
     assert result.success
     assert result.data["state"] == "target_temperature:78.0"
     assert result.data["execution_source"] == "home_assistant"
     assert result.data["verified"] is True
-    service_input = call_service.await_args.args[0]
-    assert service_input.domain == "climate"
-    assert service_input.service == "set_temperature"
-    assert service_input.entity_id == "climate.media_room"
-    assert service_input.service_data == {"temperature": 78.0}
+    service_arguments = execute.await_args_list[1].args[1]
+    assert service_arguments["domain"] == "climate"
+    assert service_arguments["service"] == "set_temperature"
+    assert service_arguments["entity_id"] == "climate.media_room"
+    assert service_arguments["service_data"] == {"temperature": 78.0}
 
 
 @pytest.mark.anyio
@@ -1249,16 +1186,13 @@ async def test_device_agent_permission_allowed():
 
     agent = DeviceAgent()
 
-    with patch(
-        "orchestrator.agents.device_agent.arcadedb_query",
-        new=AsyncMock(
-            side_effect=[
-                {"result": ["OnOff"]},  # capability check
-                {"result": ["turn_on"]},  # permission check
-            ]
-        ),
-    ):
-        result = await agent.run(
+    agent.tool_executor.execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "turn_on"}]),
+        ]
+    )
+    result = await agent.run(
             Task(
                 id="dev-perm-1",
                 intent="device",
@@ -1277,31 +1211,14 @@ async def test_device_agent_permission_allowed():
 async def test_device_agent_accepts_arcadedb_gremlin_capability_rows():
     """ArcadeDB returns scalar Gremlin values wrapped in result mappings."""
     agent = DeviceAgent()
-    with (
-        patch(
-            "orchestrator.agents.device_agent.arcadedb_query",
-            new=AsyncMock(return_value={"result": [{"result": "OnOff"}]}),
-        ),
-        patch(
-            "orchestrator.agents.device_agent.ha_call_service_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_call_service",
-                    result={"status": "ok"},
-                )
-            ),
-        ),
-        patch(
-            "orchestrator.agents.device_agent.ha_get_state_handler",
-            new=AsyncMock(
-                return_value=ToolExecutionResult(
-                    capability="ha_get_state",
-                    result={"state": "off"},
-                )
-            ),
-        ),
-    ):
-        result = await agent.run(
+    agent.tool_executor.execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(capability="ha_get_state", result={"state": "off"}),
+        ]
+    )
+    result = await agent.run(
             Task(
                 id="dev-capability-row",
                 intent="turn off the media room light",
@@ -1323,26 +1240,23 @@ async def test_device_agent_permission_denied():
 
     agent = DeviceAgent()
 
-    with patch(
-        "orchestrator.agents.device_agent.arcadedb_query",
-        new=AsyncMock(
-            side_effect=[
-                {"result": ["OnOff"]},  # capability check
-                {"result": ["turn_off"]},  # permission check
-            ]
-        ),
-    ):
-        result = await agent.run(
-            Task(
-                id="dev-perm-2",
-                intent="device",
-                user_id="test@example.com",
-                payload={
-                    "device_id": "light_1",
-                    "action": "turn_on",
-                },
-            )
+    agent.tool_executor.execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "turn_off"}]),
+        ]
+    )
+    result = await agent.run(
+        Task(
+            id="dev-perm-2",
+            intent="device",
+            user_id="test@example.com",
+            payload={
+                "device_id": "light_1",
+                "action": "turn_on",
+            },
         )
+    )
 
     assert result.success is False
 

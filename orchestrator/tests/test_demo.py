@@ -177,6 +177,7 @@ def test_demo2_streams_thermostat_reasoning_and_action(client, monkeypatch):
             system=None,
             temperature=0.7,
         ):
+            assert "sufficient evidence for a low-risk turn_off" in messages[0].content
             return output_model(
                 summary="The media room is warm, so use a moderate cooling target.",
                 recommended_temperature=78.0,
@@ -471,19 +472,7 @@ async def test_autonomous_action_recommendation_uses_allowed_light(monkeypatch):
             system=None,
             temperature=0.7,
         ):
-            return output_model(
-                should_act=True,
-                confidence=0.93,
-                domain="light",
-                action="turn_off",
-                entity_id=demo.DEMO_MEDIA_LIGHT_ENTITY,
-                reason="The allowlisted media room light is on with no active motion.",
-                expected_outcome={
-                    "entity_id": demo.DEMO_MEDIA_LIGHT_ENTITY,
-                    "state": "off",
-                },
-                risk_level="LOW",
-            )
+            raise AssertionError("A qualifying policy rule must not wait for the model")
 
         async def close(self):
             return None
@@ -515,6 +504,8 @@ async def test_autonomous_action_recommendation_uses_allowed_light(monkeypatch):
     assert recommendation is not None
     assert recommendation["entity_id"] == demo.DEMO_MEDIA_LIGHT_ENTITY
     assert recommendation["action"] == "turn_off"
+    assert recommendation["source"] == "policy_rule"
+    assert recommendation["confidence"] == 0.9
     assert recommendation["expected_outcome"]["state"] == "off"
 
 @pytest.mark.anyio

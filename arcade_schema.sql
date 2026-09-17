@@ -73,6 +73,14 @@ CREATE PROPERTY Action.name IF NOT EXISTS STRING;
 CREATE PROPERTY Action.parameters IF NOT EXISTS MAP;
 CREATE PROPERTY Action.timestamp IF NOT EXISTS DATETIME;
 
+-- Runtime action attempts are deliberately distinct from the unique Action catalog.
+CREATE VERTEX TYPE ActionExecution IF NOT EXISTS;
+CREATE PROPERTY ActionExecution.action IF NOT EXISTS STRING;
+CREATE PROPERTY ActionExecution.task_id IF NOT EXISTS STRING;
+CREATE PROPERTY ActionExecution.user_id IF NOT EXISTS STRING;
+CREATE PROPERTY ActionExecution.success IF NOT EXISTS BOOLEAN;
+CREATE PROPERTY ActionExecution.timestamp IF NOT EXISTS DATETIME;
+
 CREATE VERTEX TYPE Observation IF NOT EXISTS;
 CREATE PROPERTY Observation.observation_type IF NOT EXISTS STRING;
 CREATE PROPERTY Observation.value IF NOT EXISTS STRING;
@@ -166,4 +174,5 @@ CREATE INDEX IF NOT EXISTS ON SensorReading(mysql_id) UNIQUE;
 CREATE INDEX IF NOT EXISTS ON Observation(source_sensor) UNIQUE;
 CREATE INDEX IF NOT EXISTS ON Capability(name) UNIQUE;
 CREATE INDEX IF NOT EXISTS ON Action(name) UNIQUE;
+CREATE INDEX IF NOT EXISTS ON ActionExecution(task_id) NOTUNIQUE;
 CREATE INDEX IF NOT EXISTS ON Circuit(breaker_id) UNIQUE;

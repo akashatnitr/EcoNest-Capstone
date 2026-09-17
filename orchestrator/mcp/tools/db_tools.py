@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from orchestrator.core.database import mysql_session_context
@@ -13,6 +13,7 @@ READ_ONLY_SQL_COMMANDS = {"select", "show", "describe", "explain"}
 
 class QueryMySQLInput(BaseModel):
     sql: str
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class GetReadingsInput(BaseModel):
@@ -45,7 +46,7 @@ async def query_mysql_handler(input_data: QueryMySQLInput) -> list[dict[str, Any
         )
 
     async with mysql_session_context() as session:
-        result = await session.execute(text(sql))
+        result = await session.execute(text(sql), input_data.params)
         rows = result.mappings().all()
         return ToolExecutionResult(
             capability="query_mysql",

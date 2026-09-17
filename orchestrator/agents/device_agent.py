@@ -9,13 +9,6 @@ from pydantic import BaseModel
 
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.config import get_settings
-from orchestrator.core.database import arcadedb_query
-from orchestrator.mcp.tools.ha_tools import (
-    HACallServiceInput,
-    HAGetStateInput,
-    ha_call_service_handler,
-    ha_get_state_handler,
-)
 
 HA_VERIFY_ATTEMPTS = 5
 HA_VERIFY_DELAY_SECONDS = 0.5
@@ -63,7 +56,7 @@ class DeviceAgent(BaseAgent):
     """
 
     name = "device"
-    tools = ["ha_call_service", "query_arcadedb", "query_mysql"]
+    tools = ["ha_call_service", "ha_get_state", "query_arcadedb"]
     permissions = ["device:read", "device:write", "agent:run"]
 
     async def can_handle(self, task: Task) -> bool:
@@ -122,9 +115,7 @@ class DeviceAgent(BaseAgent):
                 message="No device action requested",
             )
 
-        capability = await self._check_capability(
-            request,
-        )
+        capability = await self._check_capability(task, request)
 
         if not capability.allowed:
             return Result(
@@ -151,9 +142,7 @@ class DeviceAgent(BaseAgent):
                 message=permission.reason,
             )
 
-        execution = await self._execute_action(
-            request,
-        )
+        execution = await self._execute_action(task, request)
 
         if not execution.success:
             return Result(
@@ -200,6 +189,7 @@ class DeviceAgent(BaseAgent):
 
     async def _check_capability(
         self,
+        task: Task,
         request: DeviceActionRequest,
     ) -> CapabilityCheck:
 
@@ -230,20 +220,23 @@ class DeviceAgent(BaseAgent):
                     else f".has('ha_entity_id','{request.device_id}')"
                 )
             )
-            result = await arcadedb_query(
-                "gremlin",
-                (
-                    f"g.V()"
-                    f".hasLabel('Device'){selector}"
-                    ".out('HAS_CAPABILITY')"
-                    ".values('name')"
-                ),
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_arcadedb",
+                {
+                    "language": "gremlin",
+                    "query": (
+                        f"g.V()"
+                        f".hasLabel('Device'){selector}"
+                        ".out('HAS_CAPABILITY')"
+                        ".values('name')"
+                    ),
+                },
             )
+            if not result.success:
+                raise RuntimeError("MCP capability query failed")
 
-            raw_capabilities = result.get(
-                "result",
-                [],
-            )
+            raw_capabilities = result.result or []
             capabilities = [
                 capability
                 for item in raw_capabilities
@@ -292,20 +285,27 @@ class DeviceAgent(BaseAgent):
             )
 
         try:
-            result = await arcadedb_query(
-                "gremlin",
-                (
-                    f"g.V()"
-                    f".has('email','{task.user_id}')"
-                    ".out('CAN_PERFORM')"
-                    ".values('name')"
-                ),
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_arcadedb",
+                {
+                    "language": "gremlin",
+                    "query": (
+                        f"g.V()"
+                        f".has('email','{task.user_id}')"
+                        ".out('CAN_PERFORM')"
+                        ".values('name')"
+                    ),
+                },
             )
+            if not result.success:
+                raise RuntimeError("MCP permission query failed")
 
-            allowed_actions = result.get(
-                "result",
-                [],
-            )
+            allowed_actions = [
+                action
+                for item in result.result or []
+                if (action := _capability_name(item)) is not None
+            ]
 
             if not allowed_actions:
                 return PermissionCheck(
@@ -332,11 +332,12 @@ class DeviceAgent(BaseAgent):
 
     async def _execute_action(
         self,
+        task: Task,
         request: DeviceActionRequest,
     ) -> DeviceExecution:
         ha_entity_id = self._ha_entity_id(request)
         if ha_entity_id is not None:
-            return await self._execute_home_assistant_action(request, ha_entity_id)
+            return await self._execute_home_assistant_action(task, request, ha_entity_id)
 
         if request.action == "turn_on":
             return DeviceExecution(
@@ -390,19 +391,22 @@ class DeviceAgent(BaseAgent):
 
     async def _execute_home_assistant_action(
         self,
+        task: Task,
         request: DeviceActionRequest,
         entity_id: str,
     ) -> DeviceExecution:
         domain = request.domain or entity_id.split(".", 1)[0]
         service = self._ha_service(request)
         service_data = self._ha_service_data(request)
-        result = await ha_call_service_handler(
-            HACallServiceInput(
-                domain=domain,
-                service=service,
-                entity_id=entity_id,
-                service_data=service_data,
-            )
+        result = await self.invoke_mcp_tool(
+            task,
+            "ha_call_service",
+            {
+                "domain": domain,
+                "service": service,
+                "entity_id": entity_id,
+                "service_data": service_data,
+            },
         )
         if not result.success:
             return DeviceExecution(
@@ -413,7 +417,7 @@ class DeviceAgent(BaseAgent):
             )
 
         expected_state = self._expected_state(request)
-        verified = await self._verify_home_assistant_state(entity_id, expected_state)
+        verified = await self._verify_home_assistant_state(task, entity_id, expected_state)
         return DeviceExecution(
             success=True,
             state=expected_state,
@@ -424,6 +428,7 @@ class DeviceAgent(BaseAgent):
 
     async def _verify_home_assistant_state(
         self,
+        task: Task,
         entity_id: str,
         expected_state: str,
     ) -> bool:
@@ -432,8 +437,10 @@ class DeviceAgent(BaseAgent):
         if expected_state.startswith("target_temperature:"):
             expected_temperature = float(expected_state.split(":", 1)[1])
             for attempt in range(HA_VERIFY_ATTEMPTS):
-                result = await ha_get_state_handler(
-                    HAGetStateInput(entity_id=entity_id)
+                result = await self.invoke_mcp_tool(
+                    task,
+                    "ha_get_state",
+                    {"entity_id": entity_id},
                 )
                 if result.success and isinstance(result.result, dict):
                     attributes = result.result.get("attributes", {})
@@ -448,7 +455,11 @@ class DeviceAgent(BaseAgent):
                     await asyncio.sleep(HA_VERIFY_DELAY_SECONDS)
             return False
         for attempt in range(HA_VERIFY_ATTEMPTS):
-            result = await ha_get_state_handler(HAGetStateInput(entity_id=entity_id))
+            result = await self.invoke_mcp_tool(
+                task,
+                "ha_get_state",
+                {"entity_id": entity_id},
+            )
             if result.success and isinstance(result.result, dict):
                 state = str(result.result.get("state", "")).lower()
                 if state == expected_state:

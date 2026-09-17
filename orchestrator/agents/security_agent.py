@@ -10,8 +10,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from orchestrator.agents.base import BaseAgent, Result, Task
-from orchestrator.core.database import arcadedb_query
-from orchestrator.llm.memory import get_recent_interactions
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "security.j2"
 
@@ -63,7 +61,7 @@ class SecurityAgent(BaseAgent):
 
         context = await self._build_context(task)
         observations = self._observations_from_payload(task.payload)
-        observations.extend(await self._observations_from_graph())
+        observations.extend(await self._observations_from_graph(task))
         incidents = self._classify_incidents(
             observations,
             context,
@@ -118,11 +116,9 @@ class SecurityAgent(BaseAgent):
         )
 
         try:
-            recent = await get_recent_interactions(
-                task.user_id,
-                n=5,
-            )
-            interaction_count = len(recent)
+            recent = await self.read_mcp_resource(task, "home://memory/recent")
+            interactions = recent.get("recent_interactions", [])
+            interaction_count = len(interactions) if isinstance(interactions, list) else 0
         except Exception:
             interaction_count = 0
 
@@ -184,28 +180,32 @@ class SecurityAgent(BaseAgent):
 
     async def _observations_from_graph(
         self,
+        task: Task,
     ) -> list[SecurityObservation]:
 
         try:
-            result = await arcadedb_query(
-                "sql",
-                (
-                    "SELECT * "
-                    "FROM Observation "
-                    "WHERE observation_type IN "
-                    "('motion','sound','occupancy') "
-                    "LIMIT 20"
-                ),
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_arcadedb",
+                {
+                    "language": "sql",
+                    "query": (
+                        "SELECT * "
+                        "FROM Observation "
+                        "WHERE observation_type IN "
+                        "('motion','sound','occupancy') "
+                        "LIMIT 20"
+                    ),
+                },
             )
         except Exception:
+            return []
+        if not result.success:
             return []
 
         observations = []
 
-        for row in result.get(
-            "result",
-            [],
-        ):
+        for row in result.result or []:
             if isinstance(row, dict):
                 observations.append(
                     SecurityObservation(

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EcoNest MCP Activity</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #070b12; color: #f8fafc; }
+    body { margin: 0; min-height: 100vh; background: #070b12; }
+    main { width: min(1280px, calc(100% - 32px)); margin: auto; padding: 48px 0 80px; }
+    h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.25rem); letter-spacing: -.04em; }
+    p { color: #cbd5e1; line-height: 1.5; }
+    .card { margin-top: 24px; padding: 24px; border: 1px solid #405b79; border-radius: 18px; background: #152238; box-shadow: none; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+    button, a.button { border: 0; border-radius: 9px; padding: 11px 15px; background: #54e6ad; color: #052617; font: inherit; font-weight: 750; text-decoration: none; cursor: pointer; box-shadow: 0 4px 0 #2c9c70; }
+    button.secondary { background: #203a5b; color: #e6f1ff; box-shadow: none; }
+    .summary, .muted { color: #a9bdd4; }
+    .activity-layout { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 20px; align-items: start; }
+    .list { display: grid; gap: 14px; margin-top: 16px; }
+    .legend { position: sticky; top: 20px; margin-top: 24px; padding: 20px; border: 1px solid #526985; border-radius: 18px; background: #1b2a3f; box-shadow: none; }
+    .legend h2 { margin: 0; font-size: 1.1rem; }
+    .legend dl { margin: 14px 0 0; display: grid; gap: 12px; }
+    .legend dt { color: #79e5ff; font-weight: 750; }
+    .legend dd { margin: 3px 0 0; color: #b7c7da; line-height: 1.45; font-size: .92rem; }
+    .task { border: 1px solid #4a6d83; border-radius: 14px; padding: 18px; background: #173246; box-shadow: inset 4px 0 #38d6a1; }
+    .task.failed { border-color: #4a6d83; box-shadow: inset 4px 0 #38d6a1; }
+    .task h2, .trace h3 { margin: 0; font-size: 1.1rem; }
+    .task .task-id { margin: 8px 0 0; color: #9fe7d0; }
+    .task-calls { display: grid; gap: 12px; margin-top: 16px; }
+    .trace { border: 1px solid #416c83; border-radius: 12px; padding: 17px; background: #1a2b41; }
+    .trace.failed { border-color: #d05d74; background: #351a2b; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .tag { padding: 4px 8px; border-radius: 999px; background: #285661; color: #d6fff4; font-size: .82rem; }
+    .tag.tool { background: #174f78; color: #d4f1ff; }.tag.resource { background: #6a4d16; color: #fff1ba; }
+    .tag.error { background: #7f1d35; color: #ffe4e6; }
+    .chain { margin: 12px 0; padding: 12px; border-left: 4px solid #54e6ad; background: #174550; border-radius: 8px; color: #f2fffb; }
+    .trace.failed .chain { border-color: #fb7185; background: #4a2234; }
+    .explanation { margin: 12px 0 0; color: #e1f4ff; font-weight: 550; }
+    code { font: .88rem ui-monospace, SFMono-Regular, Menlo, monospace; color: #a5f3fc; overflow-wrap: anywhere; }
+    .empty { padding: 30px; text-align: center; color: #cbd5e1; }
+    @media (max-width: 850px) { .activity-layout { grid-template-columns: 1fr; } .legend { position: static; margin-top: 0; } }
+    @media (max-width: 620px) { main { padding-top: 28px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p>ECONEST / MCP ACTIVITY</p>
+      <h1>Tool calls, explained.</h1>
+      <p>Every entry is an actual call made through EcoNest’s MCP boundary. Raw queries and sensitive values are intentionally not displayed.</p>
+    </header>
+    <section class="card">
+      <div class="row">
+        <div><h2>Recent MCP activity</h2><p id="summary" class="summary">Loading…</p></div>
+        <div class="row"><a class="button secondary" href="/command">Command Center</a><button id="refresh">Refresh</button></div>
+      </div>
+      <div class="activity-layout">
+        <div id="list" class="list"></div>
+        <aside class="legend" aria-label="MCP activity legend">
+          <h2>How to read this</h2>
+          <dl>
+            <div><dt>Task</dt><dd>One complete EcoNest request or autonomous decision. All calls inside the card belong to that task.</dd></div>
+            <div><dt>Tool</dt><dd>An approved MCP operation that can read data or take an action, such as checking a light or calling Home Assistant.</dd></div>
+            <div><dt>Resource</dt><dd>Read-only context supplied through MCP, such as a defined capability or system inventory.</dd></div>
+            <div><dt>Device</dt><dd>The Device Agent: the specialist responsible for safely checking and controlling Home Assistant devices.</dd></div>
+            <div><dt>Orchestrator</dt><dd>The coordinator that receives a task, selects an agent, and records the final outcome.</dd></div>
+            <div><dt>Background monitor</dt><dd>The autonomous check that runs on its schedule, rather than a command typed in Command Center.</dd></div>
+            <div><dt>Completed / failed</dt><dd>Whether that specific MCP call succeeded. A failed audit call does not necessarily mean the device action failed.</dd></div>
+          </dl>
+        </aside>
+      </div>
+    </section>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    const esc = value => { const element = document.createElement("div"); element.textContent = String(value ?? ""); return element.innerHTML; };
+    function formatTime(value) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? "Time unavailable" : date.toLocaleString("en-US", { month:"2-digit", day:"2-digit", year:"2-digit", hour:"numeric", minute:"2-digit", second:"2-digit", hour12:true }); }
+    function details(item) { const args = item.arguments || {}; const parts = []; if (args.entity_id) parts.push(`target: ${args.entity_id}`); if (args.domain && args.service) parts.push(`${args.domain}.${args.service}`); if (args.language) parts.push(`${args.language} query`); if (args.parameter_keys) parts.push(`parameters: ${args.parameter_keys.join(", ")}`); return parts.length ? parts.join(" · ") : "No sensitive arguments retained in the trace."; }
+    function chain(item) { return `${item.agent} → ${item.kind === "tool" ? "tool" : "resource"}: ${item.name || "unknown"} → ${item.success ? "completed" : "failed"}`; }
+    function englishExplanation(item) {
+      const target = item.arguments?.entity_id;
+      const action = item.arguments?.domain && item.arguments?.service ? `${item.arguments.domain}.${item.arguments.service}` : "";
+      const outcome = item.success ? "completed successfully" : "did not complete";
+      const subject = target ? ` for ${target}` : "";
+      const descriptions = {
+        query_arcadedb: `The Device Agent checked EcoNest's graph data${subject} before deciding what it could do. The check ${outcome}.`,
+        ha_get_state: `The Device Agent asked Home Assistant for the current state${subject}. This state check ${outcome}.`,
+        ha_call_service: `The Device Agent asked Home Assistant to run ${action || "the requested device action"}${subject}. The request ${outcome}.`,
+        record_device_action: `The orchestrator saved the action outcome in EcoNest's audit history. The audit record ${outcome}.`,
+      };
+      if (descriptions[item.name]) return descriptions[item.name];
+      const actor = item.agent === "orchestrator" ? "The orchestrator" : `The ${item.agent} agent`;
+      return `${actor} used the MCP ${item.kind} “${item.name || "unknown"}”. The call ${outcome}.`;
+    }
+    function timeValue(item) { const value = new Date(item.timestamp).valueOf(); return Number.isNaN(value) ? 0 : value; }
+    function groupByTask(items) {
+      const groups = new Map();
+      items.forEach((item, index) => {
+        const key = item.task_id || `direct-${index}`;
+        if (!groups.has(key)) groups.set(key, { taskId: item.task_id || "", items: [] });
+        groups.get(key).items.push(item);
+      });
+      return [...groups.values()].map(group => ({
+        ...group,
+        items: group.items.sort((left, right) => timeValue(left) - timeValue(right)),
+        latest: Math.max(...group.items.map(timeValue)),
+      })).sort((left, right) => right.latest - left.latest);
+    }
+    function traceCard(item) { return `<article class="trace ${item.success ? "" : "failed"}"><div class="row"><h3><code>${esc(item.name || "unknown")}</code></h3><span class="muted">${esc(formatTime(item.timestamp))}</span></div><div class="meta"><span class="tag ${esc(item.kind)}">${esc(item.kind)}</span><span class="tag">${esc(item.agent)}</span><span class="tag">${esc(item.source)}</span><span class="tag">${esc(item.success ? "completed" : "failed")}</span>${item.duration_ms != null ? `<span class="tag">${esc(item.duration_ms)} ms</span>` : ""}</div><div class="chain">${esc(chain(item))}</div><p class="explanation">${esc(englishExplanation(item))}</p><p>${esc(details(item))}</p>${item.warnings?.length ? `<p class="muted">Warning: ${esc(item.warnings.join("; "))}</p>` : ""}${item.error ? `<p>Failure: ${esc(item.error)}</p>` : ""}</article>`; }
+    function taskCard(group) {
+      const failures = group.items.filter(item => !item.success).length;
+      const taskTitle = group.taskId ? `Task ${group.taskId}` : "Direct MCP request";
+      const taskStatus = failures ? `${failures} failed` : "completed";
+      const source = group.items[0]?.source || "internal";
+      return `<section class="task ${failures ? "failed" : ""}"><div class="row"><div><h2>${esc(taskTitle)}</h2><p class="task-id">${group.items.length} MCP call${group.items.length === 1 ? "" : "s"} · ${esc(source)}</p></div><div class="meta"><span class="tag ${failures ? "error" : ""}">${esc(taskStatus)}</span><span class="muted">Latest: ${esc(formatTime(group.items.at(-1)?.timestamp))}</span></div></div><div class="task-calls">${group.items.map(traceCard).join("")}</div></section>`;
+    }
+    async function load() {
+      const summary = $("summary"), list = $("list"); summary.textContent = "Loading MCP activity…";
+      const response = await fetch("/mcp/activity/events"); if (!response.ok) throw Error("Could not load MCP activity.");
+      const data = await response.json(), items = data.events || [], groups = groupByTask(items); summary.textContent = items.length ? `${items.length} recent MCP call${items.length === 1 ? "" : "s"} across ${groups.length} task${groups.length === 1 ? "" : "s"}.` : "No MCP calls have been recorded yet.";
+      list.innerHTML = groups.length ? groups.map(taskCard).join("") : '<div class="empty">Run a command from Command Center, then refresh this page to see its MCP trace.</div>';
+    }
+    $("refresh").addEventListener("click", () => load().catch(error => $("summary").textContent = error.message)); load().catch(error => $("summary").textContent = error.message);
+  </script>
+</body>
+</html>
