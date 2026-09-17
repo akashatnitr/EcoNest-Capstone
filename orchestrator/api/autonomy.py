@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 
 from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.core.audit import read_recent_audit_events_async
+from orchestrator.config import get_settings
 
 router = APIRouter(tags=["autonomy"])
 _energy_orchestrator = AgentOrchestrator()
+settings = get_settings()
 
 
 class EnergyRecommendationRequest(BaseModel):
@@ -49,7 +51,8 @@ async def request_energy_recommendations(
     """Queue an on-demand advisory energy review for the activity feed."""
     task_id = await _energy_orchestrator.submit_http_api(
         intent=request.intent,
-        payload={**request.payload, "type": "energy"},
+        payload={**request.payload, "type": "energy", "use_llm": True},
+        timeout_seconds=settings.OLLAMA_TIMEOUT_SECONDS,
     )
     return {"task_id": task_id, "status": "submitted"}
 

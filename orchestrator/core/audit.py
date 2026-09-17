@@ -109,6 +109,27 @@ async def read_recent_audit_events_async(limit: int = 50) -> list[dict[str, Any]
     valid_events = [event for event in events if event is not None]
     return list(reversed(valid_events))
 
+async def read_recent_mcp_events_async(limit: int = 100) -> list[dict[str, Any]]:
+    """Read recent MCP tool/resource audit events from MySQL."""
+    bounded_limit = max(1, min(limit, 200))
+    try:
+        async with mysql_session_context() as session:
+            result = await session.execute(
+                text(
+                    "SELECT payload FROM audit_events "
+                    "WHERE event_type IN ('mcp.tool.executed', 'mcp.resource.read') "
+                    "ORDER BY event_time DESC, id DESC LIMIT :limit"
+                ),
+                {"limit": bounded_limit},
+            )
+            rows = result.mappings().all()
+    except Exception:
+        return []
+
+    events = [_audit_payload_mapping(row.get("payload")) for row in rows]
+    valid_events = [event for event in events if event is not None]
+    return list(reversed(valid_events))
+
 
 async def ensure_audit_table() -> None:
     """Create the MySQL audit table used for long-term analysis."""

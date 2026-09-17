@@ -9,8 +9,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from orchestrator.agents.base import BaseAgent, Result, Task
-from orchestrator.core.database import arcadedb_query
-from orchestrator.llm.memory import get_recent_interactions
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "sensor.j2"
 
@@ -57,7 +55,7 @@ class SensorAgent(BaseAgent):
 
         observations = self._observations_from_payload(task.payload)
 
-        observations.extend(await self._observations_from_graph())
+        observations.extend(await self._observations_from_graph(task))
 
         issues = self._detect_issues(observations)
 
@@ -122,22 +120,23 @@ class SensorAgent(BaseAgent):
 
     async def _observations_from_graph(
         self,
+        task: Task,
     ) -> list[SensorObservation]:
 
         try:
-            result = await arcadedb_query(
-                "sql",
-                "SELECT FROM Sensor LIMIT 10",
+            result = await self.invoke_mcp_tool(
+                task,
+                "query_arcadedb",
+                {"language": "sql", "query": "SELECT FROM Sensor LIMIT 10"},
             )
         except Exception:
+            return []
+        if not result.success:
             return []
 
         observations = []
 
-        for row in result.get(
-            "result",
-            [],
-        ):
+        for row in result.result or []:
             if isinstance(row, dict):
                 observations.append(
                     SensorObservation(
@@ -200,12 +199,9 @@ class SensorAgent(BaseAgent):
     ) -> dict[str, Any]:
 
         try:
-            recent = await get_recent_interactions(
-                task.user_id,
-                n=5,
-            )
-
-            interaction_count = len(recent)
+            recent = await self.read_mcp_resource(task, "home://memory/recent")
+            interactions = recent.get("recent_interactions", [])
+            interaction_count = len(interactions) if isinstance(interactions, list) else 0
 
         except Exception:
             interaction_count = 0

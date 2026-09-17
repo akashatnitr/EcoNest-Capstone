@@ -45,6 +45,39 @@ async def test_list_tools(client):
     assert "device_turn_on" in tool_names
 
 
+@pytest.mark.anyio
+async def test_mcp_activity_page_and_safe_event_feed(client):
+    page = client.get("/mcp/activity")
+    assert page.status_code == 200
+    assert "Tool calls, explained." in page.text
+
+    with patch(
+        "orchestrator.api.mcp.read_recent_audit_events_async",
+        new=AsyncMock(
+            return_value=[
+                {
+                    "timestamp": "2026-09-11T12:00:00+00:00",
+                    "event_type": "mcp.tool.executed",
+                    "task_id": "task-1",
+                    "agent": "device",
+                    "source": "http_api",
+                    "tool": "ha_call_service",
+                    "success": True,
+                    "duration_ms": 12.5,
+                    "arguments": {"entity_id": "light.kitchen"},
+                }
+            ]
+        ),
+    ):
+        response = client.get("/mcp/activity/events")
+
+    assert response.status_code == 200
+    event = response.json()["events"][0]
+    assert event["name"] == "ha_call_service"
+    assert event["agent"] == "device"
+    assert event["arguments"] == {"entity_id": "light.kitchen"}
+
+
 # ------------------------------------------------------------------
 # Tool invocation
 # ------------------------------------------------------------------

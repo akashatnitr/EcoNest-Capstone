@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import weakref
 from typing import Any, Optional, Type, TypeVar
 
 import httpx
@@ -14,6 +15,24 @@ T = TypeVar("T", bound=BaseModel)
 
 settings = get_settings()
 
+# The Docker runtime has a constrained memory budget. Serializing inference
+# prevents a manual energy review and the autonomous monitor from loading
+# separate Ollama runners at the same time. Locks are scoped per event loop so
+# short-lived test loops do not share a bound asyncio primitive.
+_MODEL_REQUEST_LOCKS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, asyncio.Lock
+] = weakref.WeakKeyDictionary()
+
+
+def _model_request_lock() -> asyncio.Lock:
+    """Return the shared inference lock for the active application loop."""
+    loop = asyncio.get_running_loop()
+    lock = _MODEL_REQUEST_LOCKS.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _MODEL_REQUEST_LOCKS[loop] = lock
+    return lock
+
 
 class LLMClient:
     """Async client for Ollama with retry, streaming, and structured output."""
@@ -22,7 +41,9 @@ class LLMClient:
         self.base_url = base_url or settings.OLLAMA_URL
         self.model = model or settings.OLLAMA_MODEL
         self.fallback_model = settings.OLLAMA_FALLBACK_MODEL
-        self.client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.OLLAMA_TIMEOUT_SECONDS)
+        )
 
     async def generate(
         self,
@@ -42,30 +63,31 @@ class LLMClient:
         if system:
             payload["system"] = system
 
-        for attempt in range(max_retries):
-            try:
-                if stream:
-                    return await self._stream_generate(payload)
-                response = await self.client.post(
-                    f"{self.base_url}/api/generate",
-                    json=payload,
-                )
-                response.raise_for_status()
-                data = response.json()
-                if isinstance(data, dict):
-                    return str(data.get("response", ""))
-                return ""
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 404 and attempt == 0:
-                    # Try fallback model
-                    payload["model"] = self.fallback_model
-                    continue
-                if attempt == max_retries - 1:
-                    raise
-            except Exception:
-                if attempt == max_retries - 1:
-                    raise
-                await asyncio.sleep(2**attempt)
+        async with _model_request_lock():
+            for attempt in range(max_retries):
+                try:
+                    if stream:
+                        return await self._stream_generate(payload)
+                    response = await self.client.post(
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    if isinstance(data, dict):
+                        return str(data.get("response", ""))
+                    return ""
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 404 and attempt == 0:
+                        # Try fallback model
+                        payload["model"] = self.fallback_model
+                        continue
+                    if attempt == max_retries - 1:
+                        raise
+                except Exception:
+                    if attempt == max_retries - 1:
+                        raise
+                    await asyncio.sleep(2**attempt)
         return ""
 
     async def _stream_generate(self, payload: dict[str, Any]) -> str:
@@ -108,6 +130,7 @@ class LLMClient:
         raw = await self.chat(
             full_messages,
             temperature=temperature,
+            response_format=output_model.model_json_schema(),
         )
         # Clean up potential markdown fences
         cleaned = raw.strip()
@@ -125,6 +148,7 @@ class LLMClient:
         messages: list[LLMMessage],
         temperature: float = 0.7,
         stream: bool = False,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         """Chat completion using Ollama's /api/chat endpoint."""
         payload = {
@@ -133,12 +157,15 @@ class LLMClient:
             "temperature": temperature,
             "stream": stream,
         }
-        response = await self.client.post(
-            f"{self.base_url}/api/chat",
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
+        if response_format is not None:
+            payload["format"] = response_format
+        async with _model_request_lock():
+            response = await self.client.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
         if not isinstance(data, dict):
             return ""
         message = data.get("message")

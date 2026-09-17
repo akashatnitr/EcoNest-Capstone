@@ -33,8 +33,9 @@ class Settings(BaseSettings):
 
     # Ollama / LLM
     OLLAMA_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "gemma4"
-    OLLAMA_FALLBACK_MODEL: str = "gemma4"
+    OLLAMA_MODEL: str = "gemma3:4b"
+    OLLAMA_FALLBACK_MODEL: str = "gemma3:4b"
+    OLLAMA_TIMEOUT_SECONDS: int = 180
 
     # Home Assistant
     HA_URL: str = "http://localhost:8123"

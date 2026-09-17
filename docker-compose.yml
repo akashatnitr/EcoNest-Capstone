@@ -56,7 +56,7 @@ services:
       sh -c '
         ollama serve &
         sleep 5
-        ollama pull gemma4 || true
+        ollama pull gemma3:4b || true
         wait
       '
 

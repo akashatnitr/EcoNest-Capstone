@@ -1,5 +1,6 @@
 """MCP tools for ArcadeDB graph operations."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -32,6 +33,15 @@ class GetDeviceNeighborsInput(BaseModel):
     device_id: str
 
 
+class RecordDeviceActionInput(BaseModel):
+    """Audit information for one device-control attempt."""
+
+    action: str
+    task_id: str = ""
+    user_id: str = ""
+    success: bool
+
+
 def _result_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
     rows = result.get("result", [])
     if not isinstance(rows, list):
@@ -52,6 +62,12 @@ def _is_readonly_graph_query(query: str) -> bool:
 
 def _escape_gremlin_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _sql_timestamp() -> str:
+    """Return a UTC timestamp literal accepted by ArcadeDB SQL."""
+    value = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    return f"'{_escape_gremlin_string(value)}'"
 
 
 async def query_arcadedb_handler(
@@ -95,3 +111,38 @@ async def get_device_neighbors_handler(
             "neighbor_count": len(rows),
         },
     )
+
+
+async def record_device_action_handler(
+    input_data: RecordDeviceActionInput,
+) -> ToolExecutionResult:
+    """Record a device-control outcome apart from the Action catalog."""
+    await _ensure_action_execution_schema()
+    command = (
+        "CREATE VERTEX ActionExecution "
+        f"SET action = '{_escape_gremlin_string(input_data.action)}', "
+        f"task_id = '{_escape_gremlin_string(input_data.task_id)}', "
+        f"user_id = '{_escape_gremlin_string(input_data.user_id)}', "
+        f"success = {str(input_data.success).lower()}, "
+        f"timestamp = {_sql_timestamp()}"
+    )
+    await arcadedb_query("sql", command, readonly=False)
+    return ToolExecutionResult(
+        capability="record_device_action",
+        result={"recorded": True},
+        metadata={"task_id": input_data.task_id},
+    )
+
+
+async def _ensure_action_execution_schema() -> None:
+    """Create the runtime audit vertex type for existing graph deployments."""
+    for command in (
+        "CREATE VERTEX TYPE ActionExecution IF NOT EXISTS",
+        "CREATE PROPERTY ActionExecution.action IF NOT EXISTS STRING",
+        "CREATE PROPERTY ActionExecution.task_id IF NOT EXISTS STRING",
+        "CREATE PROPERTY ActionExecution.user_id IF NOT EXISTS STRING",
+        "CREATE PROPERTY ActionExecution.success IF NOT EXISTS BOOLEAN",
+        "CREATE PROPERTY ActionExecution.timestamp IF NOT EXISTS DATETIME",
+        "CREATE INDEX IF NOT EXISTS ON ActionExecution(task_id) NOTUNIQUE",
+    ):
+        await arcadedb_query("sql", command, readonly=False)

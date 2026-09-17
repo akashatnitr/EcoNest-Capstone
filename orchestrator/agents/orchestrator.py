@@ -14,11 +14,11 @@ from orchestrator.agents.energy_agent import EnergyAgent
 from orchestrator.agents.security_agent import SecurityAgent
 from orchestrator.agents.sensor_agent import SensorAgent
 from orchestrator.core.audit import write_audit_event, write_audit_event_async
-from orchestrator.core.database import arcadedb_query
 from orchestrator.core.permissions import Role, normalize_role
 from orchestrator.core.policy import evaluate_autonomous_action_policy
 from orchestrator.llm.client import LLMClient
 from orchestrator.llm.models import LLMMessage
+from orchestrator.mcp.executor import MCPToolExecutor
 
 MAX_RETRIES = 3
 NIGHT_CONTROL_START_HOUR = 23
@@ -63,6 +63,7 @@ class AgentOrchestrator:
         agents: Sequence[BaseAgent] | None = None,
         llm: LLMClient | None = None,
         current_hour_provider: Callable[[], int] | None = None,
+        tool_executor: MCPToolExecutor | None = None,
     ) -> None:
         self._stats = {
             "submitted": 0,
@@ -79,6 +80,7 @@ class AgentOrchestrator:
             ]
         )
         self.llm = llm or LLMClient()
+        self.tool_executor = tool_executor or MCPToolExecutor()
         self.current_hour_provider = current_hour_provider or (
             lambda: datetime.now().hour
         )
@@ -515,23 +517,22 @@ class AgentOrchestrator:
         )
 
     async def _log_device_control_to_graph(self, task: Task, result: Result) -> None:
-        command = (
-            "CREATE VERTEX Action "
-            f"SET name = {_sql_string(task.payload.get('action') or task.intent)}, "
-            f"task_id = {_sql_string(task.id)}, "
-            f"user_id = {_sql_string(task.user_id)}, "
-            f"success = {str(result.success).lower()}, "
-            "timestamp = datetime()"
-        )
         try:
-            await arcadedb_query("sql", command, readonly=False)
+            await self.tool_executor.execute(
+                "record_device_action",
+                {
+                    "action": str(task.payload.get("action") or task.intent),
+                    "task_id": task.id,
+                    "user_id": task.user_id,
+                    "success": result.success,
+                },
+                role=Role.SERVICE_ACCOUNT,
+                task_id=task.id,
+                agent="orchestrator",
+                source=str(task.metadata.get("source", "orchestrator")),
+            )
         except Exception:
             return
-
-
-def _sql_string(value: Any) -> str:
-    text = str(value).replace("\\", "\\\\").replace("'", "\\'")
-    return f"'{text}'"
 
 
 def _audit_payload(payload: dict[str, Any]) -> dict[str, Any]:

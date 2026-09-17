@@ -62,6 +62,12 @@ services:
       - "11435:11434"
     volumes:
       - ollama-data:/root/.ollama
+    environment:
+      # Gemma 3 4B fits only when a single inference runner owns the Docker
+      # memory budget.  The orchestrator also serializes requests.
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_KEEP_ALIVE: "0"
     entrypoint: ["ollama", "serve"]
     healthcheck:
       test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
@@ -90,8 +96,9 @@ services:
       MYSQL_PASSWORD: econest
       MYSQL_DATABASE: econest
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4}
-      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-gemma4}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-gemma3:4b}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-180}
       HA_URL: ${HA_URL:-http://host.docker.internal:8123}
       HA_TOKEN: ${HA_TOKEN:?Set HA_TOKEN in your .env before starting econest-real}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
@@ -125,7 +132,8 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 15s
-      timeout: 5s
+      # CPU inference can briefly delay Python while Gemma 3 is responding.
+      timeout: 15s
       retries: 5
 
 volumes:

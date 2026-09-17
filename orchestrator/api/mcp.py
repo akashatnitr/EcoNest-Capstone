@@ -1,13 +1,17 @@
 """MCP orchestrator API routes."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.api.auth import UserProfile, get_current_user
 from orchestrator.core.permissions import AGENT_RUN, has_permission
+from orchestrator.core.audit import read_recent_audit_events_async
+from orchestrator.core.audit import read_recent_mcp_events_async
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 _orchestrator = AgentOrchestrator()
@@ -24,6 +28,21 @@ class TaskResponse(BaseModel):
     task_id: str
     status: str
 
+
+@router.get("/activity", response_class=HTMLResponse)
+async def mcp_activity_page() -> HTMLResponse:
+    """Serve the human-readable MCP tool and resource activity page."""
+    page = Path(__file__).resolve().parents[1] / "static" / "mcp_activity.html"
+    return HTMLResponse(page.read_text(encoding="utf-8"))
+
+
+@router.get("/activity/events")
+async def mcp_activity_events(limit: int = 100) -> dict[str, Any]:
+    """Return recent tool and resource traces without exposing raw payloads."""
+    bounded_limit = max(1, min(limit, 200))
+    events = await read_recent_mcp_events_async(bounded_limit)
+    traces = [_mcp_trace_view(event) for event in events]
+    return {"events": list(reversed(traces)), "limit": bounded_limit}
 
 @router.post("/task", response_model=TaskResponse, status_code=status.HTTP_202_ACCEPTED)
 async def submit_task(
@@ -96,4 +115,23 @@ async def list_agents(
             }
             for agent in _orchestrator.agents
         ],
+    }
+
+
+def _mcp_trace_view(event: dict[str, Any]) -> dict[str, Any]:
+    """Normalize durable trace records into a UI-safe activity item."""
+    event_type = str(event.get("event_type", ""))
+    is_tool = event_type == "mcp.tool.executed"
+    return {
+        "timestamp": event.get("timestamp"),
+        "task_id": event.get("task_id") or "",
+        "agent": event.get("agent") or "System",
+        "source": event.get("source") or "internal",
+        "kind": "tool" if is_tool else "resource",
+        "name": event.get("tool") if is_tool else event.get("resource"),
+        "success": event.get("success") is True,
+        "duration_ms": event.get("duration_ms"),
+        "arguments": event.get("arguments") if is_tool else {},
+        "warnings": event.get("warnings") if is_tool else [],
+        "error": event.get("error"),
     }

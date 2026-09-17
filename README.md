@@ -46,13 +46,15 @@ sensor health, and device-control workflows.
 - **MCP tool layer** for database queries, graph lookups, Home Assistant state,
   and device actions.
 - **Specialized agents** for energy, security, sensor, and device workflows.
-- **Local LLM inference** through Ollama with Gemma4 as both the primary and
-  configured fallback model.
+- **Local LLM inference** through Ollama with Gemma 3 (4B) as both the
+  primary and configured fallback model.
 - **Home Assistant integration** for live device state, automations, and
   service calls.
 - **Command Center UI** for authenticated, explicit Home Assistant commands.
 - **Autonomy Activity UI** for recommendation history, confidence, reasoning,
   fallback diagnostics, and execution outcomes.
+- **MCP Activity UI** for task-grouped, human-readable traces of every MCP
+  tool and resource call.
 
 ---
 
@@ -179,7 +181,7 @@ FastAPI orchestrator
         |
         +-- MySQL
         +-- ArcadeDB
-        +-- Ollama (Gemma4)
+        +-- Ollama (Gemma 3, 4B)
 -->
 
 ---
@@ -221,7 +223,7 @@ EcoNest-Capstone/
 | Docker Desktop | Recommended for the orchestrator stack |
 | Python 3.11+ | Required for local orchestrator development |
 | Home Assistant | Optional for live device state and actions |
-| Ollama | Used for local Gemma4 inference |
+| Ollama | Used for local Gemma 3 (4B) inference |
 
 ### 1. Start the Stack
 
@@ -263,7 +265,8 @@ network. They are deployment-specific rather than public Internet URLs.
 | Link | What it is |
 |------|------------|
 | [Autonomy Activity](http://100.75.149.121:8001/autonomy) | Readable history of autonomous and energy recommendations, including confidence, reasoning, model/fallback source, and whether an action executed, was skipped, or failed. |
-| [EcoNest Command Center](http://100.75.149.121:8000/command) | The EcoNest web interface for signing in and sending an explicit command to an exact Home Assistant entity. |
+| [MCP Activity](http://100.75.149.121:8001/mcp/activity) | Task-grouped, human-readable evidence that EcoNest used MCP tools and resources, including tool timing, agent/source, safe argument summaries, and failures. |
+| [EcoNest Command Center](http://100.75.149.121:8001/command) | The EcoNest web interface for signing in and sending an explicit command to an exact Home Assistant entity. |
 | [Home Assistant Overview](http://100.75.149.121:8123/home/overview) | The Home Assistant dashboard: the live source of device states and the system that ultimately carries out approved device service calls. |
 | [ArcadeDB Studio](http://100.75.149.121:2481/) | The browser interface for inspecting and querying EcoNest's ArcadeDB graph database, which stores room, device, sensor, and relationship context. |
 | [MySQL Monitor](http://100.75.149.121:8001/monitor) | EcoNest's browser-based monitoring view for inspecting MySQL-backed readings, tables, and operational data. |
@@ -291,7 +294,7 @@ startup and then at `AUTONOMY_MONITOR_INTERVAL_SECONDS` intervals. Each cycle:
 1. Reads the current Home Assistant `/api/states` snapshot.
 2. Builds a snapshot of people/device trackers, lights and switches on, open
    covers, active motion, current power, and energy-today readings.
-3. Uses Gemma4 for suggestion-only household feedback and, separately, one
+3. Uses Gemma 3 (4B) for suggestion-only household feedback and, separately, one
    structured low-risk action recommendation.
 4. Applies independent safety gates: action allowlist, entity allowlist,
    low-risk classification, valid current state, and confidence threshold.
@@ -305,6 +308,19 @@ Center sign-in flow. It shows recommendation timestamp, reasoning, confidence,
 source (`ollama` or `fallback_policy`), and outcome. A fallback means the
 structured Ollama action response was unavailable or invalid; it does not
 allow the fallback policy to bypass the same safety gates.
+
+### Local model choice
+
+EcoNest uses `gemma3:4b` for both its primary and configured fallback model.
+Gemma4 was not viable because it needs about 9.8 GB of runtime memory to load,
+which exceeds the Docker environment's 7.8 GB memory allocation. Gemma 3 (4B)
+loads within the available memory after removing the unused duplicate ArcadeDB
+service. As CPU-only inference is slower for this larger model, EcoNest allows
+up to 180 seconds for a local model response.
+
+The fallback policy remains intentionally enabled: it is a safety mechanism
+for genuine model outages, malformed model responses, or unavailable local
+inference. It is not part of normal operation when Gemma 3 (4B) is healthy.
 
 Current autonomous lighting is restricted to explicitly allowlisted low-risk
 actions. Home-level occupancy and live motion are useful signals, but they do
