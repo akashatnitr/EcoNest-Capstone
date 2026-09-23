@@ -202,13 +202,9 @@ async def recommend_autonomous_action(
 ) -> dict[str, Any] | None:
     """Ask the LLM for one safe autonomous action from the latest context."""
     snapshot = feedback.get("snapshot", {})
-    policy_recommendation = _policy_autonomous_action(feedback)
-    if policy_recommendation is not None:
-        guarded = _guard_autonomous_action(policy_recommendation, snapshot)
-        return guarded.model_dump() if guarded and guarded.should_act else None
-
     allowed_entities = _allowed_autonomous_entities()
     allowed_actions = _allowed_autonomous_actions()
+    safe_turn_off_targets = _prevalidated_turn_off_targets(snapshot)
     prompt = (
         "You are EcoNest's autonomous smart-home policy model. Decide whether "
         "EcoNest should execute exactly one low-risk action now.\n\n"
@@ -216,13 +212,15 @@ async def recommend_autonomous_action(
         "- Only recommend an action if confidence is high.\n"
         "- Only use allowed actions and entities.\n"
         "- Do not recommend climate, lock, garage, cover, alarm, or security actions.\n"
-        "- When an allowlisted light is currently on and the snapshot has no "
-        "active motion, that is sufficient evidence for a low-risk turn_off. "
-        "Return should_act=true, action=turn_off, and confidence of at least "
-        "0.85 unless another supplied signal directly conflicts.\n"
+        "- The Pre-validated safe turn-off targets list was produced by "
+        "EcoNest's deterministic allowlist, state, and motion checks. It is "
+        "not ambiguous. If that list is non-empty, you MUST choose its first "
+        "target: return should_act=true, domain=light, action=turn_off, that "
+        "entity_id, risk_level=LOW, and confidence at least 0.85.\n"
         "- Prefer doing nothing if context is ambiguous.\n\n"
         f"Allowed actions: {sorted(allowed_actions)}\n"
         f"Allowed entities: {sorted(allowed_entities)}\n"
+        f"Pre-validated safe turn-off targets: {json.dumps(safe_turn_off_targets)}\n"
         f"Feedback JSON:\n{json.dumps(feedback, default=str)}\n\n"
         "Return JSON only."
     )
@@ -1276,37 +1274,21 @@ def _fallback_autonomous_action(
     )
 
 
-def _policy_autonomous_action(
-    feedback: dict[str, Any],
-) -> AutonomousActionRecommendation | None:
-    """Create a narrow, evidence-based autonomous lighting candidate."""
-    snapshot = feedback.get("snapshot", {})
+def _prevalidated_turn_off_targets(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    """Return safe lighting evidence for the model without choosing an action."""
     if snapshot.get("active_motion", []):
-        return None
+        return []
 
     if "light.turn_off" not in _allowed_autonomous_actions():
-        return None
+        return []
 
     allowed_entities = _allowed_autonomous_entities()
     for light in snapshot.get("lights_on", []):
         entity_id = str(light.get("entity_id", ""))
         if entity_id not in allowed_entities:
             continue
-        return AutonomousActionRecommendation(
-            should_act=True,
-            source="policy_rule",
-            confidence=0.9,
-            domain="light",
-            action="turn_off",
-            entity_id=entity_id,
-            reason=(
-                f"{light.get('name', entity_id)} is on and no active motion is "
-                "present in the current snapshot."
-            ),
-            expected_outcome={"entity_id": entity_id, "state": "off"},
-            risk_level="LOW",
-        )
-    return None
+        return [{"entity_id": entity_id, "name": str(light.get("name", entity_id))}]
+    return []
 
 
 def _autonomy_model_failure_reason(exc: Exception) -> str:

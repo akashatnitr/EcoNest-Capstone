@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EcoNest MySQL Schema</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #07130f; color: #edf8f1; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 10% 0%, #164532, #07130f 48%); }
+    header { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 24px; border-bottom: 1px solid #295440; background: #091a13dd; }
+    h1 { margin: 0; font-size: clamp(1.25rem, 3vw, 1.8rem); letter-spacing: -.03em; } p { margin: 4px 0 0; color: #a8c8b4; font-size: .9rem; }
+    .controls { display: flex; gap: 8px; } button { border: 1px solid #3c7759; border-radius: 8px; background: #123927; color: #d8f5e3; font: inherit; padding: 8px 12px; cursor: pointer; } button:hover { background: #1c563b; }
+    main { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 84px); }
+    aside { padding: 20px; border-right: 1px solid #295440; background: #091a13; overflow: auto; }
+    h2 { margin: 0 0 10px; font-size: .9rem; text-transform: uppercase; letter-spacing: .09em; color: #8fe3b4; }
+    .legend { display: grid; gap: 10px; margin-bottom: 24px; color: #b9d8c4; font-size: .85rem; }
+    .line { display: inline-block; width: 30px; border-top: 2px solid #61d994; margin-right: 8px; vertical-align: middle; } .line.optional { border-top-style: dashed; }
+    #details { border: 1px solid #295440; border-radius: 12px; padding: 14px; background: #0c2318; min-height: 170px; } #details h3 { margin: 0 0 10px; color: #fff; } #details ul { margin: 0; padding-left: 18px; color: #c3dfcc; font: .83rem ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.65; }
+    .hint { margin-top: 20px; font-size: .82rem; line-height: 1.45; }
+    #viewport { position: relative; overflow: hidden; min-width: 0; touch-action: none; cursor: grab; background-image: radial-gradient(#2a5a42 1px, transparent 1px); background-size: 24px 24px; } #viewport.dragging { cursor: grabbing; }
+    #canvas { position: absolute; width: 1700px; height: 1080px; transform-origin: 0 0; }
+    #edges { position: absolute; width: 100%; height: 100%; overflow: visible; pointer-events: none; } .edge { fill: none; stroke: #65d997; stroke-width: 2.5; } .edge.optional { stroke-dasharray: 8 6; } .edge-label { fill: #bdeccd; font-size: 12px; text-anchor: middle; paint-order: stroke; stroke: #0a1c14; stroke-width: 5px; stroke-linejoin: round; }
+    .table { position: absolute; width: 190px; border: 1px solid #4b9c70; border-radius: 10px; overflow: hidden; background: #0b291c; box-shadow: 0 8px 22px #0008; cursor: pointer; user-select: none; } .table:hover, .table.selected { border-color: #9ef2bc; box-shadow: 0 0 0 2px #9ef2bc55, 0 8px 22px #0008; } .table.audit { border-color: #927ac8; background: #211a37; } .table header { min-height: 0; padding: 9px 11px; border: 0; background: #15472f; color: #fff; font-weight: 750; font-size: .88rem; } .table.audit header { background: #47377a; } .fields { padding: 8px 11px 10px; color: #bedaca; font: .73rem ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.55; } .key { color: #8df0b5; } .fk { color: #8bc8ff; }
+    @media (max-width: 780px) { main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } aside { border-right: 0; border-bottom: 1px solid #295440; padding: 14px 18px; } #details { min-height: 0; } .hint { display: none; } }
+  </style>
+</head>
+<body>
+  <header><div><h1>EcoNest MySQL relationship map</h1><p>Live documentation of the tables and foreign keys defined in <code>database_schema.txt</code>.</p></div><div class="controls"><button id="zoomOut" aria-label="Zoom out">−</button><button id="reset">Reset view</button><button id="zoomIn" aria-label="Zoom in">+</button></div></header>
+  <main><aside><h2>How to read it</h2><div class="legend"><span><i class="line"></i>Required foreign-key relationship</span><span><i class="line optional"></i>Optional foreign-key relationship</span><span>Click a table to inspect its fields.</span></div><h2>Selected table</h2><section id="details"><h3>Nothing selected</h3><p>Click any table in the map.</p></section><p class="hint">Drag the map to pan. Use the mouse wheel or the buttons to zoom. This page is read-only and does not expose table rows or credentials.</p></aside><section id="viewport" aria-label="Interactive database schema"><div id="canvas"><svg id="edges" viewBox="0 0 1700 1080" aria-hidden="true"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#65d997"></path></marker></defs></svg></div></section></main>
+<script>
+  const tables = [
+    {id:'households', name:'households', x:80, y:80, fields:['id PK','name','address','home_assistant_url','created_at']},
+    {id:'rooms', name:'rooms', x:380, y:70, fields:['id PK','household_id FK','name','description','ha_area_id']},
+    {id:'devices', name:'devices', x:690, y:70, fields:['id PK','room_id FK','name','device_type','ha_entity_id']},
+    {id:'readings', name:'sensor_readings', x:1010, y:60, fields:['id PK','device_id FK','room_id FK','timestamp','data']},
+    {id:'snapshots', name:'home_snapshot', x:370, y:380, fields:['id PK','room_id FK','occupancy_estimate','active_devices','updated_at']},
+    {id:'analytics', name:'home_analytics', x:600, y:380, fields:['id PK','room_id FK','hour_of_day','total_kwh','computed_at']},
+    {id:'profiles', name:'device_profiles', x:850, y:380, fields:['id PK','device_id FK','expected_watt_min','expected_watt_max','max_idle_minutes']},
+    {id:'users', name:'users', x:80, y:650, fields:['id PK','household_id FK','email','role','is_active']},
+    {id:'sessions', name:'user_sessions', x:310, y:650, fields:['id PK','user_id FK','refresh_token','expires_at']},
+    {id:'roomAccess', name:'user_room_access', x:540, y:650, fields:['id PK','user_id FK','room_id FK','permission','allowed_start_hour']},
+    {id:'deviceAccess', name:'user_device_access', x:770, y:650, fields:['id PK','user_id FK','device_id FK','permission','allowed_start_hour']},
+    {id:'entities', name:'home_assistant_entities', x:80, y:900, fields:['id PK','household_id FK','ha_entity_id','ha_device_id','domain']},
+    {id:'audit', name:'audit_events', x:1290, y:720, fields:['id PK','event_time','event_type','task_id','agent','success'], audit:true}
+  ];
+  const edges = [
+    ['households','rooms','contains',true], ['rooms','devices','contains',false], ['devices','readings','produces',false], ['rooms','readings','receives',false], ['rooms','snapshots','records',false], ['rooms','analytics','summarizes',false], ['devices','profiles','configures',false], ['households','users','includes',true], ['users','sessions','owns',false], ['users','roomAccess','grants',false], ['rooms','roomAccess','permits',false], ['users','deviceAccess','grants',false], ['devices','deviceAccess','permits',false], ['households','entities','maps',false]
+  ];
+  const byId = Object.fromEntries(tables.map(table => [table.id, table])); const canvas = document.getElementById('canvas'), svg = document.getElementById('edges');
+  function tableCenter(table) { return {x: table.x + 95, y: table.y + 55}; }
+  function edgePath(a, b) { const start = tableCenter(a), end = tableCenter(b), dx = end.x - start.x, dy = end.y - start.y, distance = Math.max(1, Math.hypot(dx, dy)), ux = dx / distance, uy = dy / distance; return {d:`M ${start.x + ux * 98} ${start.y + uy * 46} L ${end.x - ux * 98} ${end.y - uy * 46}`, x:(start.x + end.x) / 2, y:(start.y + end.y) / 2}; }
+  edges.forEach(([from, to, label, optional]) => { const path = edgePath(byId[from], byId[to]); svg.insertAdjacentHTML('beforeend', `<path class="edge${optional ? ' optional' : ''}" d="${path.d}" marker-end="url(#arrow)"></path><text class="edge-label" x="${path.x}" y="${path.y - 7}">${label}</text>`); });
+  tables.forEach(table => { const fields = table.fields.map(field => `<div class="${field.includes('PK') ? 'key' : field.includes('FK') ? 'fk' : ''}">${field}</div>`).join(''); const node = document.createElement('article'); node.className = `table${table.audit ? ' audit' : ''}`; node.style.left = `${table.x}px`; node.style.top = `${table.y}px`; node.innerHTML = `<header>${table.name}</header><div class="fields">${fields}</div>`; node.addEventListener('click', event => { event.stopPropagation(); document.querySelectorAll('.table').forEach(item => item.classList.remove('selected')); node.classList.add('selected'); document.getElementById('details').innerHTML = `<h3>${table.name}</h3><ul>${table.fields.map(field => `<li>${field}</li>`).join('')}</ul>`; }); canvas.appendChild(node); });
+  const viewport = document.getElementById('viewport'); let scale = .72, x = 30, y = 25, drag = null; function transform() { canvas.style.transform = `translate(${x}px, ${y}px) scale(${scale})`; } function zoom(amount) { scale = Math.min(1.45, Math.max(.35, scale + amount)); transform(); } transform();
+  document.getElementById('zoomIn').onclick = () => zoom(.12); document.getElementById('zoomOut').onclick = () => zoom(-.12); document.getElementById('reset').onclick = () => { scale = .72; x = 30; y = 25; transform(); };
+  viewport.addEventListener('wheel', event => { event.preventDefault(); zoom(event.deltaY < 0 ? .08 : -.08); }, {passive:false}); viewport.addEventListener('pointerdown', event => { if (event.target.closest('.table')) return; drag = {x:event.clientX, y:event.clientY, originX:x, originY:y}; viewport.classList.add('dragging'); viewport.setPointerCapture(event.pointerId); }); viewport.addEventListener('pointermove', event => { if (!drag) return; x = drag.originX + event.clientX - drag.x; y = drag.originY + event.clientY - drag.y; transform(); }); viewport.addEventListener('pointerup', () => { drag = null; viewport.classList.remove('dragging'); });
+</script></body></html>

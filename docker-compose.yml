@@ -8,7 +8,11 @@ services:
       - "2480:2480"
       - "2424:2424"
     environment:
-      JAVA_OPTS: "-Darcadedb.server.rootPassword=playwithdata"
+      ARCADEDB_USER: ${ARCADEDB_USER:-root}
+      ARCADEDB_PASSWORD: ${ARCADEDB_PASSWORD:-playwithdata}
+      ARCADEDB_SETTINGS: >-
+        -Darcadedb.server.rootPassword=${ARCADEDB_PASSWORD:-playwithdata}
+        -Darcadedb.server.defaultDatabases=${ARCADEDB_DATABASE:-econest}[${ARCADEDB_USER:-root}:${ARCADEDB_PASSWORD:-playwithdata}:admin]
     volumes:
       - arcadedb-data:/home/arcadedb/databases
     healthcheck:
@@ -19,7 +23,7 @@ services:
           "-q",
           "--spider",
           "--header",
-          "Authorization: Basic cm9vdDpwbGF5d2l0aGRhdGE=",
+          "Authorization: Basic $$(printf '%s:%s' \"$$ARCADEDB_USER\" \"$$ARCADEDB_PASSWORD\" | base64)",
           "http://localhost:2480/api/v1/server",
         ]
       interval: 10s
@@ -72,8 +76,8 @@ services:
     environment:
       ARCADEDB_HOST: arcadedb
       ARCADEDB_PORT: 2480
-      ARCADEDB_USER: root
-      ARCADEDB_PASSWORD: playwithdata
+      ARCADEDB_USER: ${ARCADEDB_USER:-root}
+      ARCADEDB_PASSWORD: ${ARCADEDB_PASSWORD:-playwithdata}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: root

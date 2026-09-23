@@ -59,8 +59,8 @@ MYSQL_DATABASE=econest
 
 ARCADEDB_HOST=localhost
 ARCADEDB_PORT=2480
-ARCADEDB_USER=root
-ARCADEDB_PASSWORD=playwithdata
+ARCADEDB_USER=your_arcadedb_user
+ARCADEDB_PASSWORD=your_arcadedb_password
 ARCADEDB_DATABASE=econest
 
 OLLAMA_URL=http://localhost:11434

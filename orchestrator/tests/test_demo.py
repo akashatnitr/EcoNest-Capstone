@@ -472,7 +472,17 @@ async def test_autonomous_action_recommendation_uses_allowed_light(monkeypatch):
             system=None,
             temperature=0.7,
         ):
-            raise AssertionError("A qualifying policy rule must not wait for the model")
+            assert "Pre-validated safe turn-off targets" in messages[0].content
+            assert demo.DEMO_MEDIA_LIGHT_ENTITY in messages[0].content
+            return output_model(
+                should_act=True,
+                confidence=0.93,
+                domain="light",
+                action="turn_off",
+                entity_id=demo.DEMO_MEDIA_LIGHT_ENTITY,
+                reason="The pre-validated light is on and no active motion is present.",
+                risk_level="LOW",
+            )
 
         async def close(self):
             return None
@@ -504,8 +514,8 @@ async def test_autonomous_action_recommendation_uses_allowed_light(monkeypatch):
     assert recommendation is not None
     assert recommendation["entity_id"] == demo.DEMO_MEDIA_LIGHT_ENTITY
     assert recommendation["action"] == "turn_off"
-    assert recommendation["source"] == "policy_rule"
-    assert recommendation["confidence"] == 0.9
+    assert recommendation["source"] == "ollama"
+    assert recommendation["confidence"] == 0.93
     assert recommendation["expected_outcome"]["state"] == "off"
 
 @pytest.mark.anyio
