@@ -1093,7 +1093,9 @@ async def test_device_agent_closes_home_assistant_cover():
     agent = DeviceAgent()
     execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OpenClose"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "CoverControl"}]
+            ),
             ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
             ToolExecutionResult(capability="ha_get_state", result={"state": "closed"}),
         ]
@@ -1116,6 +1118,179 @@ async def test_device_agent_closes_home_assistant_cover():
     assert service_arguments["domain"] == "cover"
     assert service_arguments["service"] == "close_cover"
     assert service_arguments["entity_id"] == "cover.garage12"
+
+
+@pytest.mark.anyio
+async def test_device_agent_fails_when_home_assistant_state_not_verified():
+    agent = DeviceAgent()
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(
+                capability="query_arcadedb",
+                result=[{"result": "OnOff"}],
+            ),
+            ToolExecutionResult(
+                capability="ha_call_service",
+                result={"status": "ok"},
+            ),
+            ToolExecutionResult(
+                capability="ha_get_state",
+                result={"state": "off"},
+            ),
+        ]
+    )
+    agent.tool_executor.execute = execute
+
+    with patch(
+        "orchestrator.agents.device_agent.HA_VERIFY_ATTEMPTS",
+        1,
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-ha-fail",
+                intent="turn on kitchen light",
+                payload={
+                    "device_id": "light.kitchen",
+                    "action": "turn_on",
+                },
+            )
+        )
+
+    assert result.success is False
+    assert result.data["execution_source"] == "home_assistant"
+    assert result.data["verified"] is False
+    assert "not verified" in result.data["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_device_agent_verifies_home_assistant_turn_off():
+    agent = DeviceAgent()
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(
+                capability="query_arcadedb",
+                result=[{"result": "OnOff"}],
+            ),
+            ToolExecutionResult(
+                capability="ha_call_service",
+                result={"status": "ok"},
+            ),
+            ToolExecutionResult(
+                capability="ha_get_state",
+                result={"state": "off"},
+            ),
+        ]
+    )
+    agent.tool_executor.execute = execute
+
+    result = await agent.run(
+        Task(
+            id="dev-off",
+            intent="turn off kitchen light",
+            payload={
+                "device_id": "light.kitchen",
+                "action": "turn_off",
+            },
+        )
+    )
+
+    assert result.success is True
+    assert result.data["state"] == "off"
+    assert result.data["verified"] is True
+    assert execute.await_args_list[1].args[0] == "ha_call_service"
+    assert execute.await_args_list[2].args[0] == "ha_get_state"
+
+@pytest.mark.anyio
+async def test_device_agent_verifies_home_assistant_brightness():
+    agent = DeviceAgent()
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(
+                capability="query_arcadedb",
+                result=[{"result": "Dimmable"}],
+            ),
+            ToolExecutionResult(
+                capability="ha_call_service",
+                result={"status": "ok"},
+            ),
+            ToolExecutionResult(
+                capability="ha_get_state",
+                result={
+                    "state": "on",
+                    "attributes": {
+                        "brightness": 128,
+                    },
+                },
+            ),
+        ]
+    )
+    agent.tool_executor.execute = execute
+
+    result = await agent.run(
+        Task(
+            id="dev-brightness",
+            intent="set kitchen light brightness",
+            payload={
+                "device_id": "light.kitchen",
+                "action": "set_brightness",
+                "brightness": 50,
+            },
+        )
+    )
+
+    assert result.success is True
+    assert result.data["verified"] is True
+    assert result.data["state"] == "brightness:50"
+
+    service_arguments = execute.await_args_list[1].args[1]
+    assert service_arguments["service"] == "turn_on"
+    assert service_arguments["service_data"] == {"brightness_pct": 50}
+
+@pytest.mark.anyio
+async def test_device_agent_fails_when_brightness_not_verified():
+    agent = DeviceAgent()
+    execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(
+                capability="query_arcadedb",
+                result=[{"result": "Dimmable"}],
+            ),
+            ToolExecutionResult(
+                capability="ha_call_service",
+                result={"status": "ok"},
+            ),
+            ToolExecutionResult(
+                capability="ha_get_state",
+                result={
+                    "state": "on",
+                    "attributes": {
+                        "brightness": 200,
+                    },
+                },
+            ),
+        ]
+    )
+    agent.tool_executor.execute = execute
+
+    with patch(
+        "orchestrator.agents.device_agent.HA_VERIFY_ATTEMPTS",
+        1,
+    ):
+        result = await agent.run(
+            Task(
+                id="dev-brightness-fail",
+                intent="set kitchen light brightness",
+                payload={
+                    "device_id": "light.kitchen",
+                    "action": "set_brightness",
+                    "brightness": 50,
+                },
+            )
+        )
+
+    assert result.success is False
+    assert result.data["verified"] is False
+    assert result.data["state"] == "unknown"
 
 
 @pytest.mark.anyio
@@ -1153,7 +1328,10 @@ async def test_device_agent_sets_home_assistant_temperature():
     agent = DeviceAgent()
     execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "Thermostat"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb",
+                result=[{"result": "TemperatureControl"}],
+            ),
             ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
             ToolExecutionResult(capability="ha_get_state", result={"attributes": {"temperature": 78.0}}),
         ]

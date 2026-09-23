@@ -49,10 +49,10 @@ async def test_list_tools(client):
 async def test_mcp_activity_page_and_safe_event_feed(client):
     page = client.get("/mcp/activity")
     assert page.status_code == 200
-    assert "Tool calls, explained." in page.text
+    assert "Every entry is an actual call made through EcoNest’s MCP boundary." in page.text
 
     with patch(
-        "orchestrator.api.mcp.read_recent_audit_events_async",
+        "orchestrator.api.mcp.read_recent_mcp_events_async",
         new=AsyncMock(
             return_value=[
                 {

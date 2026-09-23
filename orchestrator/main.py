@@ -17,6 +17,7 @@ from orchestrator.api import (
     monitor,
     ontology,
     readings,
+    schema,
     users,
 )
 from orchestrator.config import get_settings
@@ -94,6 +95,7 @@ app.include_router(mcp_server.router)
 app.include_router(monitor.router)
 app.include_router(ontology.router)
 app.include_router(readings.router)
+app.include_router(schema.router)
 app.include_router(users.router)
 
 

@@ -151,11 +151,14 @@ class DeviceAgent(BaseAgent):
                 data={
                     "error": "; ".join(execution.warnings) or "Device action failed",
                     "execution_source": execution.source,
+                    "state": execution.state,
+                    "verified": execution.verified,
                 },
                 message="Device action failed",
                 metadata={
                     "agent_type": "device",
                     "execution_source": execution.source,
+                    "verified": execution.verified,
                 },
             )
 
@@ -197,9 +200,9 @@ class DeviceAgent(BaseAgent):
             "turn_on": "OnOff",
             "turn_off": "OnOff",
             "set_brightness": "Dimmable",
-            "set_temperature": "Thermostat",
-            "open": "OpenClose",
-            "close": "OpenClose",
+            "set_temperature": "TemperatureControl",
+            "open": "CoverControl",
+            "close": "CoverControl",
         }
 
         required = required_capabilities.get(request.action)
@@ -417,12 +420,32 @@ class DeviceAgent(BaseAgent):
             )
 
         expected_state = self._expected_state(request)
-        verified = await self._verify_home_assistant_state(task, entity_id, expected_state)
+        verified = await self._verify_home_assistant_state(
+            task,
+            entity_id,
+            expected_state,
+        )
+
+        if not verified:
+            return DeviceExecution(
+                success=False,
+                state="unknown",
+                source="home_assistant",
+                verified=False,
+                warnings=[
+                    *result.warnings,
+                    (
+                        f"Home Assistant accepted {domain}.{service}, "
+                        f"but the expected state '{expected_state}' was not verified."
+                    ),
+                ],
+            )
+
         return DeviceExecution(
             success=True,
             state=expected_state,
             source="home_assistant",
-            verified=verified,
+            verified=True,
             warnings=result.warnings,
         )
 
@@ -433,39 +456,78 @@ class DeviceAgent(BaseAgent):
         expected_state: str,
     ) -> bool:
         if expected_state.startswith("brightness:"):
-            return True
-        if expected_state.startswith("target_temperature:"):
-            expected_temperature = float(expected_state.split(":", 1)[1])
+            expected_percent = int(expected_state.split(":", 1)[1])
+            expected_brightness = round(expected_percent * 255 / 100)
+
             for attempt in range(HA_VERIFY_ATTEMPTS):
                 result = await self.invoke_mcp_tool(
                     task,
                     "ha_get_state",
                     {"entity_id": entity_id},
                 )
+
                 if result.success and isinstance(result.result, dict):
                     attributes = result.result.get("attributes", {})
+
                     if isinstance(attributes, dict):
-                        observed = attributes.get("temperature")
-                        if (
-                            observed is not None
-                            and abs(float(observed) - expected_temperature) < 0.1
-                        ):
-                            return True
+                        observed = attributes.get("brightness")
+
+                        if observed is not None:
+                            try:
+                                if abs(int(observed) - expected_brightness) <= 1:
+                                    return True
+                            except (TypeError, ValueError):
+                                pass
+
                 if attempt < HA_VERIFY_ATTEMPTS - 1:
                     await asyncio.sleep(HA_VERIFY_DELAY_SECONDS)
+
             return False
+
+        if expected_state.startswith("target_temperature:"):
+            expected_temperature = float(expected_state.split(":", 1)[1])
+
+            for attempt in range(HA_VERIFY_ATTEMPTS):
+                result = await self.invoke_mcp_tool(
+                    task,
+                    "ha_get_state",
+                    {"entity_id": entity_id},
+                )
+
+                if result.success and isinstance(result.result, dict):
+                    attributes = result.result.get("attributes", {})
+
+                    if isinstance(attributes, dict):
+                        observed = attributes.get("temperature")
+
+                        if observed is not None:
+                            try:
+                                if abs(float(observed) - expected_temperature) < 0.1:
+                                    return True
+                            except (TypeError, ValueError):
+                                pass
+
+                if attempt < HA_VERIFY_ATTEMPTS - 1:
+                    await asyncio.sleep(HA_VERIFY_DELAY_SECONDS)
+
+            return False
+
         for attempt in range(HA_VERIFY_ATTEMPTS):
             result = await self.invoke_mcp_tool(
                 task,
                 "ha_get_state",
                 {"entity_id": entity_id},
             )
+
             if result.success and isinstance(result.result, dict):
                 state = str(result.result.get("state", "")).lower()
+
                 if state == expected_state:
                     return True
+
             if attempt < HA_VERIFY_ATTEMPTS - 1:
                 await asyncio.sleep(HA_VERIFY_DELAY_SECONDS)
+
         return False
 
     def _ha_entity_id(self, request: DeviceActionRequest) -> str | None:
