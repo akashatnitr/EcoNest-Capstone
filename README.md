@@ -43,7 +43,6 @@ These services are available through the EcoNest Tailscale network. Replace
 | MySQL | `http://<MAC_MINI_IP>:8001/monitor` | Read-only EcoNest monitor for MySQL-backed readings and operational records. |
 | MySQL schema | `http://<MAC_MINI_IP>:8001/schema` | Visual guide to the MySQL tables and their relationships. |
 | ArcadeDB | `http://<MAC_MINI_IP>:2481/` | ArcadeDB Studio for inspecting rooms, devices, sensors, capabilities, and relationships. |
-| Demo | `http://<MAC_MINI_IP>:8001/demo` | Guided demonstration of EcoNest workflows and their intermediate steps. |
 | Orchestrator API | `http://<MAC_MINI_IP>:8001/docs` | Interactive FastAPI documentation for developers and troubleshooting. |
 
 ## How it works
