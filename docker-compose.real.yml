@@ -16,7 +16,7 @@ services:
     image: arcadedata/arcadedb:latest
     container_name: econest-real-arcadedb
     ports:
-      - "2481:2480"
+      - "2480:2480"
       - "2425:2424"
     environment:
       ARCADEDB_USER: ${ARCADEDB_USER:-root}

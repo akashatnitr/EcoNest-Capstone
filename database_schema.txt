@@ -87,6 +87,62 @@ CREATE TABLE home_analytics (
     FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
+-- Hourly, device-level measurements derived from Home Assistant readings.
+-- Unlike home_analytics, this table retains the source device so the UI and
+-- recommendation agents can explain where a peak or energy change came from.
+CREATE TABLE energy_hourly_analytics (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id INT NOT NULL,
+    room_id INT NOT NULL,
+    hour_start DATETIME NOT NULL,
+    sample_count INT UNSIGNED NOT NULL DEFAULT 0,
+    avg_power_w FLOAT NULL,
+    peak_power_w FLOAT NULL,
+    metered_energy_kwh FLOAT NULL,
+    computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_energy_hourly_device (device_id, hour_start),
+    INDEX idx_energy_hourly_room_time (room_id, hour_start),
+    INDEX idx_energy_hourly_time (hour_start),
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+-- Periodic context used to learn household comfort preferences.  This is kept
+-- separate from raw sensor_readings so preference learning is explainable and
+-- does not need to infer a thermostat target from unrelated sensor data.
+CREATE TABLE comfort_observations (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    climate_device_id INT NULL,
+    room_id INT NOT NULL,
+    climate_entity_id VARCHAR(255) NOT NULL,
+    observed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    target_temperature FLOAT NULL,
+    current_temperature FLOAT NULL,
+    humidity_percent FLOAT NULL,
+    hvac_mode VARCHAR(64) NULL,
+    hvac_action VARCHAR(64) NULL,
+    target_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    change_origin VARCHAR(32) NOT NULL DEFAULT 'observed',
+    INDEX idx_comfort_entity_time (climate_entity_id, observed_at),
+    INDEX idx_comfort_room_time (room_id, observed_at),
+    FOREIGN KEY (climate_device_id) REFERENCES devices(id) ON DELETE SET NULL,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+CREATE TABLE weather_forecasts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    source_entity_id VARCHAR(255) NOT NULL,
+    forecast_at TIMESTAMP NOT NULL,
+    fetched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    condition_name VARCHAR(64),
+    temperature_f FLOAT,
+    humidity_percent FLOAT,
+    precipitation_in FLOAT,
+    wind_speed_mph FLOAT,
+    UNIQUE KEY unique_weather_forecast (source_entity_id, forecast_at),
+    INDEX idx_weather_forecast_time (forecast_at)
+);
+
 CREATE TABLE device_profiles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     device_id INT NOT NULL,

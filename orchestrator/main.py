@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, status
 
 from orchestrator.api import (
     autonomy,
+    analytics,
     auth,
     command,
     demo,
@@ -85,6 +86,7 @@ app = FastAPI(
 
 
 app.include_router(auth.router)
+app.include_router(analytics.router)
 app.include_router(autonomy.router)
 app.include_router(command.router)
 app.include_router(demo.router)

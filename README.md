@@ -42,7 +42,7 @@ These services are available through the EcoNest Tailscale network. Replace
 | Home Assistant | `http://<MAC_MINI_IP>:8123/home/overview` | The live smart-home dashboard and final authority for device state and service calls. |
 | MySQL | `http://<MAC_MINI_IP>:8001/monitor` | Read-only EcoNest monitor for MySQL-backed readings and operational records. |
 | MySQL schema | `http://<MAC_MINI_IP>:8001/schema` | Visual guide to the MySQL tables and their relationships. |
-| ArcadeDB | `http://<MAC_MINI_IP>:2481/` | ArcadeDB Studio for inspecting rooms, devices, sensors, capabilities, and relationships. |
+| ArcadeDB | `http://<MAC_MINI_IP>:2480/` | ArcadeDB Studio for inspecting rooms, devices, sensors, capabilities, and relationships. |
 | Demo | `http://<MAC_MINI_IP>:8001/demo` | Guided demonstration of EcoNest workflows and their intermediate steps. |
 | Orchestrator API | `http://<MAC_MINI_IP>:8001/docs` | Interactive FastAPI documentation for developers and troubleshooting. |
 
@@ -77,6 +77,177 @@ User, scheduled monitor, or Home Assistant event
 - **Sensor Agent:** Diagnoses sensor readings and health.
 - **Device Agent:** Validates a device capability and action, calls Home
   Assistant through MCP, and verifies the resulting state.
+
+## Gemma prompts and when they run
+
+EcoNest uses the local **Gemma 3 4B** model through Ollama for bounded
+interpretation, routing, and explanations. The prompts below show the actual
+instructions sent to the model; values in angle brackets are filled with the
+current task data. Secrets, Home Assistant tokens, passwords, and raw audit
+records are never included.
+
+Structured prompts also include a system instruction generated from the
+relevant Pydantic response schema: `Respond with valid JSON matching this
+schema. Output ONLY JSON.` This lets EcoNest validate the model's answer before
+using it.
+
+### Manual Command Center interpretation
+
+**Trigger:** A signed-in user enters a request in **User actions** and selects
+**Understand command**. EcoNest first reads the live device inventory through
+MCP, selects the most relevant entries, and sends this prompt. It only
+interprets the request; no device action happens until the user confirms.
+
+```text
+Interpret this smart-home request. First choose request_kind:
+energy_recommendation when the user asks about energy use, efficiency, power,
+cost, or savings; security_recommendation when they ask for a security
+assessment, safety advice, or suspicious activity review; and device_control
+only when they request a concrete device action. Energy and security
+recommendation requests are advisory: return their request_kind with null
+entity_id and action.
+
+For device_control, select an entity_id and action ONLY from the supplied
+device inventory. Do not invent an entity, action, or value. Never ask the user
+for an entity ID or other technical identifier. Treat singular and plural
+device wording as equivalent. When one device is the clear name-and-room match,
+select it even if the wording is not identical to its friendly name. If a
+device command is ambiguous, lacks a required value, or does not match one
+listed device, return null for entity_id and action and write a short
+clarification question. set_brightness requires brightness (0-100);
+set_temperature requires temperature. This only prepares a confirmation; it
+does not control a device.
+
+User command: <user text>
+Device inventory: <matching live Home Assistant entities and allowed actions>
+```
+
+### Agent routing after a confirmed request
+
+**Trigger:** A user confirms a Command Center interpretation, or EcoNest
+submits an internal task. This small routing prompt selects one specialist
+agent; it does not decide whether a device is allowed to change.
+
+```text
+Classify this smart-home task into exactly one category: energy, security,
+sensor, device, multi, or unknown.
+
+Use the payload as the strongest signal. If the payload asks for a concrete
+device action such as turn_on, turn_off, set_brightness, open, close, or
+includes a controllable domain like light or switch, classify it as device even
+if the text also mentions motion or security.
+
+Intent: <task intent>
+Payload: <approved task fields>
+Metadata: <source and role metadata>
+```
+
+If Gemma is unavailable or returns low confidence, EcoNest uses deterministic
+routing rules. This fallback routes work; it never authorizes an unsafe action.
+
+### Energy recommendation prompt
+
+**Trigger:** An energy review submitted from the Autonomy page with **Request
+energy review**, when the review has a measured anomaly, schedule violation, or
+tariff forecast. It is recommendation-only. A Command Center energy request
+currently uses the same Energy Agent but remains deterministic unless its task
+explicitly enables LLM analysis.
+
+Template: [`orchestrator/llm/prompts/energy.j2`](orchestrator/llm/prompts/energy.j2)
+
+```text
+You are EcoNest's energy optimization agent.
+
+Intent: <energy-review request>
+Pricing snapshot: <measured tariff context, or "unknown">
+Detected anomalies: <measured energy anomalies>
+Schedule violations: <detected schedule conflicts>
+Current deterministic recommendations: <evidence-based candidates>
+
+Return one concise, recommendation-only suggestion for reducing waste or using
+a lower-price period only when the supplied pricing snapshot establishes one.
+Ground every claim in the supplied snapshots and deterministic recommendations.
+If pricing is unknown, do not mention a cheap, peak, off-peak, or lower-price
+window. Never issue a device command, claim a fixed peak schedule, or imply
+that EcoNest will switch a device on or off.
+```
+
+### Security and sensor assessment prompts
+
+**Trigger:** A Security Agent or Sensor Agent task with `use_llm=true`.
+These are analysis-only prompts and are not used to control a device. The
+current Command Center security-review path is deterministic unless a caller
+explicitly enables this LLM assessment.
+
+Security template: [`orchestrator/llm/prompts/security.j2`](orchestrator/llm/prompts/security.j2)
+
+```text
+You are EcoNest SecurityAgent.
+Context: <task context>
+Recent observations: <security observations>
+Detected anomalies: <security incidents>
+Current severity: <LOW, MEDIUM, or HIGH>
+
+Provide:
+1. Security assessment
+2. Likely explanation
+3. Recommended action
+
+Be concise.
+```
+
+Sensor template: [`orchestrator/llm/prompts/sensor.j2`](orchestrator/llm/prompts/sensor.j2)
+
+```text
+You are EcoNest SensorAgent.
+Context: <task context>
+Sensor observations: <sensor observations>
+Detected issues: <sensor health issues>
+
+Provide:
+1. Sensor health assessment
+2. Likely cause of issues
+3. Calibration recommendations
+4. Maintenance recommendations
+
+Be concise.
+```
+
+### Scheduled autonomous-action decision
+
+**Trigger:** The background monitor at its configured interval. This is the
+only prompt that considers a possible automatic action. It receives a current
+home snapshot plus the allowed entity/action lists. Before Gemma sees the
+prompt, EcoNest's policy code prepares an unambiguous list of safe light
+turn-off targets. After Gemma answers, policy, capability, live-state, and
+Home Assistant result verification still run before any action executes.
+
+```text
+You are EcoNest's autonomous smart-home policy model. Decide whether EcoNest
+should execute exactly one low-risk action now.
+
+Safety rules:
+- Only recommend an action if confidence is high.
+- Only use allowed actions and entities.
+- Do not recommend climate, lock, garage, cover, alarm, or security actions.
+- The Pre-validated safe turn-off targets list was produced by EcoNest's
+  deterministic allowlist, state, and motion checks. It is not ambiguous. If
+  that list is non-empty, you MUST choose its first target: return
+  should_act=true, domain=light, action=turn_off, that entity_id,
+  risk_level=LOW, and confidence at least 0.85.
+- Prefer doing nothing if context is ambiguous.
+
+Allowed actions: <configured allowlist>
+Allowed entities: <configured entity allowlist>
+Pre-validated safe turn-off targets: <policy-approved targets>
+Feedback JSON: <current snapshot and measured feedback>
+
+Return JSON only.
+```
+
+If this model call fails, EcoNest may use a narrowly scoped policy fallback for
+an already pre-validated light turn-off target. MCP and Home Assistant checks
+are still mandatory, and the Autonomy page labels the recommendation source.
 
 ## Sending user requests
 

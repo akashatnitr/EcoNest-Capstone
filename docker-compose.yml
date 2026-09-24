@@ -33,8 +33,6 @@ services:
   mysql:
     image: mysql:8.0
     container_name: econest-mysql
-    ports:
-      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: econest
       MYSQL_DATABASE: econest

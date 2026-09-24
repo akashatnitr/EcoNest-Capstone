@@ -36,7 +36,9 @@ async def autonomy_recommendations(
 ) -> dict[str, Any]:
     """Return recent autonomous recommendations for the read-only activity page."""
     bounded_limit = max(1, min(limit, 200))
-    events = await read_recent_audit_events_async(1000)
+    events = await read_recent_audit_events_async(
+        settings.AUTONOMY_RECOMMENDATION_HISTORY_EVENTS
+    )
     recommendations = list(reversed(_recommendation_views(events)))[:bounded_limit]
     return {
         "recommendations": recommendations,
