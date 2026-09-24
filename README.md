@@ -8,7 +8,7 @@ The model can recommend or propose an action, but it cannot bypass EcoNest's
 safety checks. Every device action goes through MCP, live Home Assistant
 validation, state verification, and an audit record.
 
-## Start here
+## How to use
 
 Use EcoNest in two ways:
 
