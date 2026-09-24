@@ -19,7 +19,7 @@ authoritative database volumes. Before maintenance, create MySQL and ArcadeDB
 backups and record their timestamps.
 
 Remote Tailnet UIs: orchestrator/MySQL monitor `http://<mac-tailscale-ip>:8001/monitor`;
-ArcadeDB Studio `http://<mac-tailscale-ip>:2481`.
+ArcadeDB Studio `http://<mac-tailscale-ip>:2480`.
 
 The scheduled graph sync is separate from HA graph bootstrap. Check
 `/recovery/status` for its last result; a healthy sync gives graph records their

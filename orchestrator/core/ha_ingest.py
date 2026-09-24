@@ -15,6 +15,7 @@ from orchestrator.config import Settings
 from orchestrator.core.database import mysql_session_context
 from orchestrator.core.ha_registry import RegistryContext, fetch_registry_context
 from orchestrator.core.event_dispatcher import EventDispatcher
+from orchestrator.core.weather import fetch_hourly_forecast, store_hourly_forecast
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,9 @@ class HomeAssistantIngestor:
         self.settings = settings
         self.event_dispatcher = event_dispatcher
         self.interval_seconds = max(15, settings.HA_INGEST_INTERVAL_SECONDS)
+        self.comfort_observation_interval_seconds = max(
+            60, settings.COMFORT_OBSERVATION_INTERVAL_SECONDS
+        )
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self.last_run_at: str | None = None
@@ -40,6 +44,9 @@ class HomeAssistantIngestor:
         self._registry_refreshed_at: datetime | None = None
         self.registry_last_error: str | None = None
         self.unmapped_entity_count = 0
+        self._last_comfort_observed_at: datetime | None = None
+        self._last_comfort_targets: dict[str, float | None] = {}
+        self._last_weather_forecast_at: datetime | None = None
 
     def start(self) -> None:
         """Start the background ingestion loop."""
@@ -68,6 +75,7 @@ class HomeAssistantIngestor:
             "enabled": self.settings.HA_INGEST_ENABLED,
             "running": self._task is not None and not self._task.done(),
             "interval_seconds": self.interval_seconds,
+            "comfort_observation_interval_seconds": self.comfort_observation_interval_seconds,
             "last_run_at": self.last_run_at,
             "last_success_at": self.last_success_at,
             "last_error": self.last_error,
@@ -86,7 +94,7 @@ class HomeAssistantIngestor:
         }
 
     async def run_once(self) -> dict[str, int]:
-        """Fetch and store one snapshot of HA sensor and binary-sensor states."""
+        """Fetch and store sensor plus adaptive-learning state changes from HA."""
         self.run_count += 1
         self.last_run_at = _utc_now()
         try:
@@ -187,7 +195,25 @@ class HomeAssistantIngestor:
                         },
                     )
                     inserted += 1
+                comfort_inserted, comfort_targets = await self._store_comfort_observations(
+                    session,
+                    states,
+                    registry,
+                    room_ids,
+                )
+                forecast_inserted = 0
+                if self._weather_forecast_due():
+                    source_entity_id, forecast = await fetch_hourly_forecast(self.settings)
+                    if source_entity_id:
+                        forecast_inserted = await store_hourly_forecast(
+                            session, source_entity_id, forecast
+                        )
                 await session.commit()
+                if comfort_inserted:
+                    self._last_comfort_observed_at = datetime.now(UTC)
+                    self._last_comfort_targets = comfort_targets
+                if forecast_inserted:
+                    self._last_weather_forecast_at = datetime.now(UTC)
                 for state in changed:
                     self._last_seen[str(state["entity_id"])] = _state_revision(state)
             except Exception:
@@ -198,7 +224,91 @@ class HomeAssistantIngestor:
             "sensor_states": len(selected),
             "unchanged_skipped": len(selected) - len(changed),
             "readings_inserted": inserted,
+            "comfort_observations_inserted": comfort_inserted,
+            "weather_forecasts_inserted": forecast_inserted,
         }, changed)
+
+    def _weather_forecast_due(self) -> bool:
+        """Avoid repeatedly fetching the same hourly forecast within one refresh window."""
+        return self._last_weather_forecast_at is None or (
+            datetime.now(UTC) - self._last_weather_forecast_at
+        ).total_seconds() >= self.settings.WEATHER_FORECAST_REFRESH_SECONDS
+
+    async def _store_comfort_observations(
+        self,
+        session: Any,
+        states: list[dict[str, Any]],
+        registry: RegistryContext | None,
+        room_ids: dict[str, int],
+    ) -> tuple[int, dict[str, float | None]]:
+        """Store periodic thermostat targets with the matching room conditions."""
+        now = datetime.now(UTC)
+        if (
+            self._last_comfort_observed_at is not None
+            and (now - self._last_comfort_observed_at).total_seconds()
+            < self.comfort_observation_interval_seconds
+        ):
+            return 0, self._last_comfort_targets
+
+        fallback_room_id = room_ids["home_assistant"]
+        environments = _room_environments(states, registry)
+        targets = dict(self._last_comfort_targets)
+        inserted = 0
+        for state in states:
+            entity_id = str(state.get("entity_id") or "")
+            if not entity_id.startswith("climate.") or state.get("state") in {
+                None,
+                "unknown",
+                "unavailable",
+            }:
+                continue
+            attributes = state.get("attributes")
+            attributes = attributes if isinstance(attributes, dict) else {}
+            area_id = "home_assistant"
+            if registry is not None:
+                area_id = str(registry.room_for_entity(entity_id)["area_id"])
+            room_id = room_ids.get(area_id, fallback_room_id)
+            climate_device_id, room_id = await _ensure_device(
+                session, room_id, state, preserve_existing=registry is None
+            )
+            target = _number(attributes.get("temperature"))
+            environment = environments.get(area_id, {})
+            previous_target = self._last_comfort_targets.get(entity_id)
+            target_changed = (
+                entity_id in self._last_comfort_targets and target != previous_target
+            )
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO comfort_observations (
+                        climate_device_id, room_id, climate_entity_id,
+                        target_temperature, current_temperature, humidity_percent,
+                        hvac_mode, hvac_action, target_changed, change_origin
+                    ) VALUES (
+                        :climate_device_id, :room_id, :climate_entity_id,
+                        :target_temperature, :current_temperature, :humidity_percent,
+                        :hvac_mode, :hvac_action, :target_changed, 'observed'
+                    )
+                    """
+                ),
+                {
+                    "climate_device_id": climate_device_id,
+                    "room_id": room_id,
+                    "climate_entity_id": entity_id,
+                    "target_temperature": target,
+                    "current_temperature": _number(
+                        attributes.get("current_temperature")
+                    )
+                    or environment.get("temperature"),
+                    "humidity_percent": environment.get("humidity"),
+                    "hvac_mode": str(state.get("state") or "unknown"),
+                    "hvac_action": _optional_text(attributes.get("hvac_action")),
+                    "target_changed": target_changed,
+                },
+            )
+            targets[entity_id] = target
+            inserted += 1
+        return inserted, targets
 
     async def _get_registry(self) -> tuple[RegistryContext | None, bool]:
         """Refresh registry metadata periodically while retaining a good cache."""
@@ -307,7 +417,12 @@ async def _ensure_device(
     attributes = state.get("attributes") or {}
     friendly_name = str(attributes.get("friendly_name") or entity_id)
     name = f"{friendly_name} [{entity_id}]"[:100]
-    device_type = "motion_sensor" if entity_id.startswith("binary_sensor.") else "sensor"
+    domain = entity_id.partition(".")[0]
+    device_type = {
+        "climate": "climate",
+        "switch": "switch",
+        "valve": "valve",
+    }.get(domain, "motion_sensor" if domain == "binary_sensor" else "sensor")
     existing_room_id: int | None = None
     if preserve_existing:
         existing = await session.execute(
@@ -418,10 +533,56 @@ async def _reconcile_device_rooms(
 
 
 def _is_sensor_state(state: dict[str, Any]) -> bool:
+    """Keep data needed for energy, comfort, weather, and irrigation learning."""
     entity_id = str(state.get("entity_id") or "")
-    return entity_id.startswith(("sensor.", "binary_sensor.")) and state.get(
-        "state"
-    ) not in {None, "unknown", "unavailable"}
+    domain, _, object_id = entity_id.partition(".")
+    if state.get("state") in {None, "unknown", "unavailable"}:
+        return False
+    if domain in {"sensor", "binary_sensor", "climate", "weather", "valve"}:
+        return True
+    return domain == "switch" and any(
+        word in object_id.lower() for word in ("water", "sprinkler", "irrigation")
+    )
+
+
+def _room_environments(
+    states: list[dict[str, Any]], registry: RegistryContext | None
+) -> dict[str, dict[str, float]]:
+    """Map live temperature and humidity sensor values to their HA areas."""
+    environments: dict[str, dict[str, float]] = {}
+    for state in states:
+        entity_id = str(state.get("entity_id") or "")
+        if not entity_id.startswith("sensor."):
+            continue
+        attributes = state.get("attributes")
+        attributes = attributes if isinstance(attributes, dict) else {}
+        device_class = str(attributes.get("device_class") or "")
+        if device_class not in {"temperature", "humidity"}:
+            continue
+        value = _number(state.get("state"))
+        if value is None:
+            continue
+        area_id = "home_assistant"
+        if registry is not None:
+            area_id = str(registry.room_for_entity(entity_id)["area_id"])
+        key = "temperature" if device_class == "temperature" else "humidity"
+        environments.setdefault(area_id, {})[key] = value
+    return environments
+
+
+def _number(value: Any) -> float | None:
+    """Parse a Home Assistant numeric state without raising on unavailable data."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_text(value: Any) -> str | None:
+    """Return a compact optional text value for a nullable database field."""
+    if value is None:
+        return None
+    return str(value)[:64]
 
 
 def _state_revision(state: dict[str, Any]) -> str:

@@ -91,7 +91,7 @@ def read_recent_audit_events(limit: int = 50) -> list[dict[str, Any]]:
 
 async def read_recent_audit_events_async(limit: int = 50) -> list[dict[str, Any]]:
     """Read durable audit history from MySQL, falling back to the local JSONL log."""
-    bounded_limit = max(1, min(limit, 1_000))
+    bounded_limit = max(1, min(limit, 10_000))
     try:
         async with mysql_session_context() as session:
             result = await session.execute(
@@ -107,6 +107,8 @@ async def read_recent_audit_events_async(limit: int = 50) -> list[dict[str, Any]
 
     events = [_audit_payload_mapping(row.get("payload")) for row in rows]
     valid_events = [event for event in events if event is not None]
+    if not valid_events:
+        return read_recent_audit_events(bounded_limit)
     return list(reversed(valid_events))
 
 async def read_recent_mcp_events_async(limit: int = 100) -> list[dict[str, Any]]:

@@ -40,6 +40,15 @@ async def init_databases() -> None:
         expire_on_commit=False,
     )
 
+    from orchestrator.core.energy_analytics import ensure_energy_analytics_schema
+    from orchestrator.core.comfort import ensure_comfort_observations_schema
+    from orchestrator.core.weather import ensure_weather_forecast_schema
+
+    async with mysql_session_context() as session:
+        await ensure_energy_analytics_schema(session)
+        await ensure_comfort_observations_schema(session)
+        await ensure_weather_forecast_schema(session)
+
     # ArcadeDB async HTTP client
     _arcadedb_client = httpx.AsyncClient(
         base_url=f"http://{_settings.ARCADEDB_HOST}:{_settings.ARCADEDB_PORT}",
