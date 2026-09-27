@@ -6,6 +6,9 @@ from orchestrator.training.dataset import (
     TrainingExample,
     build_review_examples,
     partition_approved_examples,
+    read_jsonl_examples,
+    to_chat_examples,
+    write_chat_jsonl,
     write_jsonl_examples,
 )
 
@@ -15,5 +18,8 @@ __all__ = [
     "TrainingExample",
     "build_review_examples",
     "partition_approved_examples",
+    "read_jsonl_examples",
+    "to_chat_examples",
+    "write_chat_jsonl",
     "write_jsonl_examples",
 ]

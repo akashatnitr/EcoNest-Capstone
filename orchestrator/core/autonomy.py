@@ -12,6 +12,7 @@ from orchestrator.core.audit import write_audit_event, write_audit_event_async
 FeedbackCollector = Callable[[], Awaitable[dict[str, Any]]]
 ActionRecommender = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
 ActionExecutor = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+AdvisoryRunner = Callable[[], Awaitable[dict[str, Any] | None]]
 
 
 class AutonomousMonitor:
@@ -24,15 +25,19 @@ class AutonomousMonitor:
         run_on_startup: bool = True,
         action_recommender: ActionRecommender | None = None,
         action_executor: ActionExecutor | None = None,
+        advisory_runner: AdvisoryRunner | None = None,
         action_confidence_threshold: float = 0.85,
         actions_enabled: bool = False,
+        align_to_interval: bool = False,
     ) -> None:
         self.collect_feedback = collect_feedback
         self.action_recommender = action_recommender
         self.action_executor = action_executor
+        self.advisory_runner = advisory_runner
         self.action_confidence_threshold = action_confidence_threshold
         self.actions_enabled = actions_enabled
         self.interval_seconds = max(15, interval_seconds)
+        self.align_to_interval = align_to_interval
         self.run_on_startup = run_on_startup
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
@@ -47,6 +52,7 @@ class AutonomousMonitor:
         self.action_recommendation_count = 0
         self.action_execution_count = 0
         self.action_skip_count = 0
+        self.advisory_recommendation_count = 0
 
     def start(self) -> None:
         """Start the monitor loop if it is not already running."""
@@ -81,6 +87,7 @@ class AutonomousMonitor:
             "enabled": True,
             "running": self._task is not None and not self._task.done(),
             "interval_seconds": self.interval_seconds,
+            "align_to_interval": self.align_to_interval,
             "run_on_startup": self.run_on_startup,
             "started_at": self.started_at,
             "last_run_at": self.last_run_at,
@@ -95,6 +102,7 @@ class AutonomousMonitor:
             "action_recommendation_count": self.action_recommendation_count,
             "action_execution_count": self.action_execution_count,
             "action_skip_count": self.action_skip_count,
+            "advisory_recommendation_count": self.advisory_recommendation_count,
         }
 
     async def _run(self) -> None:
@@ -105,10 +113,19 @@ class AutonomousMonitor:
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
-                    timeout=self.interval_seconds,
+                    timeout=self._next_wait_seconds(),
                 )
             except TimeoutError:
                 await self.run_once()
+
+    def _next_wait_seconds(self) -> float:
+        """Wait to the next wall-clock interval boundary when scheduling reviews."""
+        if not self.align_to_interval:
+            return float(self.interval_seconds)
+        now = datetime.now(timezone.utc)
+        elapsed = (now.minute * 60) + now.second + (now.microsecond / 1_000_000)
+        remainder = elapsed % self.interval_seconds
+        return float(self.interval_seconds) if remainder == 0 else self.interval_seconds - remainder
 
     async def run_once(self) -> dict[str, Any] | None:
         """Collect one feedback sample and record success or failure."""
@@ -142,8 +159,17 @@ class AutonomousMonitor:
                 "occupancy_status": result.get("snapshot", {}).get("occupancy_status"),
             },
         )
+        await self._run_advisory_recommendation()
         await self._maybe_execute_action(result)
         return result
+
+    async def _run_advisory_recommendation(self) -> None:
+        """Create the scheduled recommendation without granting device control."""
+        if self.advisory_runner is None:
+            return
+        result = await self.advisory_runner()
+        if result is not None:
+            self.advisory_recommendation_count += 1
 
     async def _maybe_execute_action(self, feedback: dict[str, Any]) -> None:
         if self.action_recommender is None:

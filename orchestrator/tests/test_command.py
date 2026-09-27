@@ -2,7 +2,15 @@
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from orchestrator.api import command
+
+
+@pytest.fixture(autouse=True)
+def allow_demo_command_center(monkeypatch):
+    """Keep Command Center tests independent from the developer's local .env."""
+    monkeypatch.setattr(command.settings, "COMMAND_CENTER_AUTH_REQUIRED", False)
 
 
 def _inventory() -> dict:
@@ -31,8 +39,31 @@ def test_command_page_uses_prompt_and_confirmation(client):
     assert "const AGENT_WAIT_SECONDS = 150" in response.text
     assert "energy or security recommendation" in response.text
     assert "timeout_seconds: timeoutSeconds" in response.text
+    assert '"/command/task"' in response.text
+    assert "Energy recommendation" in response.text
+    assert "Security assessment" in response.text
+    assert "Technical details" in response.text
     assert 'id="entityId"' not in response.text
     assert 'id="action"' not in response.text
+
+
+def test_command_access_reports_temporary_demo_mode(client):
+    """The browser can decide whether to present the sign-in form."""
+    response = client.get("/command/access")
+
+    assert response.status_code == 200
+    assert response.json() == {"authentication_required": False}
+
+
+def test_command_access_requires_auth_when_demo_mode_is_disabled(client, monkeypatch):
+    """Turning off demo mode restores the authenticated command boundary."""
+    monkeypatch.setattr(command.settings, "COMMAND_CENTER_AUTH_REQUIRED", True)
+
+    response = client.post(
+        "/command/interpret", json={"intent": "Turn off the media room light"}
+    )
+
+    assert response.status_code == 401
 
 
 def test_interpret_command_returns_inventory_backed_confirmation(

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -25,6 +26,10 @@ _SENSITIVE_KEY_PARTS = (
     "cookie",
     "email",
     "user_id",
+    "address",
+    "latitude",
+    "longitude",
+    "location",
 )
 _SENSITIVE_KEY_NAMES = {"api_key", "access_key", "private_key"}
 
@@ -46,6 +51,7 @@ class TrainingExample(BaseModel):
         "command_interpretation",
         "energy_recommendation",
         "security_recommendation",
+        "irrigation_recommendation",
         "autonomy_decision",
     ]
     input: dict[str, Any]
@@ -103,13 +109,62 @@ def write_jsonl_examples(examples: list[TrainingExample], destination: Path) -> 
             handle.write("\n")
 
 
+def read_jsonl_examples(source: Path) -> list[TrainingExample]:
+    """Load human-reviewed candidates from a local JSONL file."""
+    examples: list[TrainingExample] = []
+    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            examples.append(TrainingExample.model_validate_json(line))
+        except ValueError as exc:
+            raise ValueError(f"Invalid training candidate on line {line_number}: {exc}") from exc
+    return examples
+
+
+def to_chat_examples(examples: list[TrainingExample]) -> list[dict[str, Any]]:
+    """Convert approved review examples to Gemma supervised-chat JSONL records."""
+    return [
+        {
+            "messages": [
+                {"role": "system", "content": _system_instruction(example.task_type)},
+                {
+                    "role": "user",
+                    "content": "EcoNest decision context:\n"
+                    + json.dumps(example.input, ensure_ascii=False, sort_keys=True),
+                },
+                {
+                    "role": "assistant",
+                    "content": json.dumps(example.target, ensure_ascii=False, sort_keys=True),
+                },
+            ]
+        }
+        for example in examples
+    ]
+
+
+def write_chat_jsonl(examples: list[TrainingExample], destination: Path) -> None:
+    """Write approved examples in the chat JSONL format used by QLoRA tooling."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8") as handle:
+        for example in to_chat_examples(examples):
+            handle.write(json.dumps(example, ensure_ascii=False))
+            handle.write("\n")
+
+
 def _examples_from_event(event: dict[str, Any], index: int) -> list[TrainingExample]:
     event_type = str(event.get("event_type") or "")
     if event_type == "task.completed":
         example = _command_example(event, index)
         return [example] if example is not None else []
     if event_type == "energy.recommendations.generated":
-        example = _energy_example(event, index)
+        example = _recommendation_example(event, index, "energy_recommendation")
+        return [example] if example is not None else []
+    if event_type == "security.recommendations.generated":
+        example = _recommendation_example(event, index, "security_recommendation")
+        return [example] if example is not None else []
+    if event_type == "irrigation.recommendations.generated":
+        example = _recommendation_example(event, index, "irrigation_recommendation")
         return [example] if example is not None else []
     if event_type == "autonomy.action.recommended":
         example = _autonomy_example(event, index)
@@ -157,7 +212,13 @@ def _command_example(
     )
 
 
-def _energy_example(event: dict[str, Any], index: int) -> TrainingExample | None:
+def _recommendation_example(
+    event: dict[str, Any],
+    index: int,
+    task_type: Literal[
+        "energy_recommendation", "security_recommendation", "irrigation_recommendation"
+    ],
+) -> TrainingExample | None:
     recommendations = event.get("recommendations")
     if not isinstance(recommendations, list) or not recommendations:
         return None
@@ -168,11 +229,12 @@ def _energy_example(event: dict[str, Any], index: int) -> TrainingExample | None
     return _new_example(
         event,
         index,
-        "energy_recommendation",
+        task_type,
         {
             "pricing": _sanitize(event.get("pricing")),
             "household_routines": _sanitize(event.get("household_routines")),
             "source": _text(event.get("source")) or "unknown",
+            "recommendation_kind": task_type.removesuffix("_recommendation"),
         },
         {"recommendations": cleaned, "recommendation_only": True},
         "Review recommendation quality and factual grounding before approval.",
@@ -216,6 +278,7 @@ def _new_example(
         "command_interpretation",
         "energy_recommendation",
         "security_recommendation",
+        "irrigation_recommendation",
         "autonomy_decision",
     ],
     input_data: dict[str, Any],
@@ -260,6 +323,8 @@ def _sanitize(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [_sanitize(item) for item in value]
+    if isinstance(value, str):
+        return re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[redacted-ip]", value)
     return value
 
 
@@ -288,3 +353,24 @@ def _number(value: Any) -> float | None:
     if isinstance(value, int | float):
         return float(value)
     return None
+
+
+def _system_instruction(task_type: str) -> str:
+    """Keep a fixed safety contract across the QLoRA training examples."""
+    if task_type == "command_interpretation":
+        return (
+            "You are EcoNest. Return only valid JSON. Infer an available device action "
+            "from the supplied context, but always require explicit user confirmation "
+            "before a device action."
+        )
+    if task_type == "autonomy_decision":
+        return (
+            "You are EcoNest. Return only valid JSON. Recommend only the supplied "
+            "allowlisted action when the evidence supports it; otherwise do not act. "
+            "External policy and verification remain mandatory."
+        )
+    return (
+        "You are EcoNest. Return only valid JSON. Produce an advisory, evidence-grounded "
+        "recommendation. Do not claim facts that are absent from the supplied context and "
+        "do not control devices."
+    )

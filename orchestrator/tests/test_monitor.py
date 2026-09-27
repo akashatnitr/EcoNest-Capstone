@@ -5,7 +5,7 @@ def test_monitor_page_is_served(client):
     response = client.get("/monitor")
 
     assert response.status_code == 200
-    assert "EcoNest Data Explorer" in response.text
+    assert "EcoNest MySQL Explorer" in response.text
     assert "Quick queries" in response.text
     assert "Latest readings" in response.text
 

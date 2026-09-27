@@ -101,11 +101,30 @@ async def ontology_resource() -> dict[str, Any]:
 async def recent_memory_resource(
     user_id: str,
 ) -> dict[str, Any]:
-    summaries = await get_memory_summaries(user_id)
-    interactions = await get_recent_interactions(user_id)
+    """Return optional memory without blocking a live safety assessment."""
+    if not user_id or user_id == "0":
+        return _empty_memory("No persistent memory is associated with this demo session")
+
+    try:
+        summaries = await get_memory_summaries(user_id)
+        interactions = await get_recent_interactions(user_id)
+    except Exception:
+        return _empty_memory("Recent memory is currently unavailable")
 
     return {
         "type": "memory",
         "recent_summaries": summaries,
         "recent_interactions": interactions,
+        "available": True,
+    }
+
+
+def _empty_memory(warning: str) -> dict[str, Any]:
+    """Return a safe empty memory context for advisory agents."""
+    return {
+        "type": "memory",
+        "recent_summaries": [],
+        "recent_interactions": [],
+        "available": False,
+        "warnings": [warning],
     }

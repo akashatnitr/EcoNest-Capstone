@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.agents.device_agent import DeviceAgent
 from orchestrator.agents.energy_agent import EnergyAgent
+from orchestrator.agents.irrigation_agent import IrrigationAgent
 from orchestrator.agents.security_agent import SecurityAgent
 from orchestrator.agents.sensor_agent import SensorAgent
 from orchestrator.core.audit import write_audit_event, write_audit_event_async
@@ -29,7 +30,7 @@ MIN_LLM_CLASSIFICATION_CONFIDENCE = 0.45
 class IntentClassification(BaseModel):
     """LLM output for intent routing."""
 
-    category: str = Field(pattern="^(energy|security|sensor|device|multi|unknown)$")
+    category: str = Field(pattern="^(energy|security|irrigation|sensor|device|multi|unknown)$")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     reasoning: str = ""
 
@@ -37,6 +38,7 @@ class IntentClassification(BaseModel):
 INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "energy": ("energy", "power", "efficiency", "pricing", "schedule"),
     "security": ("security", "motion", "intrusion", "alert", "garage"),
+    "irrigation": ("irrigation", "sprinkler", "watering"),
     "sensor": ("sensor", "health", "calibration", "offline"),
     "device": ("device", "turn on", "turn off", "dim", "light", "switch"),
 }
@@ -75,6 +77,7 @@ class AgentOrchestrator:
             or [
                 EnergyAgent(),
                 SecurityAgent(),
+                IrrigationAgent(),
                 SensorAgent(),
                 DeviceAgent(),
             ]
@@ -199,6 +202,8 @@ class AgentOrchestrator:
             await self._log_device_control_to_graph(task, result)
         await self._audit_task_result(task, result)
         await self._audit_energy_recommendations(task, result)
+        await self._audit_security_recommendations(task, result)
+        await self._audit_irrigation_recommendations(task, result)
         self._results[task.id] = result
 
     async def _run_agent_with_retries(self, agent: BaseAgent, task: Task) -> Result:
@@ -257,6 +262,13 @@ class AgentOrchestrator:
         aggregate: bool = True,
     ) -> list[BaseAgent]:
         """Classify intent and return one or more capable agents."""
+        routed_agent = str(task.metadata.get("routed_agent", ""))
+        if routed_agent:
+            selected = next(
+                (agent for agent in self.agents if agent.name == routed_agent), None
+            )
+            if selected is not None:
+                return [selected]
         if self._should_aggregate(task) and aggregate:
             capable_agents = [
                 agent for agent in self.agents if await agent.can_handle(task)
@@ -291,7 +303,7 @@ class AgentOrchestrator:
                         role="user",
                         content=(
                             "Classify this smart-home task into exactly one category: "
-                            "energy, security, sensor, device, multi, or unknown.\n\n"
+                            "energy, security, irrigation, sensor, device, multi, or unknown.\n\n"
                             "Use the payload as the strongest signal. "
                             "If the payload asks for a concrete device action such as "
                             "turn_on, turn_off, set_brightness, open, close, or includes "
@@ -434,6 +446,62 @@ class AgentOrchestrator:
                 "recommendations": normalized,
                 "pricing": result.data.get("pricing"),
                 "household_routines": result.data.get("household_routines", []),
+            },
+        )
+
+    async def _audit_security_recommendations(self, task: Task, result: Result) -> None:
+        """Persist advisory security assessments for the recommendation activity feed."""
+        if not result.success or result.agent != "security" or not isinstance(result.data, dict):
+            return
+        items = result.data.get("recommendations")
+        if not isinstance(items, list):
+            items = []
+        recommendations = [item for item in items if isinstance(item, str) and item]
+        incidents = result.data.get("incidents")
+        if not isinstance(incidents, list):
+            incidents = []
+        incident_reasons = [
+            str(item.get("reason"))
+            for item in incidents
+            if isinstance(item, dict) and item.get("reason")
+        ]
+        action = recommendations[0] if recommendations else "Continue normal security monitoring"
+        reasoning = "; ".join(incident_reasons) or "No security anomaly was detected in the current assessment."
+        await write_audit_event_async(
+            "security.recommendations.generated",
+            {
+                "task_id": task.id,
+                "agent": "security",
+                "source": task.metadata.get("source", "direct"),
+                "recommendation_only": True,
+                "recommendations": [
+                    {
+                        "priority": result.data.get("severity", "LOW"),
+                        "action": action,
+                        "reasoning": reasoning,
+                    }
+                ],
+            },
+        )
+
+    async def _audit_irrigation_recommendations(self, task: Task, result: Result) -> None:
+        """Persist advisory irrigation reviews for the recommendation activity feed."""
+        if not result.success or result.agent != "irrigation" or not isinstance(result.data, dict):
+            return
+        items = result.data.get("recommendations")
+        if not isinstance(items, list):
+            return
+        recommendations = [item for item in items if isinstance(item, dict)]
+        if not recommendations:
+            return
+        await write_audit_event_async(
+            "irrigation.recommendations.generated",
+            {
+                "task_id": task.id,
+                "agent": "irrigation",
+                "source": task.metadata.get("source", "direct"),
+                "recommendation_only": True,
+                "recommendations": recommendations,
             },
         )
 
