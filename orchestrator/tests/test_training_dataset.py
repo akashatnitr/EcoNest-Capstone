@@ -23,6 +23,8 @@ def test_build_review_examples_redacts_sensitive_values():
                 "domain": "light",
                 "access_token": "must-not-appear",
                 "user_id": "must-not-appear",
+                "home_address": "must-not-appear",
+                "details": "Gateway at 192.168.1.50",
             },
         },
         {
@@ -48,6 +50,7 @@ def test_build_review_examples_redacts_sensitive_values():
     assert examples[0].review_status == ReviewStatus.NEEDS_HUMAN_REVIEW
     assert "access_token" not in str(examples)
     assert "must-not-appear" not in str(examples)
+    assert "192.168.1.50" not in str(examples)
     assert examples[1].task_type == "energy_recommendation"
 
 
@@ -68,3 +71,27 @@ def test_partition_only_includes_human_approved_examples():
 
     assert split.evaluation == [approved]
     assert split.train == []
+
+
+def test_build_review_examples_includes_security_and_irrigation_reviews():
+    examples = build_review_examples(
+        [
+            {
+                "timestamp": "2026-09-24T12:00:00+00:00",
+                "event_type": "security.recommendations.generated",
+                "source": "background_monitor",
+                "recommendations": [{"action": "Continue monitoring", "reasoning": "No anomaly"}],
+            },
+            {
+                "timestamp": "2026-09-24T12:10:00+00:00",
+                "event_type": "irrigation.recommendations.generated",
+                "source": "background_monitor",
+                "recommendations": [{"action": "Review watering schedule", "reasoning": "No rain forecast"}],
+            },
+        ]
+    )
+
+    assert [example.task_type for example in examples] == [
+        "security_recommendation",
+        "irrigation_recommendation",
+    ]

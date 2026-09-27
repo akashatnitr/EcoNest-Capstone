@@ -29,13 +29,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "wget",
-          "-q",
-          "--spider",
-          "--header",
-          "Authorization: Basic $$(printf '%s:%s' \"$$ARCADEDB_USER\" \"$$ARCADEDB_PASSWORD\" | base64)",
-          "http://localhost:2480/api/v1/server",
+          "CMD-SHELL",
+          "wget -q --spider --header=\"Authorization: Basic $$(printf '%s:%s' \"$$ARCADEDB_USER\" \"$$ARCADEDB_PASSWORD\" | base64)\" http://localhost:2480/api/v1/server",
         ]
       interval: 10s
       timeout: 5s

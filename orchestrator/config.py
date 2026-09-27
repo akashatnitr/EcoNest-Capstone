@@ -43,8 +43,12 @@ class Settings(BaseSettings):
     HA_REGISTRY_SOURCE: str = "live"
     HA_INGEST_ENABLED: bool = False
     HA_INGEST_INTERVAL_SECONDS: int = 60
+    HA_STATISTICS_SYNC_INTERVAL_SECONDS: int = 3600
+    HA_STATISTICS_SYNC_LOOKBACK_DAYS: int = 3
     COMFORT_OBSERVATION_INTERVAL_SECONDS: int = 300
     WEATHER_FORECAST_REFRESH_SECONDS: int = 3600
+    HOME_LATITUDE: float | None = None
+    HOME_LONGITUDE: float | None = None
     HA_EVENT_DISPATCH_ENABLED: bool = True
     HA_EVENT_DISPATCH_COOLDOWN_SECONDS: int = 300
     HA_REGISTRY_REFRESH_SECONDS: int = 300
@@ -58,6 +62,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
+    COMMAND_CENTER_AUTH_REQUIRED: bool = True
 
     # Orchestrator
     ORCHESTRATOR_URL: str = ""
@@ -69,6 +74,8 @@ class Settings(BaseSettings):
     AUTONOMY_MONITOR_ENABLED: bool = False
     AUTONOMY_MONITOR_INTERVAL_SECONDS: int = 300
     AUTONOMY_MONITOR_RUN_ON_STARTUP: bool = True
+    AUTONOMY_RECOMMENDATIONS_ENABLED: bool = True
+    AUTONOMY_RECOMMENDATION_INTERVAL_SECONDS: int = 600
     AUTONOMY_ACTIONS_ENABLED: bool = False
     AUTONOMY_ACTION_CONFIDENCE_THRESHOLD: float = 0.85
     AUTONOMY_ALLOWED_ACTIONS: str = "light.turn_off,light.turn_on"
@@ -77,6 +84,8 @@ class Settings(BaseSettings):
     # Energy recommendations
     ENERGY_HISTORY_LOOKBACK_DAYS: int = 28
     ENERGY_HISTORY_MAX_SAMPLES: int = 1_000
+    ANALYTICS_LOOKBACK_DAYS: int = 365
+    HOUSEHOLD_ELECTRICITY_PROVIDER: str = ""
 
 
 @lru_cache

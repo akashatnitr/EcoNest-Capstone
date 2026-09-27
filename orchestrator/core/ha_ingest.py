@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -13,8 +13,13 @@ from sqlalchemy import text
 
 from orchestrator.config import Settings
 from orchestrator.core.database import mysql_session_context
-from orchestrator.core.ha_registry import RegistryContext, fetch_registry_context
 from orchestrator.core.event_dispatcher import EventDispatcher
+from orchestrator.core.ha_registry import RegistryContext, fetch_registry_context
+from orchestrator.core.ha_statistics import (
+    backfill_home_assistant_context_statistics,
+    backfill_home_assistant_energy_statistics,
+)
+from orchestrator.core.irrigation import backfill_home_assistant_irrigation_runs
 from orchestrator.core.weather import fetch_hourly_forecast, store_hourly_forecast
 
 logger = logging.getLogger(__name__)
@@ -47,6 +52,9 @@ class HomeAssistantIngestor:
         self._last_comfort_observed_at: datetime | None = None
         self._last_comfort_targets: dict[str, float | None] = {}
         self._last_weather_forecast_at: datetime | None = None
+        self._last_statistics_sync_at: datetime | None = None
+        self.statistics_rows_upserted = 0
+        self.statistics_last_error: str | None = None
 
     def start(self) -> None:
         """Start the background ingestion loop."""
@@ -91,6 +99,14 @@ class HomeAssistantIngestor:
             "registry_source": self._registry.source if self._registry else None,
             "registry_last_error": self.registry_last_error,
             "unmapped_entity_count": self.unmapped_entity_count,
+            "statistics_sync_interval_seconds": self.settings.HA_STATISTICS_SYNC_INTERVAL_SECONDS,
+            "statistics_last_sync_at": (
+                self._last_statistics_sync_at.isoformat()
+                if self._last_statistics_sync_at is not None
+                else None
+            ),
+            "statistics_rows_upserted": self.statistics_rows_upserted,
+            "statistics_last_error": self.statistics_last_error,
         }
 
     async def run_once(self) -> dict[str, int]:
@@ -100,6 +116,7 @@ class HomeAssistantIngestor:
         try:
             states = await self._fetch_states()
             result, changed = await self._store_states(states)
+            result["statistics_rows_upserted"] = await self._sync_statistics_if_due()
             if self.event_dispatcher is not None:
                 result["events_dispatched"] = await self.event_dispatcher.dispatch(changed)
         except Exception as exc:
@@ -117,6 +134,50 @@ class HomeAssistantIngestor:
             result["readings_inserted"],
         )
         return result
+
+    async def _sync_statistics_if_due(self) -> int:
+        """Refresh recent hourly long-term statistics without blocking live ingestion."""
+        now = datetime.now(UTC)
+        if (
+            self._last_statistics_sync_at is not None
+            and (now - self._last_statistics_sync_at).total_seconds()
+            < self.settings.HA_STATISTICS_SYNC_INTERVAL_SECONDS
+        ):
+            return 0
+        try:
+            start = now - timedelta(days=max(1, self.settings.HA_STATISTICS_SYNC_LOOKBACK_DAYS))
+            async with mysql_session_context() as session:
+                energy = await backfill_home_assistant_energy_statistics(
+                    session,
+                    self.settings,
+                    start=start,
+                    end=now,
+                )
+                context = await backfill_home_assistant_context_statistics(
+                    session,
+                    self.settings,
+                    start=start,
+                    end=now,
+                )
+                irrigation = await backfill_home_assistant_irrigation_runs(
+                    session,
+                    self.settings,
+                    start=start,
+                    end=now,
+                )
+            inserted = (
+                int(energy["rows_upserted"])
+                + int(context["rows_upserted"])
+                + int(irrigation["runs_upserted"])
+            )
+            self._last_statistics_sync_at = now
+            self.statistics_rows_upserted += inserted
+            self.statistics_last_error = None
+            return inserted
+        except Exception as exc:
+            self.statistics_last_error = f"{exc.__class__.__name__}: {exc}"
+            logger.warning("Home Assistant long-term statistics sync failed: %s", exc)
+            return 0
 
     async def _run(self) -> None:
         await self._run_safely()

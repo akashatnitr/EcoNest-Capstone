@@ -144,6 +144,18 @@ async def test_get_resource_devices(client):
 
 
 @pytest.mark.anyio
+async def test_recent_memory_resource_returns_empty_context_for_demo_user():
+    """Anonymous demo work must not fail when no graph memory exists."""
+    from orchestrator.mcp.resources import recent_memory_resource
+
+    resource = await recent_memory_resource("0")
+
+    assert resource["type"] == "memory"
+    assert resource["available"] is False
+    assert resource["recent_interactions"] == []
+
+
+@pytest.mark.anyio
 async def test_get_resource_not_found(client):
     resp = client.get("/mcp/resources/home://unknown")
     assert resp.status_code == 404

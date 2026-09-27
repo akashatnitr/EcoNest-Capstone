@@ -5,16 +5,21 @@ import re
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from orchestrator.api.auth import UserProfile, get_current_user
+from orchestrator.agents.orchestrator import AgentOrchestrator
+from orchestrator.api.auth import UserProfile, get_optional_current_user
+from orchestrator.config import get_settings
+from orchestrator.core.permissions import AGENT_RUN, Role, has_permission
 from orchestrator.llm.client import LLMClient
 from orchestrator.llm.models import LLMMessage
 from orchestrator.mcp.executor import MCPToolExecutor
 
 router = APIRouter(tags=["command"])
+settings = get_settings()
+_command_orchestrator = AgentOrchestrator()
 
 _SUPPORTED_ACTIONS = {
     "turn_on",
@@ -89,6 +94,21 @@ class InterpretCommandResponse(BaseModel):
     message: str
 
 
+class SubmitCommandTaskRequest(BaseModel):
+    """A confirmed Command Center task awaiting agent execution."""
+
+    intent: str = Field(min_length=1, max_length=1_000)
+    payload: dict[str, Any]
+    timeout_seconds: int = Field(default=30, ge=1, le=180)
+
+
+class CommandTaskResponse(BaseModel):
+    """Task acknowledgement returned to the Command Center."""
+
+    task_id: str
+    status: str
+
+
 @router.get("/command", response_class=HTMLResponse)
 async def command_page() -> HTMLResponse:
     """Serve the authenticated natural-language command console."""
@@ -96,10 +116,16 @@ async def command_page() -> HTMLResponse:
     return HTMLResponse(page.read_text(encoding="utf-8"))
 
 
+@router.get("/command/access")
+async def command_access() -> dict[str, bool]:
+    """Expose whether this Command Center instance requires a sign-in."""
+    return {"authentication_required": settings.COMMAND_CENTER_AUTH_REQUIRED}
+
+
 @router.post("/command/interpret", response_model=InterpretCommandResponse)
 async def interpret_command(
     request: InterpretCommandRequest,
-    current_user: Annotated[UserProfile, Depends(get_current_user)],
+    current_user: Annotated[UserProfile | None, Depends(get_optional_current_user)],
 ) -> InterpretCommandResponse:
     """Interpret a command without controlling a device.
 
@@ -107,11 +133,12 @@ async def interpret_command(
     shown to the user for confirmation; this route never creates a task or
     calls a Home Assistant service.
     """
+    actor = _command_actor(current_user)
     task_id = f"command-interpretation-{uuid4()}"
     try:
         inventory = await MCPToolExecutor().read_resource(
             "home://devices",
-            user_id=str(current_user.id),
+            user_id=str(actor.id),
             task_id=task_id,
             agent="command_interpreter",
             source="command_center",
@@ -137,6 +164,72 @@ async def interpret_command(
     model_devices = _relevant_devices(request.intent, compact_devices)
     interpretation = await _interpret_with_model(request.intent, model_devices)
     return _validated_interpretation(interpretation, compact_devices)
+
+
+@router.post(
+    "/command/task",
+    response_model=CommandTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def submit_command_task(
+    request: SubmitCommandTaskRequest,
+    current_user: Annotated[UserProfile | None, Depends(get_optional_current_user)],
+) -> CommandTaskResponse:
+    """Submit a confirmed Command Center task without exposing the MCP API."""
+    actor = _command_actor(current_user)
+    if not has_permission(actor.role, AGENT_RUN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="agent:run permission required",
+        )
+    task_id = await _command_orchestrator.submit_http_api(
+        intent=request.intent,
+        payload=request.payload,
+        user_id=str(actor.id),
+        user_role=actor.role,
+        timeout_seconds=request.timeout_seconds,
+    )
+    return CommandTaskResponse(task_id=task_id, status="submitted")
+
+
+@router.get("/command/task/{task_id}")
+async def command_task_status(
+    task_id: str,
+    current_user: Annotated[UserProfile | None, Depends(get_optional_current_user)],
+) -> dict[str, Any]:
+    """Return the result of a Command Center task after access is checked."""
+    _command_actor(current_user)
+    result = await _command_orchestrator.get_result(task_id)
+    if result is None:
+        return {"task_id": task_id, "status": "running", "result": None}
+    return {
+        "task_id": task_id,
+        "status": "completed" if result.success else "failed",
+        "result": result.data,
+        "message": result.message,
+        "agent": result.agent,
+        "confidence": result.confidence,
+        "metadata": result.metadata,
+    }
+
+
+def _command_actor(current_user: UserProfile | None) -> UserProfile:
+    """Return the signed-in user or the explicitly enabled demo operator."""
+    if current_user is not None:
+        return current_user
+    if settings.COMMAND_CENTER_AUTH_REQUIRED:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return UserProfile(
+        id=0,
+        email="demo-operator@local",
+        role=Role.HOMEOWNER.value,
+        household_id=None,
+        is_active=True,
+    )
 
 
 async def _interpret_with_model(

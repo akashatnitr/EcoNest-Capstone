@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.config import get_settings
-from orchestrator.core.database import get_mysql_session
+from orchestrator.core.database import get_mysql_session, mysql_session_context
 from orchestrator.core.permissions import Role
 from orchestrator.core.security import (
     create_access_token,
@@ -112,6 +112,43 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    return UserProfile(**row)
+
+
+async def get_optional_current_user(
+    token: Annotated[Optional[str], Depends(oauth2_scheme)],
+) -> UserProfile | None:
+    """Return the authenticated user when supplied, otherwise no user."""
+    if token is None:
+        return None
+
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != "access" or payload.get("sub") is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    async with mysql_session_context() as session:
+        result = await session.execute(
+            text(
+                """
+                SELECT id, email, role, household_id, is_active
+                FROM users
+                WHERE id = :id
+                """
+            ),
+            {"id": int(payload["sub"])},
+        )
+        row = result.mappings().first()
+
+    if row is None or not row["is_active"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return UserProfile(**row)
 
 

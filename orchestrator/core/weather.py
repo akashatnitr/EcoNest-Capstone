@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS weather_forecasts (
     INDEX idx_weather_forecast_time (forecast_at)
 )
 """
+HISTORICAL_WEATHER_SOURCE = "open_meteo_archive"
 
 
 async def ensure_weather_forecast_schema(session: AsyncSession) -> None:
@@ -64,6 +65,55 @@ async def fetch_hourly_forecast(settings: Settings) -> tuple[str, list[dict[str,
     return entity_id, [item for item in forecasts if isinstance(item, dict)]
 
 
+async def fetch_historical_hourly_weather(
+    settings: Settings,
+    *,
+    start_date: date,
+    end_date: date,
+) -> list[dict[str, Any]]:
+    """Fetch hourly archived outdoor conditions for the configured home location."""
+    if settings.HOME_LATITUDE is None or settings.HOME_LONGITUDE is None:
+        raise ValueError("HOME_LATITUDE and HOME_LONGITUDE are required for historical weather")
+    if start_date > end_date:
+        raise ValueError("historical-weather start date must be on or before end date")
+    params = {
+        "latitude": settings.HOME_LATITUDE,
+        "longitude": settings.HOME_LONGITUDE,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "hourly": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code",
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph",
+        "precipitation_unit": "inch",
+        "timezone": "UTC",
+    }
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        response = await client.get("https://archive-api.open-meteo.com/v1/archive", params=params)
+        response.raise_for_status()
+    hourly = response.json().get("hourly")
+    if not isinstance(hourly, dict):
+        raise RuntimeError("Historical weather API did not return hourly data")
+    times = hourly.get("time")
+    if not isinstance(times, list):
+        raise RuntimeError("Historical weather API did not return hourly timestamps")
+    rows: list[dict[str, Any]] = []
+    for index, value in enumerate(times):
+        forecast_at = _forecast_time(value)
+        if forecast_at is None:
+            continue
+        rows.append(
+            {
+                "datetime": forecast_at,
+                "condition": _archive_condition(_item(hourly, "weather_code", index)),
+                "temperature": _item(hourly, "temperature_2m", index),
+                "humidity": _item(hourly, "relative_humidity_2m", index),
+                "precipitation": _item(hourly, "precipitation", index),
+                "wind_speed": _item(hourly, "wind_speed_10m", index),
+            }
+        )
+    return rows
+
+
 async def store_hourly_forecast(
     session: AsyncSession, source_entity_id: str, forecasts: list[dict[str, Any]]
 ) -> int:
@@ -92,7 +142,8 @@ async def store_hourly_forecast(
 
 def _forecast_time(value: Any) -> datetime | None:
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
     except ValueError:
         return None
 
@@ -102,3 +153,15 @@ def _number(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _item(hourly: dict[str, Any], name: str, index: int) -> Any:
+    """Get one variable from an hourly archive response without trusting its length."""
+    values = hourly.get(name)
+    return values[index] if isinstance(values, list) and index < len(values) else None
+
+
+def _archive_condition(value: Any) -> str | None:
+    """Keep the archive weather code as transparent, non-invented source context."""
+    code = _number(value)
+    return f"wmo:{int(code)}" if code is not None else None

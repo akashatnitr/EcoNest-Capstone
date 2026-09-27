@@ -54,12 +54,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.AUTONOMY_MONITOR_ENABLED:
         autonomous_monitor = AutonomousMonitor(
             lambda: demo.collect_periodic_feedback(trigger="background_monitor"),
-            interval_seconds=settings.AUTONOMY_MONITOR_INTERVAL_SECONDS,
+            interval_seconds=settings.AUTONOMY_RECOMMENDATION_INTERVAL_SECONDS,
             run_on_startup=settings.AUTONOMY_MONITOR_RUN_ON_STARTUP,
             action_recommender=demo.recommend_autonomous_action,
             action_executor=demo.execute_autonomous_action,
+            advisory_runner=(
+                autonomy.run_scheduled_recommendation
+                if settings.AUTONOMY_RECOMMENDATIONS_ENABLED
+                else None
+            ),
             action_confidence_threshold=settings.AUTONOMY_ACTION_CONFIDENCE_THRESHOLD,
             actions_enabled=settings.AUTONOMY_ACTIONS_ENABLED,
+            align_to_interval=True,
         )
         autonomous_monitor.start()
     try:
@@ -162,7 +168,9 @@ async def autonomy_status() -> dict[str, Any]:
         return {
             "enabled": settings.AUTONOMY_MONITOR_ENABLED,
             "running": False,
-            "interval_seconds": settings.AUTONOMY_MONITOR_INTERVAL_SECONDS,
+            "interval_seconds": settings.AUTONOMY_RECOMMENDATION_INTERVAL_SECONDS,
+            "recommendation_interval_seconds": settings.AUTONOMY_RECOMMENDATION_INTERVAL_SECONDS,
+            "recommendations_enabled": settings.AUTONOMY_RECOMMENDATIONS_ENABLED,
             "run_on_startup": settings.AUTONOMY_MONITOR_RUN_ON_STARTUP,
             "actions_enabled": settings.AUTONOMY_ACTIONS_ENABLED,
             "action_confidence_threshold": settings.AUTONOMY_ACTION_CONFIDENCE_THRESHOLD,

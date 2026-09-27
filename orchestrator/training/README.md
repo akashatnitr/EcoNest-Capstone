@@ -7,13 +7,31 @@ call does not prove the underlying recommendation was correct or safe.
 
 ## Workflow
 
-1. Read audit events with `read_recent_audit_events_async()`.
-2. Run `build_review_examples(events)`.
-3. A human reviews each candidate and changes `review_status` to `approved` or
-   `rejected` in an offline review copy.
-4. Run `partition_approved_examples()` to create stable train/evaluation sets.
-5. Write the selected set with `write_jsonl_examples()` for offline LoRA/QLoRA
-   training.
+1. Export review candidates locally:
+
+   ```bash
+   docker compose -f docker-compose.real.yml exec -T orchestrator \
+     python scripts/export_training_dataset.py candidates \
+     --output econest_exports/training/review_candidates.jsonl
+   ```
+
+2. Review every line in that local file. Change `review_status` only to
+   `approved` or `rejected`; leave uncertain examples as `needs_human_review`.
+   Reject examples with an ambiguous device, unsupported action, incorrect
+   reasoning, unverified outcome, or incomplete decision-time context.
+3. Create deterministic QLoRA train/evaluation files from approved examples:
+
+   ```bash
+   docker compose -f docker-compose.real.yml exec -T orchestrator \
+     python scripts/export_training_dataset.py split \
+     --input econest_exports/training/review_candidates.jsonl \
+     --train-output econest_exports/training/train.jsonl \
+     --evaluation-output econest_exports/training/evaluation.jsonl
+   ```
+
+4. Upload only `train.jsonl` and `evaluation.jsonl` to the Colab runtime.
+   These files use chat-format JSONL, ready for Hugging Face/TRL supervised
+   fine-tuning.
 
 Training must only use approved examples. Keep the evaluation set held out from
 training and use it to compare the tuned model with the current base model.
@@ -21,9 +39,18 @@ training and use it to compare the tuned model with the current base model.
 ## Privacy boundary
 
 The builder removes keys containing token, password, secret, authorization,
-cookie, email, user ID, or common API/private/access key names. It should receive compact decision-time snapshots,
-not raw Home Assistant exports or complete database records. Do not place
-training JSONL files containing real household data in git.
+cookie, email, user ID, address, location, common API/private/access key names,
+and IPv4 addresses found in text. It should receive compact decision-time
+snapshots, not raw Home Assistant exports or complete database records. Do not
+place training JSONL files containing real household data in git.
+
+## Dataset quality gate
+
+Do not train until there are enough **reviewed** examples in every intended
+task group and a meaningful held-out evaluation split. The current audit export
+is a starting point, not a sufficient production dataset. Add reviewed examples
+for ambiguous requests, unsupported devices, no-action decisions, failed
+verification, and each desired recommendation type before training.
 
 ## Current limitation
 

@@ -1,5 +1,7 @@
 """Autonomy activity page and recommendation history API."""
 
+import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -7,19 +9,29 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from orchestrator.agents.base import Task
 from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.core.audit import read_recent_audit_events_async
+from orchestrator.core.permissions import Role
 from orchestrator.config import get_settings
 
 router = APIRouter(tags=["autonomy"])
 _energy_orchestrator = AgentOrchestrator()
 settings = get_settings()
+SCHEDULED_RECOMMENDATION_KINDS = ("energy", "security", "irrigation")
 
 
 class EnergyRecommendationRequest(BaseModel):
     """Input for a resident-requested, recommendation-only energy review."""
 
     intent: str = "Review my home's energy use and recommend better timing."
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdvisoryRecommendationRequest(BaseModel):
+    """Optional caller context for an advisory review."""
+
+    intent: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -51,10 +63,35 @@ async def request_energy_recommendations(
     request: EnergyRecommendationRequest,
 ) -> dict[str, str]:
     """Queue an on-demand advisory energy review for the activity feed."""
-    task_id = await _energy_orchestrator.submit_http_api(
-        intent=request.intent,
-        payload={**request.payload, "type": "energy", "use_llm": True},
-        timeout_seconds=settings.OLLAMA_TIMEOUT_SECONDS,
+    task_id = await _submit_advisory_review(
+        "energy", request.intent, request.payload
+    )
+    return {"task_id": task_id, "status": "submitted"}
+
+
+@router.post("/autonomy/security-recommendations")
+async def request_security_recommendations(
+    request: AdvisoryRecommendationRequest,
+) -> dict[str, str]:
+    """Queue an on-demand advisory security review without device control."""
+    task_id = await _submit_advisory_review(
+        "security",
+        request.intent or "Review the home for security recommendations.",
+        request.payload,
+    )
+    return {"task_id": task_id, "status": "submitted"}
+
+
+@router.post("/autonomy/watering-recommendations")
+async def request_watering_recommendations(
+    request: AdvisoryRecommendationRequest,
+) -> dict[str, str]:
+    """Queue an on-demand advisory watering review without valve control."""
+    task_id = await _submit_advisory_review(
+        "irrigation",
+        request.intent
+        or "Review weather and irrigation conditions for watering recommendations.",
+        request.payload,
     )
     return {"task_id": task_id, "status": "submitted"}
 
@@ -62,6 +99,17 @@ async def request_energy_recommendations(
 @router.get("/autonomy/energy-recommendations/{task_id}")
 async def energy_recommendation_status(task_id: str) -> dict[str, Any]:
     """Return the status of a requested energy review."""
+    return await _advisory_recommendation_status(task_id)
+
+
+@router.get("/autonomy/recommendation-tasks/{task_id}")
+async def recommendation_task_status(task_id: str) -> dict[str, Any]:
+    """Return the status of any on-demand advisory review."""
+    return await _advisory_recommendation_status(task_id)
+
+
+async def _advisory_recommendation_status(task_id: str) -> dict[str, Any]:
+    """Read the status of an in-memory advisory task."""
     result = await _energy_orchestrator.get_result(task_id)
     if result is None:
         return {"task_id": task_id, "status": "running"}
@@ -71,6 +119,74 @@ async def energy_recommendation_status(task_id: str) -> dict[str, Any]:
         "result": result.data,
         "message": result.message,
     }
+
+
+async def _submit_advisory_review(
+    kind: str,
+    intent: str,
+    payload: dict[str, Any],
+) -> str:
+    """Submit a user-requested review directly to its advisory-only agent."""
+    return await _energy_orchestrator.submit(
+        Task(
+            intent=intent,
+            payload={**payload, "type": kind, "use_llm": kind == "energy"},
+            timeout_seconds=settings.OLLAMA_TIMEOUT_SECONDS,
+            metadata={
+                "source": "http_api",
+                "user_role": Role.HOMEOWNER.value,
+                "routed_agent": kind,
+                "recommendation_kind": kind,
+            },
+        )
+    )
+
+
+def scheduled_recommendation_kind(now: datetime | None = None) -> str:
+    """Select energy, security, then watering in repeating ten-minute slots."""
+    local_now = now or datetime.now()
+    slot = (local_now.hour * 6) + (local_now.minute // 10)
+    return SCHEDULED_RECOMMENDATION_KINDS[slot % len(SCHEDULED_RECOMMENDATION_KINDS)]
+
+
+async def run_scheduled_recommendation() -> dict[str, Any]:
+    """Run the advisory review assigned to the current ten-minute schedule slot."""
+    kind = scheduled_recommendation_kind()
+    task_id = await _energy_orchestrator.submit(
+        Task(
+            intent={
+                "energy": "Review household energy use and recommend better timing.",
+                "security": "Review the home for security recommendations.",
+                "irrigation": "Review weather and irrigation conditions for watering recommendations.",
+            }[kind],
+            payload={"type": kind, "use_llm": kind == "energy"},
+            timeout_seconds=settings.OLLAMA_TIMEOUT_SECONDS,
+            metadata={
+                "source": "background_monitor",
+                "user_role": Role.HOMEOWNER.value,
+                "routed_agent": kind,
+                "recommendation_kind": kind,
+            },
+        )
+    )
+    result = await _wait_for_recommendation(task_id)
+    return {
+        "kind": kind,
+        "task_id": task_id,
+        "success": result.success if result is not None else False,
+        "message": result.message if result is not None else "Recommendation timed out",
+    }
+
+
+async def _wait_for_recommendation(task_id: str) -> Any | None:
+    """Wait only for the bounded scheduled advisory task to finish."""
+    checks = max(1, settings.OLLAMA_TIMEOUT_SECONDS * 2)
+    for _ in range(checks):
+        result = await _energy_orchestrator.get_result(task_id)
+        if result is not None:
+            return result
+        await asyncio.sleep(0.5)
+    return None
 
 
 def _recommendation_view(event: dict[str, Any]) -> dict[str, Any]:
@@ -100,13 +216,13 @@ def _recommendation_views(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             view = _recommendation_view(event)
             view["outcome"] = _recommendation_outcome(events, index, view)
             views.append(view)
-        elif event.get("event_type") == "energy.recommendations.generated":
-            views.extend(_energy_recommendation_views(event))
+        elif str(event.get("event_type", "")).endswith(".recommendations.generated"):
+            views.extend(_advisory_recommendation_views(event))
     return views
 
 
-def _energy_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]]:
-    """Convert one energy review audit event into one card per recommendation."""
+def _advisory_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert an advisory agent review into one timestamped card per recommendation."""
     recommendations = event.get("recommendations")
     if not isinstance(recommendations, list):
         return []
@@ -114,17 +230,20 @@ def _energy_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]]:
     for recommendation in recommendations:
         if not isinstance(recommendation, dict):
             continue
+        category = _advisory_category(event)
+        reason = recommendation.get("reasoning") or "No explanation was recorded."
+        if category == "Watering":
+            reason = _watering_reason_for_display(str(reason))
         views.append(
             {
                 "timestamp": event.get("timestamp"),
-                "action": recommendation.get("action") or "Energy review",
-                "entity_id": "Household energy",
-                "confidence": None,
-                "reason": recommendation.get("reasoning")
-                or "No explanation was recorded.",
+                "action": recommendation.get("action") or "Household review",
+                "entity_id": _advisory_target(event),
+                "category": category,
+                "reason": reason,
                 "risk_level": recommendation.get("priority") or "Unknown",
                 "should_act": False,
-                "source": event.get("source") or "on-demand energy review",
+                "source": event.get("source") or "advisory review",
                 "fallback_reason": None,
                 "outcome": {
                     "state": "advisory",
@@ -134,6 +253,41 @@ def _energy_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return views
+
+
+def _advisory_category(event: dict[str, Any]) -> str:
+    """Return the resident-facing category for a stored advisory event."""
+    event_type = str(event.get("event_type", ""))
+    return {
+        "energy.recommendations.generated": "Energy",
+        "security.recommendations.generated": "Security",
+        "irrigation.recommendations.generated": "Watering",
+    }.get(event_type, "Household")
+
+
+def _advisory_target(event: dict[str, Any]) -> str:
+    """Return a plain-language target for an advisory category."""
+    return {
+        "Energy": "Household energy",
+        "Security": "Home security",
+        "Watering": "Irrigation and weather",
+        "Household": "Household review",
+    }[_advisory_category(event)]
+
+
+def _watering_reason_for_display(reason: str) -> str:
+    """Keep retained watering cards concise as the explanation evolves."""
+    legacy_reason = (
+        "No material rain is forecast in the next 24 hours, but EcoNest does not yet "
+        "have reliable soil-moisture or zone-runtime evidence. It will not recommend "
+        "turning irrigation on automatically."
+    )
+    if reason == legacy_reason:
+        return (
+            "No material rain is forecast in the next 24 hours. "
+            "EcoNest recommends reviewing the watering schedule before running zones."
+        )
+    return reason
 
 
 def _recommendation_outcome(

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>EcoNest Data Explorer</title>
+    <title>EcoNest MySQL Explorer</title>
     <style>
       :root { font-family: system-ui, sans-serif; color: #17221b; background: #f4f7f3; }
       body { margin: 0; } main { max-width: 1200px; margin: auto; padding: 24px; }
@@ -30,8 +30,7 @@
   </head>
   <body>
     <main>
-      <h1>EcoNest Data Explorer</h1>
-      <p class="muted">Read-only view of the MySQL data stored on this EcoNest system.</p>
+      <h1>EcoNest MySQL Explorer</h1>
 
       <p id="message"></p>
 
@@ -131,7 +130,25 @@ LIMIT 50`,
           const keys = Object.keys(value).join(", ") || "empty object";
           return `<details><summary>JSON: ${escapeHtml(keys)}</summary><pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre></details>`;
         }
+        const timestamp = formatTimestamp(value);
+        if (timestamp) return escapeHtml(timestamp);
         return escapeHtml(String(value));
+      }
+
+      function formatTimestamp(value) {
+        if (typeof value !== "string") return "";
+        const mysqlTimestamp = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+        const isoWithoutZone = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+        const normalized = mysqlTimestamp.test(value)
+          ? `${value.replace(" ", "T")}Z`
+          : isoWithoutZone.test(value) ? `${value}Z` : value;
+        if (normalized === value && !/Z$|[+-]\d{2}:\d{2}$/.test(value)) return "";
+        const date = new Date(normalized);
+        if (Number.isNaN(date.getTime())) return "";
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/Chicago", year: "2-digit", month: "2-digit", day: "2-digit",
+          hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
+        }).format(date);
       }
 
       function escapeHtml(value) {
