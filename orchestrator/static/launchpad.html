@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EcoNest Launchpad</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0d1323; color: #f6f7ff; }
+      body { margin: 0; min-height: 100vh; background: #0d1323; }
+      main { width: min(1100px, calc(100% - 36px)); margin: 0 auto; padding: 54px 0 80px; }
+      .eyebrow { color: #ae9bff; font-size: .82rem; font-weight: 750; letter-spacing: .08em; margin: 0 0 10px; }
+      h1 { font-size: clamp(2.4rem, 6vw, 4.5rem); letter-spacing: -.055em; margin: 0; }
+      .lede { color: #c4cde6; font-size: 1.08rem; line-height: 1.6; max-width: 720px; margin: 14px 0 36px; }
+      .groups { display: grid; gap: 25px; }
+      h2 { font-size: 1rem; color: #c7bbff; letter-spacing: .05em; text-transform: uppercase; margin: 0 0 11px; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+      .link { display: block; min-height: 108px; box-sizing: border-box; padding: 18px; border: 1px solid #40527b; border-radius: 14px; background: #141e33; color: inherit; text-decoration: none; transition: transform .15s ease, border-color .15s ease, background .15s ease; }
+      .link:hover, .link:focus-visible { transform: translateY(-2px); border-color: #ad96ff; background: #1b2945; outline: none; }
+      .link strong { display: block; color: #fff; font-size: 1.05rem; margin-bottom: 7px; }
+      .link span { color: #bfc9e4; font-size: .9rem; line-height: 1.42; }
+      .primary { border-color: #5a4d95; box-shadow: inset 4px 0 #ae91ff; }
+      .external { border-color: #285d79; box-shadow: inset 4px 0 #68baf4; }
+      .support { border-color: #4a6570; box-shadow: inset 4px 0 #69d4c4; }
+      .footer { margin-top: 30px; color: #94a4cb; font-size: .9rem; }
+      @media (max-width: 760px) { main { padding-top: 34px; } .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">ECONEST / LAUNCHPAD</p>
+      <h1>Open EcoNest.</h1>
+      <p class="lede">One place to reach every EcoNest dashboard, data view, integration, and developer tool.</p>
+
+      <div class="groups">
+        <section>
+          <h2>Use EcoNest</h2>
+          <div class="grid">
+            <a class="link primary" href="/command"><strong>User prompts</strong><span>Ask a question, request a recommendation, or propose a device action.</span></a>
+            <a class="link primary" href="/autonomy"><strong>Autonomous actions</strong><span>Review scheduled energy, security, and watering recommendations.</span></a>
+            <a class="link primary" href="/analytics"><strong>Insights</strong><span>Explore learned energy, comfort, irrigation, and cost analytics.</span></a>
+            <a class="link primary" href="/mcp/activity"><strong>MCP activity</strong><span>See the audited tool calls behind EcoNest tasks.</span></a>
+            <a class="link primary" href="/demo"><strong>Demo</strong><span>Walk through EcoNest workflows and their intermediate steps.</span></a>
+          </div>
+        </section>
+
+        <section>
+          <h2>Data and integrations</h2>
+          <div class="grid">
+            <a class="link support" href="/monitor"><strong>MySQL Explorer</strong><span>Browse EcoNest’s retained operational and sensor records.</span></a>
+            <a class="link support" href="/schema"><strong>MySQL relationship map</strong><span>Visualize the live database schema and table relationships.</span></a>
+            <a id="home-assistant" class="link external" target="_blank" rel="noopener"><strong>Home Assistant</strong><span>Open the live smart-home dashboard and device state.</span></a>
+            <a id="arcadedb" class="link external" target="_blank" rel="noopener"><strong>ArcadeDB</strong><span>Inspect EcoNest’s room, device, sensor, and capability graph.</span></a>
+          </div>
+        </section>
+
+        <section>
+          <h2>Developer tools</h2>
+          <div class="grid">
+            <a class="link support" href="/docs"><strong>Orchestrator API</strong><span>Open interactive API documentation for integrations and troubleshooting.</span></a>
+            <a class="link support" href="/health"><strong>System health</strong><span>View the current MySQL and ArcadeDB health status.</span></a>
+          </div>
+        </section>
+      </div>
+      <p class="footer">External links use this page’s current host automatically, so the launchpad works through the Mac Mini’s Tailscale address without storing it in the page.</p>
+    </main>
+    <script>
+      const host = window.location.hostname;
+      document.querySelector("#home-assistant").href = `http://${host}:8123/home/overview`;
+      document.querySelector("#arcadedb").href = `http://${host}:2480/`;
+    </script>
+  </body>
+</html>

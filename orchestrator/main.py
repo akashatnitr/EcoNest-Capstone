@@ -7,13 +7,14 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, status
 
 from orchestrator.api import (
-    autonomy,
     analytics,
     auth,
+    autonomy,
     command,
     demo,
     devices,
     graph,
+    launchpad,
     mcp,
     monitor,
     ontology,
@@ -29,9 +30,9 @@ from orchestrator.core.database import (
     healthcheck_mysql,
     init_databases,
 )
+from orchestrator.core.event_dispatcher import EventDispatcher
 from orchestrator.core.graph_sync import GraphSyncMonitor
 from orchestrator.core.ha_ingest import HomeAssistantIngestor
-from orchestrator.core.event_dispatcher import EventDispatcher
 from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
@@ -98,6 +99,7 @@ app.include_router(command.router)
 app.include_router(demo.router)
 app.include_router(devices.router)
 app.include_router(graph.router)
+app.include_router(launchpad.router)
 app.include_router(mcp.router)
 app.include_router(mcp_server.router)
 app.include_router(monitor.router)
