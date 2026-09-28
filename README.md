@@ -36,6 +36,8 @@ the single entry point for every dashboard, integration, and developer tool.
 The external Home Assistant and ArcadeDB buttons automatically use the same
 host as the Launchpad.
 
+**Launchpad:** `http://<MAC_MINI_IP>:8001/launchpad`
+
 | Launchpad button | What it opens |
 | --- | --- |
 | User prompts | Natural-language device commands and advisory energy or security reviews. |
