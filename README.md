@@ -29,22 +29,26 @@ Give me a security assessment
 Device commands require confirmation. Energy and security reviews are advisory
 and do not control devices.
 
-## Open the EcoNest pages
+## Open EcoNest
 
-These services are available through the EcoNest Tailscale network. Replace
-`<MAC_MINI_IP>` with the Mac mini's Tailscale IP address.
+Open the **EcoNest Launchpad** at the root of the EcoNest Orchestrator. It is
+the single entry point for every dashboard, integration, and developer tool.
+The external Home Assistant and ArcadeDB buttons automatically use the same
+host as the Launchpad.
 
-| Page | Address | What it does |
-| --- | --- | --- |
-| Autonomous actions | `http://<MAC_MINI_IP>:8001/autonomy` | Shows autonomous and energy recommendations, their reason, confidence, risk, timestamp, source, and outcome. |
-| User actions | `http://<MAC_MINI_IP>:8001/command` | The Command Center for natural-language device commands and energy/security reviews. |
-| MCP Activities | `http://<MAC_MINI_IP>:8001/mcp/activity` | Shows the actual MCP calls for each task, including the agent, source, timing, and result. |
-| Home Assistant | `http://<MAC_MINI_IP>:8123/home/overview` | The live smart-home dashboard and final authority for device state and service calls. |
-| MySQL | `http://<MAC_MINI_IP>:8001/monitor` | Read-only EcoNest monitor for MySQL-backed readings and operational records. |
-| MySQL schema | `http://<MAC_MINI_IP>:8001/schema` | Visual guide to the MySQL tables and their relationships. |
-| ArcadeDB | `http://<MAC_MINI_IP>:2480/` | ArcadeDB Studio for inspecting rooms, devices, sensors, capabilities, and relationships. |
-| Demo | `http://<MAC_MINI_IP>:8001/demo` | Guided demonstration of EcoNest workflows and their intermediate steps. |
-| Orchestrator API | `http://<MAC_MINI_IP>:8001/docs` | Interactive FastAPI documentation for developers and troubleshooting. |
+| Launchpad button | What it opens |
+| --- | --- |
+| User prompts | Natural-language device commands and advisory energy or security reviews. |
+| Autonomous actions | Scheduled energy, security, and watering recommendations with recorded outcomes. |
+| Insights | Learned energy, comfort, irrigation, and electricity-cost analytics. |
+| MCP activity | The audited MCP calls behind EcoNest tasks, including tool, agent, timing, and result. |
+| Demo | Guided EcoNest workflows and intermediate steps. |
+| MySQL Explorer | Read-only operational records and retained sensor data. |
+| MySQL relationship map | Visual guide to the live MySQL tables and their relationships. |
+| Home Assistant | The live smart-home dashboard and final authority for device states and service calls. |
+| ArcadeDB | The room, device, sensor, capability, and relationship graph. |
+| Orchestrator API | Interactive API documentation for integration and troubleshooting. |
+| System health | Current MySQL and ArcadeDB health status. |
 
 ## How it works
 
