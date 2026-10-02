@@ -53,6 +53,7 @@ class TrainingExample(BaseModel):
         "security_recommendation",
         "irrigation_recommendation",
         "autonomy_decision",
+        "answer_correction",
     ]
     input: dict[str, Any]
     target: dict[str, Any]
@@ -66,6 +67,34 @@ class DatasetSplit(BaseModel):
 
     train: list[TrainingExample] = Field(default_factory=list)
     evaluation: list[TrainingExample] = Field(default_factory=list)
+
+
+def build_feedback_review_examples(records: list[dict[str, Any]]) -> list[TrainingExample]:
+    """Create second-stage tuning candidates from evidence-reviewed corrections.
+
+    Approval for runtime guidance is not approval to memorize time-sensitive facts
+    or private household details in model weights. A curator must review these
+    examples again before marking them approved for the train/evaluation split.
+    """
+    examples: list[TrainingExample] = []
+    for index, record in enumerate(records):
+        if record.get("review_status") != "approved" or not record.get("correction"):
+            continue
+        input_data = _sanitize({
+            "question": str(record.get("prompt") or ""),
+            "agent": str(record.get("agent") or ""),
+            "evidence_checked_by_reviewer": str(record.get("evidence_note") or ""),
+        })
+        target = _sanitize({"answer": str(record["correction"])})
+        examples.append(TrainingExample(
+            example_id=_example_id("answer_correction", input_data, target, index),
+            task_type="answer_correction",
+            input=input_data,
+            target=target,
+            provenance={"source": "resident_feedback", "timestamp": str(record.get("updated_at") or "unknown")},
+            review_note="Check privacy, time-sensitive facts, and source evidence before training approval.",
+        ))
+    return examples
 
 
 def build_review_examples(events: list[dict[str, Any]]) -> list[TrainingExample]:
@@ -362,6 +391,11 @@ def _system_instruction(task_type: str) -> str:
             "You are EcoNest. Return only valid JSON. Infer an available device action "
             "from the supplied context, but always require explicit user confirmation "
             "before a device action."
+        )
+    if task_type == "answer_correction":
+        return (
+            "You are EcoNest. Return only valid JSON. Answer using the supplied verified "
+            "evidence. State uncertainty when evidence is missing. Do not control devices."
         )
     if task_type == "autonomy_decision":
         return (

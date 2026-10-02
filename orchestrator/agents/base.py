@@ -7,8 +7,11 @@ from time import monotonic
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 
 from orchestrator.core.audit import write_audit_event
+from orchestrator.core.command_feedback import approved_correction_guidance
+from orchestrator.core.database import mysql_session_context
 from orchestrator.core.permissions import AGENT_RUN, Role, normalize_role
 from orchestrator.llm.client import LLMClient
 from orchestrator.mcp.executor import MCPToolExecutor
@@ -79,6 +82,18 @@ class BaseAgent(ABC):
         self.llm = llm or LLMClient()
         self.memory: Memory = memory or {}
         self.tool_executor = tool_executor or MCPToolExecutor()
+
+    async def reviewed_feedback_guidance(self, task: Task) -> str:
+        """Retrieve same-resident reviewed answer guidance without granting it authority over live data."""
+        try:
+            async with mysql_session_context() as session:
+                return await approved_correction_guidance(
+                    session, user_id=int(task.user_id), agent=self.name, prompt=task.intent
+                )
+        except (RuntimeError, ValueError, SQLAlchemyError) as exc:
+            # Unit tests and background tasks may run without a resident/database.
+            logger.warning("Reviewed-feedback lookup unavailable: %s", type(exc).__name__)
+            return ""
 
     async def invoke_mcp_tool(
         self,

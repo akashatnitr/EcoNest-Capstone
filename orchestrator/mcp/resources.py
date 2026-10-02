@@ -20,6 +20,7 @@ _CONTROLLABLE_ACTIONS: dict[str, list[str]] = {
     "cover": ["open", "close", "turn_on", "turn_off"],
     "climate": ["turn_on", "turn_off", "set_temperature"],
 }
+_CONDITION_ATTRIBUTE_TYPES = (str, int, float, bool)
 
 
 async def home_snapshot_resource() -> dict[str, Any]:
@@ -82,6 +83,59 @@ async def home_devices_resource() -> dict[str, Any]:
         "count": len(devices),
         "devices": devices,
     }
+
+
+async def home_condition_catalog_resource() -> dict[str, Any]:
+    """Return live, read-only condition capabilities discovered from Home Assistant.
+
+    This deliberately exposes only scalar state attributes. It gives planners a
+    device-neutral vocabulary without leaking large nested metadata or secrets.
+    """
+    if not settings.HA_TOKEN:
+        return {"type": "condition_catalog", "count": 0, "conditions": []}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{settings.HA_URL.rstrip('/')}/api/states",
+                headers={"Authorization": f"Bearer {settings.HA_TOKEN}"},
+            )
+            response.raise_for_status()
+            states = response.json()
+    except httpx.HTTPError:
+        return {
+            "type": "condition_catalog",
+            "count": 0,
+            "conditions": [],
+            "warnings": ["Home Assistant condition inventory is unavailable"],
+        }
+
+    conditions: list[dict[str, Any]] = []
+    for item in states if isinstance(states, list) else []:
+        if not isinstance(item, dict):
+            continue
+        entity_id = str(item.get("entity_id") or "")
+        domain, separator, _ = entity_id.partition(".")
+        if not separator:
+            continue
+        attributes = item.get("attributes")
+        attributes = attributes if isinstance(attributes, dict) else {}
+        scalar_attributes = {
+            key: value
+            for key, value in attributes.items()
+            if isinstance(value, _CONDITION_ATTRIBUTE_TYPES)
+            and key not in {"friendly_name", "icon", "entity_picture"}
+        }
+        conditions.append(
+            {
+                "entity_id": entity_id,
+                "name": str(attributes.get("friendly_name") or entity_id),
+                "domain": domain,
+                "state": str(item.get("state") or "unknown"),
+                "properties": ["state", *sorted(scalar_attributes)],
+                "attributes": scalar_attributes,
+            }
+        )
+    return {"type": "condition_catalog", "count": len(conditions), "conditions": conditions}
 
 
 async def home_analytics_resource() -> dict[str, Any]:

@@ -12,12 +12,18 @@ Detected anomalies:
 Schedule violations:
 {{ schedule_violations }}
 
-Current deterministic recommendations:
-{{ recommendations }}
+Current energy observations:
+{{ observations }}
 
-Return one concise, recommendation-only suggestion for reducing waste or using a
-lower-price period only when the supplied pricing snapshot establishes one.
-Ground every claim in the supplied snapshots and deterministic recommendations.
-If pricing is unknown, do not mention a cheap, peak, off-peak, or lower-price
-window. Never issue a device command, claim a fixed peak schedule, or imply
-that EcoNest will switch a device on or off.
+Learned household routines:
+{{ routines }}
+
+Demand forecast:
+{{ demand_forecast }}
+
+Choose one concise, recommendation-only suggestion from this evidence. Return
+an object with priority (LOW, MEDIUM, or HIGH), action, and reasoning. Ground
+every claim in the supplied evidence. If pricing is unknown, do not mention a
+cheap, peak, off-peak, or lower-price window. Never issue a device command,
+claim a fixed peak schedule, imply that EcoNest will switch a device on or off,
+or invent a measured value, device state, tariff, anomaly, or routine.

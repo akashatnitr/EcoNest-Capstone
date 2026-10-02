@@ -8,6 +8,9 @@ def test_monitor_page_is_served(client):
     assert "EcoNest MySQL Explorer" in response.text
     assert "Quick queries" in response.text
     assert "Latest readings" in response.text
+    assert "Recent important events" in response.text
+    assert "home_events" in response.text
+    assert "behavior_profiles" in response.text
 
 
 def test_monitor_rejects_mutating_sql(client, override_mysql_session):

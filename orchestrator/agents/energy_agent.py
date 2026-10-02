@@ -11,11 +11,29 @@ from typing import Any
 from pydantic import BaseModel, Field
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.config import get_settings
+from orchestrator.llm.models import LLMMessage
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "energy.j2"
 
 ANOMALY_MULTIPLIER_THRESHOLD = 4.0
 MEANINGFUL_POWER_WATTS = 100.0
+_UNSUPPORTED_PRICE_LANGUAGE = (
+    "cheaper",
+    "cheap window",
+    "lower-price",
+    "lower price",
+    "lower energy cost",
+    "lower energy costs",
+    "off-peak",
+    "peak-price",
+    "peak price",
+)
+
+
+def _asks_for_historical_baseline(intent: str) -> bool:
+    """Identify questions that require an appliance's own retained baseline."""
+    lowered = intent.lower()
+    return "than usual" in lowered or "normal for" in lowered or "typical for" in lowered
 
 
 class PricingSnapshot(BaseModel):
@@ -84,6 +102,14 @@ class EnergyRecommendation(BaseModel):
     estimated_savings_kwh: float | None = None
 
 
+class GemmaEnergyRecommendation(BaseModel):
+    """Bounded, evidence-only advisory decision returned by Gemma."""
+
+    priority: str = Field(pattern="^(LOW|MEDIUM|HIGH)$")
+    action: str = Field(min_length=1, max_length=240)
+    reasoning: str = Field(min_length=1, max_length=600)
+
+
 class EnergyAgentOutput(BaseModel):
     """Energy agent response payload."""
 
@@ -138,7 +164,7 @@ class EnergyAgent(BaseAgent):
 
         anomalies = self._detect_anomalies(observations)
         schedule_violations = self._detect_schedule_violations(observations)
-        recommendations = self._build_recommendations(
+        fallback_recommendations = self._build_recommendations(
             pricing,
             observations,
             anomalies,
@@ -151,12 +177,35 @@ class EnergyAgent(BaseAgent):
         llm_recommendation = await self._llm_recommendation(
             task,
             pricing,
+            observations,
             anomalies,
             schedule_violations,
-            recommendations,
+            routines,
+            forecast,
         )
-        if llm_recommendation:
-            recommendations.insert(0, llm_recommendation)
+        recommendations = (
+            [llm_recommendation] if llm_recommendation else fallback_recommendations
+        )
+        if _asks_for_historical_baseline(task.intent) and not anomalies:
+            current = next(
+                (item for item in observations if "dryer" in item.name.lower()),
+                observations[0] if observations else None,
+            )
+            current_text = (
+                f" The current reading is {current.current_power_w:.0f}W."
+                if current is not None
+                else ""
+            )
+            recommendations = [
+                EnergyRecommendation(
+                    priority="LOW",
+                    action="A historical comparison is not available yet.",
+                    reasoning=(
+                        "EcoNest has no measured baseline for this appliance, so it cannot "
+                        "say whether current use is higher than usual." + current_text
+                    ),
+                )
+            ]
 
         output = EnergyAgentOutput(
             mode=self._mode(task),
@@ -513,45 +562,49 @@ class EnergyAgent(BaseAgent):
         self,
         task: Task,
         pricing: PricingSnapshot,
+        observations: list[EnergyObservation],
         anomalies: list[EnergyObservation],
         schedule_violations: list[EnergyObservation],
-        recommendations: list[EnergyRecommendation],
+        routines: list[HouseholdRoutine],
+        forecast: list[LoadForecast],
     ) -> EnergyRecommendation | None:
+        """Ask Gemma to choose one grounded advisory recommendation.
+
+        The EnergyAgent supplies compact, calculated evidence and validates the
+        structured result. Its deterministic recommendations are retained only
+        as a fallback when the local model is unavailable or invalid.
+        """
         if task.payload.get("use_llm") is not True or not PROMPT_PATH.exists():
             return None
-        # A language model must not invent a tariff window or energy anomaly.
-        # With no measured issue and no tariff forecast, the deterministic
-        # recommendation is the only evidence-based answer.
-        if (
-            pricing.source == "no_tariff_forecast"
-            and not anomalies
-            and not schedule_violations
-        ):
-            return None
-
         prompt = _render_prompt(
-            PROMPT_PATH.read_text(),
+            PROMPT_PATH.read_text(encoding="utf-8"),
             {
                 "intent": task.intent,
                 "pricing": pricing.model_dump(),
+                "observations": [item.model_dump() for item in observations],
                 "anomalies": [item.model_dump() for item in anomalies],
                 "schedule_violations": [
                     item.model_dump() for item in schedule_violations
                 ],
-                "recommendations": [item.model_dump() for item in recommendations],
+                "routines": [item.model_dump() for item in routines],
+                "demand_forecast": [item.model_dump() for item in forecast],
             },
         )
+        prompt += await self.reviewed_feedback_guidance(task)
         try:
-            raw = await self.llm.generate(prompt, temperature=0.2)
+            generated = await self.llm.generate_structured(
+                [LLMMessage(role="user", content=prompt)],
+                GemmaEnergyRecommendation,
+                temperature=0.2,
+            )
         except Exception:
             return None
-        cleaned = raw.strip()
-        if not cleaned:
+        if _uses_unavailable_price_claim(generated, pricing):
             return None
         return EnergyRecommendation(
-            priority="MEDIUM",
-            action=cleaned[:240],
-            reasoning="Generated from the energy prompt template",
+            priority=generated.priority,
+            action=generated.action,
+            reasoning=generated.reasoning,
         )
 
     def _mode(self, task: Task) -> str:
@@ -674,6 +727,17 @@ def _hour_label(hour: int) -> str:
 
 def _window_label(window: TariffForecastWindow) -> str:
     return f"{_hour_label(window.start_hour)}–{_hour_label(window.end_hour % 24)}"
+
+
+def _uses_unavailable_price_claim(
+    recommendation: GemmaEnergyRecommendation,
+    pricing: PricingSnapshot,
+) -> bool:
+    """Reject model price-window claims when no household tariff was supplied."""
+    if pricing.source != "no_tariff_forecast":
+        return False
+    text = f"{recommendation.action} {recommendation.reasoning}".lower()
+    return any(term in text for term in _UNSUPPORTED_PRICE_LANGUAGE)
 
 
 def _json_mapping(value: Any) -> dict[str, Any]:

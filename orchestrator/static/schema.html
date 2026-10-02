@@ -26,7 +26,7 @@
   </style>
 </head>
 <body>
-  <header><div><h1>EcoNest MySQL relationship map</h1><p>Live documentation of the tables and foreign keys defined in <code>database_schema.txt</code>.</p></div><div class="controls"><button id="zoomOut" aria-label="Zoom out">−</button><button id="reset">Reset view</button><button id="zoomIn" aria-label="Zoom in">+</button></div></header>
+  <header><div><h1>EcoNest MySQL relationship map</h1><p>Live documentation of EcoNest’s retained household data and table relationships.</p></div><div class="controls"><button id="zoomOut" aria-label="Zoom out">−</button><button id="reset">Reset view</button><button id="zoomIn" aria-label="Zoom in">+</button></div></header>
   <main><aside><h2>How to read it</h2><div class="legend"><span><i class="line"></i>Required foreign-key relationship</span><span><i class="line optional"></i>Optional foreign-key relationship</span><span>Click a table to inspect its fields.</span></div><h2>Selected table</h2><section id="details"><h3>Nothing selected</h3><p>Click any table in the map.</p></section><p class="hint">Drag the map to pan. Use the mouse wheel or the buttons to zoom. This page is read-only and does not expose table rows or credentials.</p></aside><section id="viewport" aria-label="Interactive database schema"><div id="canvas"><svg id="edges" viewBox="0 0 1700 1080" aria-hidden="true"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#65d997"></path></marker></defs></svg></div></section></main>
 <script>
   const tables = [
@@ -34,11 +34,15 @@
     {id:'rooms', name:'rooms', x:380, y:70, fields:['id PK','household_id FK','name','description','ha_area_id']},
     {id:'devices', name:'devices', x:690, y:70, fields:['id PK','room_id FK','name','device_type','ha_entity_id']},
     {id:'readings', name:'sensor_readings', x:1010, y:60, fields:['id PK','device_id FK','room_id FK','timestamp','data']},
+    {id:'events', name:'home_events', x:1040, y:210, fields:['id PK','occurred_at','entity_id','device_id FK optional','room_id FK optional','event_type','previous_state','new_state','metadata']},
     {id:'snapshots', name:'home_snapshot', x:370, y:380, fields:['id PK','room_id FK','occupancy_estimate','active_devices','updated_at']},
     {id:'analytics', name:'home_analytics', x:600, y:380, fields:['id PK','room_id FK','hour_of_day','total_kwh','computed_at']},
     {id:'profiles', name:'device_profiles', x:850, y:380, fields:['id PK','device_id FK','expected_watt_min','expected_watt_max','max_idle_minutes']},
     {id:'hourlyEnergy', name:'energy_hourly_analytics', x:1080, y:360, fields:['id PK','device_id FK','room_id FK','hour_start','avg_power_w','metered_energy_kwh']},
     {id:'comfort', name:'comfort_observations', x:1310, y:360, fields:['id PK','climate_device_id FK','room_id FK','target_temperature','current_temperature','target_changed']},
+    {id:'behavior', name:'behavior_profiles', x:1040, y:570, fields:['id PK','profile_key','profile JSON','generated_at'], audit:true},
+    {id:'feedback', name:'command_feedback', x:770, y:880, fields:['id PK','task_id','user_id (actor ID)','rating 1–5','comment','created_at','updated_at'], audit:true},
+    {id:'corrections', name:'command_feedback_corrections', x:1040, y:880, fields:['task_id + user_id PK','correction','review_status','evidence_note','reviewer_id','reviewed_at'], audit:true},
     {id:'weather', name:'weather_forecasts', x:1310, y:570, fields:['id PK','source_entity_id','forecast_at','precipitation_in','temperature_f','fetched_at']},
     {id:'users', name:'users', x:80, y:650, fields:['id PK','household_id FK','email','role','is_active']},
     {id:'sessions', name:'user_sessions', x:310, y:650, fields:['id PK','user_id FK','refresh_token','expires_at']},
@@ -48,7 +52,7 @@
     {id:'audit', name:'audit_events', x:1290, y:720, fields:['id PK','event_time','event_type','task_id','agent','success'], audit:true}
   ];
   const edges = [
-    ['households','rooms','contains',true], ['rooms','devices','contains',false], ['devices','readings','produces',false], ['rooms','readings','receives',false], ['rooms','snapshots','records',false], ['rooms','analytics','summarizes',false], ['devices','profiles','configures',false], ['devices','hourlyEnergy','measures',false], ['rooms','hourlyEnergy','groups',false], ['devices','comfort','controls',true], ['rooms','comfort','observes',false], ['households','users','includes',true], ['users','sessions','owns',false], ['users','roomAccess','grants',false], ['rooms','roomAccess','permits',false], ['users','deviceAccess','grants',false], ['devices','deviceAccess','permits',false], ['households','entities','maps',false]
+    ['households','rooms','contains',true], ['rooms','devices','contains',false], ['devices','readings','produces',false], ['rooms','readings','receives',false], ['devices','events','records',true], ['rooms','events','occurs in',true], ['events','behavior','learns from',true], ['readings','behavior','summarizes',true], ['comfort','behavior','learns from',true], ['feedback','corrections','has proposed correction',true], ['rooms','snapshots','records',false], ['rooms','analytics','summarizes',false], ['devices','profiles','configures',false], ['devices','hourlyEnergy','measures',false], ['rooms','hourlyEnergy','groups',false], ['devices','comfort','controls',true], ['rooms','comfort','observes',false], ['households','users','includes',true], ['users','sessions','owns',false], ['users','roomAccess','grants',false], ['rooms','roomAccess','permits',false], ['users','deviceAccess','grants',false], ['devices','deviceAccess','permits',false], ['households','entities','maps',false]
   ];
   const byId = Object.fromEntries(tables.map(table => [table.id, table])); const canvas = document.getElementById('canvas'), svg = document.getElementById('edges');
   function tableCenter(table) { return {x: table.x + 95, y: table.y + 55}; }

@@ -41,13 +41,19 @@ async def init_databases() -> None:
     )
 
     from orchestrator.core.comfort import ensure_comfort_observations_schema
+    from orchestrator.core.behavior_profile import ensure_behavior_profile_schema
+    from orchestrator.core.command_feedback import ensure_command_feedback_schema
     from orchestrator.core.energy_analytics import ensure_energy_analytics_schema
+    from orchestrator.core.home_events import ensure_home_events_schema
     from orchestrator.core.irrigation import ensure_irrigation_runs_schema
     from orchestrator.core.weather import ensure_weather_forecast_schema
 
     async with mysql_session_context() as session:
         await ensure_energy_analytics_schema(session)
+        await ensure_home_events_schema(session)
         await ensure_comfort_observations_schema(session)
+        await ensure_behavior_profile_schema(session)
+        await ensure_command_feedback_schema(session)
         await ensure_irrigation_runs_schema(session)
         await ensure_weather_forecast_schema(session)
 

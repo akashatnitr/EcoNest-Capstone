@@ -29,6 +29,21 @@ TABLE_QUERIES = {
         ORDER BY sr.timestamp DESC, sr.id DESC
         LIMIT :limit
     """,
+    "home_events": """
+        SELECT he.id, he.occurred_at, he.event_type, he.previous_state, he.new_state,
+               r.name AS room, d.name AS device, he.entity_id, he.metadata, he.source
+        FROM home_events he
+        LEFT JOIN devices d ON d.id = he.device_id
+        LEFT JOIN rooms r ON r.id = he.room_id
+        ORDER BY he.occurred_at DESC, he.id DESC
+        LIMIT :limit
+    """,
+    "behavior_profiles": """
+        SELECT id, profile_key, generated_at
+        FROM behavior_profiles
+        ORDER BY generated_at DESC, id DESC
+        LIMIT :limit
+    """,
     "devices": """
         SELECT id, name, device_type, room_id, ha_entity_id, is_active
         FROM devices
@@ -101,6 +116,12 @@ async def summary(
                 (SELECT MAX(timestamp) FROM sensor_readings) AS newest_reading,
                 (SELECT COUNT(*) FROM sensor_readings
                  WHERE timestamp >= NOW() - INTERVAL 1 HOUR) AS readings_last_hour,
+                (SELECT COUNT(*) FROM home_events) AS home_event_count,
+                (SELECT MAX(occurred_at) FROM home_events) AS newest_home_event,
+                (SELECT COUNT(*) FROM home_events
+                 WHERE occurred_at >= NOW() - INTERVAL 24 HOUR) AS home_events_last_24_hours,
+                (SELECT MAX(generated_at) FROM behavior_profiles) AS newest_behavior_profile,
+                (SELECT COUNT(*) FROM command_feedback) AS rated_command_results,
                 (SELECT COUNT(*) FROM devices WHERE is_active = TRUE) AS active_devices,
                 (SELECT COUNT(*) FROM rooms) AS room_count
             """
@@ -178,7 +199,7 @@ async def _rows(
     rows = [dict(row) for row in result.mappings().all()]
     for row in rows:
         for key, value in row.items():
-            if isinstance(value, str) and key in {"data", "active_devices"}:
+            if isinstance(value, str) and key in {"data", "active_devices", "metadata"}:
                 try:
                     row[key] = json.loads(value)
                 except json.JSONDecodeError:

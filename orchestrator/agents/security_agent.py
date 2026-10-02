@@ -35,10 +35,10 @@ class SecurityAgentOutput(BaseModel):
 
 
 class SecurityAgent(BaseAgent):
-    """Responsibilities: intrusion detection, anomaly classification, SMS alerts."""
+    """Responsibilities: intrusion detection and user-facing risk assessment."""
 
     name = "security"
-    tools = ["query_mysql", "ha_get_state", "send_sms", "query_arcadedb"]
+    tools = ["query_mysql", "ha_get_state", "query_arcadedb"]
     permissions = ["device:read", "agent:run"]
 
     async def can_handle(self, task: Task) -> bool:
@@ -62,6 +62,26 @@ class SecurityAgent(BaseAgent):
         context = await self._build_context(task)
         observations = self._observations_from_payload(task.payload)
         observations.extend(await self._observations_from_graph(task))
+        if not observations:
+            unavailable = (
+                "No retained motion-sensor observations are available for this period, "
+                "so EcoNest cannot confirm recent motion activity."
+                if "motion" in task.intent.lower()
+                else "No retained security-sensor observations are available for this period, "
+                "so EcoNest cannot confirm that the home is secure."
+            )
+            return Result(
+                success=True,
+                confidence=0.5,
+                data={
+                    "severity": "LOW",
+                    "incidents": [],
+                    "recommendations": [unavailable],
+                    "sms_sent": False,
+                    "context": context,
+                },
+                message="Security assessment complete",
+            )
         incidents = self._classify_incidents(
             observations,
             context,
@@ -80,11 +100,6 @@ class SecurityAgent(BaseAgent):
         if llm_note:
             recommendations.insert(0, llm_note)
 
-        sms_sent = severity in {
-            "HIGH",
-            "CRITICAL",
-        }
-
         confidence = min(
             1.0,
             0.5 + 0.2 * len(incidents),
@@ -94,7 +109,9 @@ class SecurityAgent(BaseAgent):
             severity=severity,
             incidents=incidents,
             recommendations=recommendations,
-            sms_sent=sms_sent,
+            # This agent is advisory-only. It does not send SMS messages or
+            # dispatch responders, so the field must never imply otherwise.
+            sms_sent=False,
             context=context,
         )
 
@@ -334,26 +351,21 @@ class SecurityAgent(BaseAgent):
 
         if severity == "CRITICAL":
             return [
-                "Contact homeowner immediately",
-                "Review live camera feeds",
-                "Prepare emergency response workflow",
+                "Critical security alert detected. Review the event in EcoNest and follow your household safety plan.",
             ]
 
         if severity == "HIGH":
             return [
-                "Verify occupancy status",
-                "Review camera feeds",
-                "Monitor activity closely",
+                "High-priority security alert detected. Review the event in EcoNest and decide whether follow-up is needed.",
             ]
 
         if severity == "MEDIUM":
             return [
-                "Monitor activity",
-                "Compare with historical occupancy patterns",
+                "Security observation detected. Review the event in EcoNest when convenient.",
             ]
 
         return [
-            "No action required",
+            "No security anomaly detected. No follow-up is suggested.",
         ]
 
     async def _llm_assessment(
@@ -381,6 +393,7 @@ class SecurityAgent(BaseAgent):
                 "severity": severity,
             },
         )
+        prompt += await self.reviewed_feedback_guidance(task)
 
         try:
             response = await self.llm.generate(
@@ -390,9 +403,39 @@ class SecurityAgent(BaseAgent):
         except Exception:
             return None
 
-        response = response.strip()
+        response = _clean_llm_assessment(response)
+        if not response or _suggests_unavailable_security_action(response):
+            return None
 
-        return response if response else None
+        return response
+
+
+def _clean_llm_assessment(response: str) -> str:
+    """Keep an advisory assessment readable in the plain-text command UI."""
+
+    return " ".join(
+        response.replace("**", "").replace("`", "").strip().split()
+    )
+
+
+def _suggests_unavailable_security_action(response: str) -> bool:
+    """Reject LLM text that claims or directs an external action EcoNest cannot take."""
+
+    unsupported_phrases = (
+        "dispatch",
+        "security personnel",
+        "security team",
+        "emergency response",
+        "send an sms",
+        "sms sent",
+        "text message sent",
+        "call the homeowner",
+        "contact the homeowner",
+        "activate remote monitoring",
+        "secure the perimeter",
+    )
+    lowered = response.lower()
+    return any(phrase in lowered for phrase in unsupported_phrases)
 
 
 def _render_prompt(

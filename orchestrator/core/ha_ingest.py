@@ -15,6 +15,14 @@ from orchestrator.config import Settings
 from orchestrator.core.database import mysql_session_context
 from orchestrator.core.event_dispatcher import EventDispatcher
 from orchestrator.core.ha_registry import RegistryContext, fetch_registry_context
+from orchestrator.core.home_events import (
+    ApplianceStatusCycleTracker,
+    classify_home_event,
+    is_event_candidate,
+    PowerCycleTracker,
+    purge_expired_home_events,
+    record_home_event,
+)
 from orchestrator.core.ha_statistics import (
     backfill_home_assistant_context_statistics,
     backfill_home_assistant_energy_statistics,
@@ -44,7 +52,17 @@ class HomeAssistantIngestor:
         self.success_count = 0
         self.failure_count = 0
         self.readings_inserted = 0
+        self.home_events_recorded = 0
+        self.home_events_purged = 0
+        self.sensor_readings_purged = 0
         self._last_seen: dict[str, str] = {}
+        self._last_event_states: dict[str, dict[str, Any]] = {}
+        self._power_cycles = PowerCycleTracker(
+            settings.APPLIANCE_CYCLE_START_WATTS,
+            settings.APPLIANCE_CYCLE_END_WATTS,
+            settings.APPLIANCE_CYCLE_MINIMUM_SECONDS,
+        )
+        self._appliance_status_cycles = ApplianceStatusCycleTracker()
         self._registry: RegistryContext | None = None
         self._registry_refreshed_at: datetime | None = None
         self.registry_last_error: str | None = None
@@ -53,6 +71,7 @@ class HomeAssistantIngestor:
         self._last_comfort_targets: dict[str, float | None] = {}
         self._last_weather_forecast_at: datetime | None = None
         self._last_statistics_sync_at: datetime | None = None
+        self._last_event_retention_at: datetime | None = None
         self.statistics_rows_upserted = 0
         self.statistics_last_error: str | None = None
 
@@ -91,6 +110,11 @@ class HomeAssistantIngestor:
             "success_count": self.success_count,
             "failure_count": self.failure_count,
             "readings_inserted": self.readings_inserted,
+            "home_events_recorded": self.home_events_recorded,
+            "home_events_purged": self.home_events_purged,
+            "home_events_retention_days": self.settings.HOME_EVENTS_RETENTION_DAYS,
+            "sensor_readings_purged": self.sensor_readings_purged,
+            "sensor_readings_retention_days": self.settings.SENSOR_READINGS_RETENTION_DAYS,
             "registry_refreshed_at": (
                 self._registry_refreshed_at.isoformat()
                 if self._registry_refreshed_at is not None
@@ -129,6 +153,9 @@ class HomeAssistantIngestor:
         self.last_success_at = _utc_now()
         self.last_error = None
         self.readings_inserted += result["readings_inserted"]
+        self.home_events_recorded += result["home_events_recorded"]
+        self.home_events_purged += result["home_events_purged"]
+        self.sensor_readings_purged += result["sensor_readings_purged"]
         logger.info(
             "Stored %s Home Assistant sensor readings",
             result["readings_inserted"],
@@ -213,6 +240,8 @@ class HomeAssistantIngestor:
     async def _store_states(self, states: list[dict[str, Any]]) -> tuple[dict[str, int], list[dict[str, Any]]]:
         selected = [state for state in states if _is_sensor_state(state)]
         changed = [state for state in selected if self._is_changed(state)]
+        event_states = [state for state in states if is_event_candidate(state)]
+        transitions = self._event_transitions(event_states)
         registry, registry_available = await self._get_registry()
         async with mysql_session_context() as session:
             try:
@@ -225,6 +254,7 @@ class HomeAssistantIngestor:
                     await _sync_registry_entities(session, household_id, registry)
                     await _reconcile_device_rooms(session, registry, room_ids)
                 inserted = 0
+                device_contexts: dict[str, tuple[int, int]] = {}
                 for state in changed:
                     entity_id = str(state["entity_id"])
                     room_id = fallback_room_id
@@ -236,6 +266,7 @@ class HomeAssistantIngestor:
                     device_id, room_id = await _ensure_device(
                         session, room_id, state, preserve_existing=not registry_available
                     )
+                    device_contexts[entity_id] = (device_id, room_id)
                     payload = {
                         "state": state.get("state"),
                         "attributes": state.get("attributes") or {},
@@ -256,6 +287,25 @@ class HomeAssistantIngestor:
                         },
                     )
                     inserted += 1
+                home_events_recorded = await self._store_home_events(
+                    session,
+                    transitions,
+                    device_contexts,
+                )
+                home_events_purged = 0
+                sensor_readings_purged = 0
+                if self._event_retention_due():
+                    home_events_purged = await purge_expired_home_events(
+                        session, self.settings.HOME_EVENTS_RETENTION_DAYS
+                    )
+                    sensor_result = await session.execute(
+                        text(
+                            "DELETE FROM sensor_readings "
+                            "WHERE timestamp < DATE_SUB(UTC_TIMESTAMP(), INTERVAL :days DAY)"
+                        ),
+                        {"days": max(1, self.settings.SENSOR_READINGS_RETENTION_DAYS)},
+                    )
+                    sensor_readings_purged = int(sensor_result.rowcount or 0)
                 comfort_inserted, comfort_targets = await self._store_comfort_observations(
                     session,
                     states,
@@ -277,6 +327,13 @@ class HomeAssistantIngestor:
                     self._last_weather_forecast_at = datetime.now(UTC)
                 for state in changed:
                     self._last_seen[str(state["entity_id"])] = _state_revision(state)
+                for state in event_states:
+                    entity_id = str(state.get("entity_id") or "")
+                    if entity_id:
+                        self._last_seen[entity_id] = _state_revision(state)
+                        self._last_event_states[entity_id] = state
+                if self._event_retention_due():
+                    self._last_event_retention_at = datetime.now(UTC)
             except Exception:
                 await session.rollback()
                 raise
@@ -285,9 +342,66 @@ class HomeAssistantIngestor:
             "sensor_states": len(selected),
             "unchanged_skipped": len(selected) - len(changed),
             "readings_inserted": inserted,
+            "home_events_recorded": home_events_recorded,
+            "home_events_purged": home_events_purged,
+            "sensor_readings_purged": sensor_readings_purged,
             "comfort_observations_inserted": comfort_inserted,
             "weather_forecasts_inserted": forecast_inserted,
         }, changed)
+
+    async def _store_home_events(
+        self,
+        session: Any,
+        transitions: list[tuple[dict[str, Any], dict[str, Any]]],
+        device_contexts: dict[str, tuple[int, int]],
+    ) -> int:
+        """Persist only classified transitions, retaining availability changes too."""
+        recorded = 0
+        for previous, current in transitions:
+            events = [event for event in [classify_home_event(previous, current)] if event]
+            events.extend(self._power_cycles.observe(previous, current))
+            events.extend(self._appliance_status_cycles.observe(previous, current))
+            if not events:
+                continue
+            entity_id = str(current.get("entity_id") or "")
+            context = device_contexts.get(entity_id)
+            if context is None:
+                result = await session.execute(
+                    text(
+                        "SELECT id, room_id FROM devices "
+                        "WHERE ha_entity_id = :entity_id LIMIT 1"
+                    ),
+                    {"entity_id": entity_id},
+                )
+                row = result.mappings().first()
+                context = (int(row["id"]), int(row["room_id"])) if row else None
+            for event in events:
+                await record_home_event(
+                    session,
+                    event,
+                    device_id=context[0] if context else None,
+                    room_id=context[1] if context else None,
+                )
+                recorded += 1
+        return recorded
+
+    def _event_transitions(
+        self, states: list[dict[str, Any]]
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """Return transitions only after a prior state was observed in this process."""
+        transitions: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for current in states:
+            entity_id = str(current.get("entity_id") or "")
+            previous = self._last_event_states.get(entity_id)
+            if previous is not None and _state_revision(previous) != _state_revision(current):
+                transitions.append((previous, current))
+        return transitions
+
+    def _event_retention_due(self) -> bool:
+        """Run compact-event retention at most once per day."""
+        return self._last_event_retention_at is None or (
+            datetime.now(UTC) - self._last_event_retention_at
+        ).total_seconds() >= 24 * 60 * 60
 
     def _weather_forecast_due(self) -> bool:
         """Avoid repeatedly fetching the same hourly forecast within one refresh window."""

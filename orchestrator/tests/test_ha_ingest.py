@@ -1,6 +1,7 @@
 """Tests for adaptive-learning state selection during HA ingestion."""
 
-from orchestrator.core.ha_ingest import _is_sensor_state, _room_environments
+from orchestrator.config import Settings
+from orchestrator.core.ha_ingest import HomeAssistantIngestor, _is_sensor_state, _room_environments
 
 
 def test_adaptive_ingestion_keeps_climate_weather_and_irrigation_states():
@@ -30,3 +31,13 @@ def test_room_environments_uses_temperature_and_humidity_states_without_registry
     )
 
     assert environments == {"home_assistant": {"temperature": 72.4, "humidity": 45.0}}
+
+
+def test_ingestor_waits_for_a_prior_state_before_emitting_events():
+    ingestor = HomeAssistantIngestor(Settings())
+    initial = {"entity_id": "binary_sensor.garage_motion", "state": "off", "last_updated": "one"}
+    changed = {"entity_id": "binary_sensor.garage_motion", "state": "on", "last_updated": "two"}
+
+    assert ingestor._event_transitions([initial]) == []
+    ingestor._last_event_states["binary_sensor.garage_motion"] = initial
+    assert ingestor._event_transitions([changed]) == [(initial, changed)]
