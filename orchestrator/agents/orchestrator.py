@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.agents.device_agent import DeviceAgent
 from orchestrator.agents.energy_agent import EnergyAgent
+from orchestrator.agents.event_history_agent import EventHistoryAgent
 from orchestrator.agents.irrigation_agent import IrrigationAgent
 from orchestrator.agents.security_agent import SecurityAgent
 from orchestrator.agents.sensor_agent import SensorAgent
@@ -76,6 +77,7 @@ class AgentOrchestrator:
             agents
             or [
                 EnergyAgent(),
+                EventHistoryAgent(),
                 SecurityAgent(),
                 IrrigationAgent(),
                 SensorAgent(),
@@ -89,6 +91,7 @@ class AgentOrchestrator:
         )
         self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._results: dict[str, Result] = {}
+        self._task_context: dict[str, tuple[str, str]] = {}
 
     def stats(self) -> dict[str, int]:
         return dict(self._stats)
@@ -150,6 +153,7 @@ class AgentOrchestrator:
     async def submit(self, task: Task) -> str:
         """Submit a task and return a task ID."""
         task = task.model_copy(update={"id": task.id or str(uuid.uuid4())})
+        self._task_context[task.id] = (task.intent, task.user_id)
         write_audit_event(
             "task.submitted",
             {
@@ -269,6 +273,21 @@ class AgentOrchestrator:
             )
             if selected is not None:
                 return [selected]
+        requested_type = str(task.payload.get("type", ""))
+        requested_agent = {
+            "energy": "energy",
+            "security": "security",
+            "irrigation": "irrigation",
+            "irrigation_question": "irrigation",
+            "event_history": "event_history",
+            "home_data": "event_history",
+        }.get(requested_type)
+        if requested_agent is not None:
+            selected = next(
+                (agent for agent in self.agents if agent.name == requested_agent), None
+            )
+            if selected is not None:
+                return [selected]
         if self._should_aggregate(task) and aggregate:
             capable_agents = [
                 agent for agent in self.agents if await agent.can_handle(task)
@@ -348,6 +367,10 @@ class AgentOrchestrator:
     async def get_result(self, task_id: str) -> Result | None:
         """Get the result for a task (None if still running)."""
         return self._results.get(task_id)
+
+    def get_task_context(self, task_id: str) -> tuple[str, str] | None:
+        """Return the submitted prompt and owner for feedback authorization."""
+        return self._task_context.get(task_id)
 
     async def healthcheck(self) -> dict[str, Any]:
         """Healthcheck all registered agents."""

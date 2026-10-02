@@ -54,17 +54,7 @@ host as the Launchpad.
 
 ## How it works
 
-```text
-User, scheduled monitor, or Home Assistant event
-                    ↓
-             EcoNest Orchestrator
-                    ↓
-         Correct specialist agent is selected
-                    ↓
-       MCP tools read live facts or request an action
-                    ↓
-  Safety checks, Home Assistant call, state verification, audit record
-```
+![EcoNest workflow: trigger, orchestration, specialist agent, MCP data, read-only answer or safety-gated device action, and audit record](docs/econest-workflow.svg)
 
 | Part | Role |
 | --- | --- |
@@ -305,6 +295,56 @@ poetry run poe test
 Configuration and secrets remain in the local `.env` file and must not be
 committed. Home Assistant registry exports and real household data also remain
 outside git.
+
+### Use the Apple GPU for Gemma on macOS
+
+Docker Desktop does not pass the Apple GPU through to the Ollama container. To
+run EcoNest's Gemma model on the Mac's Metal GPU while keeping the orchestrator
+and databases in Docker:
+
+1. Start the native Ollama macOS app and run `ollama pull gemma3:4b` on the Mac.
+2. Check that the orchestrator container can reach it:
+   `docker exec econest-real-orchestrator python -c "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:11434/api/version', timeout=5).read().decode())"`.
+3. Add `OLLAMA_URL=http://host.docker.internal:11434` to the ignored local
+   `.env` file. Keep `OLLAMA_MODEL=gemma3:4b` and
+   `OLLAMA_FALLBACK_MODEL=gemma3:4b`.
+4. Recreate **only** the orchestrator so Compose applies the new environment:
+   `docker compose -f docker-compose.real.yml up -d --no-deps orchestrator`.
+   A plain `restart` does not apply Compose environment changes.
+5. Send a safe read-only prompt, then run `ollama ps` on the Mac. Its
+   `PROCESSOR` column should report GPU use. Compare the response latency with
+   the CPU baseline; GPU acceleration alone does not guarantee a particular
+   end-to-end speedup.
+
+The existing Docker Ollama service remains installed as a fallback. To revert,
+remove the `OLLAMA_URL` line from `.env` and recreate only the orchestrator as
+in step 4. This does not delete models or database volumes. Native Ollama
+defaults to listening on localhost; do not expose its unauthenticated API to
+the public network.
+
+To reproduce the model-only CPU/GPU comparison shown at `/benchmarks`, run
+`python3 scripts/benchmark_ollama_backends.py` on the Mac, then refresh the
+report page. It sends the same generic, read-only prompt to Docker Ollama on
+port 11435 and native Ollama on port 11434, measuring one cold request and
+three warm requests on each. It temporarily unloads the model to measure cold
+starts; the next live request may need to load it again. These timings do not
+include EcoNest routing, databases, Home Assistant, or browser rendering.
+
+For an advisory workflow comparison that includes EcoNest routing, MCP data
+retrieval, model generation, and result polling, run:
+
+```bash
+docker exec econest-real-orchestrator poetry run python /app/scripts/benchmark_workflow_backends.py --samples 3 --output-dir /app/econest_exports/benchmarks
+```
+
+This creates temporary loopback-only API processes with background monitors,
+ingestion, and device actions disabled; it does not switch the live server.
+It asks only for an energy recommendation and stores timings without the
+household answer. The test preloads the model before each request, briefly
+unloading the native GPU model during the CPU phase, then restores it.
+The benchmark page also shows browser-side timings from the most recent
+completed User Prompts request in *that browser*. Those timings stay in browser
+storage and are not a controlled CPU/GPU comparison.
 
 ## Repository map
 

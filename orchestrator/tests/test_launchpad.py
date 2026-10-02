@@ -7,6 +7,7 @@ def test_launchpad_is_served(client) -> None:
     assert response.status_code == 200
     assert "Open EcoNest." in response.text
     assert "User prompts" in response.text
+    assert "Benchmark report" in response.text
     assert "Home Assistant" in response.text
 
 

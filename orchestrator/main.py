@@ -10,6 +10,7 @@ from orchestrator.api import (
     analytics,
     auth,
     autonomy,
+    benchmarks,
     command,
     demo,
     devices,
@@ -95,6 +96,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(analytics.router)
 app.include_router(autonomy.router)
+app.include_router(benchmarks.router)
 app.include_router(command.router)
 app.include_router(demo.router)
 app.include_router(devices.router)

@@ -11,9 +11,17 @@ from pydantic import ValidationError
 
 from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.agents.device_agent import DeviceAgent
-from orchestrator.agents.energy_agent import EnergyAgent
+from orchestrator.agents.energy_agent import (
+    EnergyAgent,
+    GemmaEnergyRecommendation,
+    PricingSnapshot,
+    _uses_unavailable_price_claim,
+)
 from orchestrator.agents.orchestrator import AgentOrchestrator
-from orchestrator.agents.security_agent import SecurityAgent
+from orchestrator.agents.security_agent import (
+    SecurityAgent,
+    _suggests_unavailable_security_action,
+)
 from orchestrator.agents.sensor_agent import SensorAgent
 from orchestrator.mcp.models import ToolExecutionResult
 
@@ -204,6 +212,22 @@ async def test_device_agent_can_handle():
     agent = DeviceAgent()
     assert await agent.can_handle(Task(id="1", intent="turn on light", payload={}))
     assert not await agent.can_handle(Task(id="2", intent="energy report", payload={}))
+
+
+@pytest.mark.anyio
+async def test_home_data_payload_routes_to_read_only_home_data_agent() -> None:
+    home_data = _StaticAgent("event_history")
+    device = _StaticAgent("device")
+    orchestrator = AgentOrchestrator(agents=[home_data, device])
+
+    selected = await orchestrator._select_agents(
+        Task(
+            intent="What is my comfort temperature in the media room?",
+            payload={"type": "home_data"},
+        )
+    )
+
+    assert selected == [home_data]
 
 
 # ------------------------------------------------------------------
@@ -406,16 +430,13 @@ async def test_energy_agent_detects_anomaly_from_baseline():
 @pytest.mark.anyio
 async def test_energy_agent_uses_prompt_template_when_requested():
     class _EnergyLLM:
-        async def generate(
-            self,
-            prompt: str,
-            system: str | None = None,
-            temperature: float = 0.7,
-            max_retries: int = 3,
-            stream: bool = False,
-        ) -> str:
-            assert "EcoNest's energy optimization agent" in prompt
-            return "Shift laundry to the off-peak window after 9pm."
+        async def generate_structured(self, messages, output_model, temperature=0.7):
+            assert "EcoNest's energy optimization agent" in messages[0].content
+            return output_model(
+                priority="MEDIUM",
+                action="Shift laundry to the off-peak window after 9pm.",
+                reasoning="The tariff evidence supports this time window.",
+            )
 
     agent = EnergyAgent(llm=_EnergyLLM())
     result = await agent.run(
@@ -434,6 +455,18 @@ async def test_energy_agent_uses_prompt_template_when_requested():
 
     assert result.success
     assert result.data["recommendations"][0]["action"].startswith("Shift laundry")
+
+
+def test_energy_model_recommendation_cannot_invent_a_price_window() -> None:
+    """Unknown tariff data forbids unsupported cheaper-period claims."""
+    recommendation = GemmaEnergyRecommendation(
+        priority="MEDIUM",
+        action="Run the dryer when energy prices are lower.",
+        reasoning="This would lower energy costs.",
+    )
+    pricing = PricingSnapshot(current_tier="unknown", source="no_tariff_forecast")
+
+    assert _uses_unavailable_price_claim(recommendation, pricing) is True
 
 
 @pytest.mark.anyio
@@ -854,6 +887,20 @@ async def test_security_agent_motion_at_night():
         "HIGH",
         "CRITICAL",
     }
+    assert result.data["sms_sent"] is False
+    assert all(
+        "dispatch" not in recommendation.lower()
+        for recommendation in result.data["recommendations"]
+    )
+
+
+def test_security_llm_action_guard_rejects_unsupported_escalation():
+    assert _suggests_unavailable_security_action(
+        "Dispatch security personnel and send an SMS immediately."
+    )
+    assert not _suggests_unavailable_security_action(
+        "EcoNest is informing you about a high-priority security alert."
+    )
 
 
 @pytest.mark.anyio

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from collections import Counter
 from pathlib import Path
 
 from orchestrator.core.audit import read_recent_audit_events_async
-from orchestrator.core.database import close_databases, init_databases
+from orchestrator.core.command_feedback import read_command_feedback
+from orchestrator.core.database import close_databases, init_databases, mysql_session_context
 from orchestrator.training.dataset import (
+    build_feedback_review_examples,
     build_review_examples,
     partition_approved_examples,
     read_jsonl_examples,
@@ -24,6 +27,14 @@ def _arguments() -> argparse.Namespace:
     export = subcommands.add_parser("candidates", help="Write privacy-filtered review candidates")
     export.add_argument("--output", type=Path, required=True)
     export.add_argument("--limit", type=int, default=10_000)
+    feedback = subcommands.add_parser("feedback", help="Export resident ratings for manual review")
+    feedback.add_argument("--output", type=Path, required=True)
+    feedback.add_argument("--limit", type=int, default=10_000)
+    feedback_candidates = subcommands.add_parser(
+        "feedback-candidates", help="Build second-stage tuning candidates from reviewed corrections"
+    )
+    feedback_candidates.add_argument("--output", type=Path, required=True)
+    feedback_candidates.add_argument("--limit", type=int, default=10_000)
     split = subcommands.add_parser("split", help="Write approved train/evaluation chat JSONL")
     split.add_argument("--input", type=Path, required=True)
     split.add_argument("--train-output", type=Path, required=True)
@@ -42,6 +53,36 @@ async def _write_candidates(output: Path, limit: int) -> None:
     _print_counts("Wrote review candidates", examples)
     print(f"Output: {output}")
     print("All candidates need a human review before they can be used for training.")
+
+
+async def _write_feedback(output: Path, limit: int) -> None:
+    """Export rated results as review records, never as approved model targets."""
+    await init_databases()
+    try:
+        async with mysql_session_context() as session:
+            records = await read_command_feedback(session, limit=limit)
+    finally:
+        await close_databases()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, default=str))
+            handle.write("\n")
+    print(f"Wrote {len(records)} resident feedback record(s): {output}")
+    print("Ratings and comments are review signals, not approved model training targets.")
+
+
+async def _write_feedback_candidates(output: Path, limit: int) -> None:
+    await init_databases()
+    try:
+        async with mysql_session_context() as session:
+            records = await read_command_feedback(session, limit=limit)
+    finally:
+        await close_databases()
+    examples = build_feedback_review_examples(records)
+    write_jsonl_examples(examples, output)
+    _print_counts("Wrote feedback tuning candidates", examples)
+    print("All candidates still require privacy and training-quality review before approval.")
 
 
 def _write_split(
@@ -75,6 +116,10 @@ def main() -> None:
     args = _arguments()
     if args.command == "candidates":
         asyncio.run(_write_candidates(args.output, max(1, min(args.limit, 10_000))))
+    elif args.command == "feedback":
+        asyncio.run(_write_feedback(args.output, max(1, min(args.limit, 10_000))))
+    elif args.command == "feedback-candidates":
+        asyncio.run(_write_feedback_candidates(args.output, max(1, min(args.limit, 10_000))))
     else:
         _write_split(args.input, args.train_output, args.evaluation_output, args.evaluation_percent)
 

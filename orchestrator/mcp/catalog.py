@@ -9,6 +9,7 @@ from orchestrator.mcp.prompts import (
 from orchestrator.mcp.registry import register_prompt, register_resource, register_tool
 from orchestrator.mcp.resources import (
     home_analytics_resource,
+    home_condition_catalog_resource,
     home_devices_resource,
     home_snapshot_resource,
     ontology_resource,
@@ -102,6 +103,11 @@ def register_builtin_mcp_components() -> None:
     )
     register_resource(
         "home://devices", "Device inventory and state", home_devices_resource
+    )
+    register_resource(
+        "home://conditions",
+        "Live Home Assistant condition capabilities",
+        home_condition_catalog_resource,
     )
     register_resource(
         "home://analytics", "Home analytics context", home_analytics_resource

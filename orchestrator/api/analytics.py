@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orchestrator.config import get_settings
 from orchestrator.core.database import get_mysql_session
 from orchestrator.core.energy_analytics import rebuild_energy_analytics
+from orchestrator.core.behavior_profile import build_behavior_profile
 from orchestrator.core.ha_statistics import (
     CONTEXT_STATISTICS_SCHEMA,
     backfill_home_assistant_context_statistics,
@@ -65,7 +66,9 @@ async def analytics_summary(
                 (SELECT MAX(computed_at) FROM energy_hourly_analytics) AS last_computed_at,
                 (SELECT COUNT(*) FROM sensor_readings) AS raw_readings,
                 (SELECT MIN(timestamp) FROM sensor_readings) AS raw_start,
-                (SELECT MAX(timestamp) FROM sensor_readings) AS raw_end
+                (SELECT MAX(timestamp) FROM sensor_readings) AS raw_end,
+                (SELECT COUNT(*) FROM home_events) AS home_event_count,
+                (SELECT MAX(occurred_at) FROM home_events) AS newest_home_event
             """
         )
     )
@@ -411,6 +414,14 @@ async def learned_insights(
     )
     insights.append(_electricity_cost_insight(settings.HOUSEHOLD_ELECTRICITY_PROVIDER))
     return {"insights": insights}
+
+
+@router.post("/api/behavior-profile")
+async def behavior_profile(
+    session: AsyncSession = Depends(get_mysql_session),
+) -> dict[str, Any]:
+    """Rebuild the evidence-backed household behavior profile for Insights."""
+    return jsonable_encoder(await build_behavior_profile(session))
 
 
 @router.post("/api/model-explanation")

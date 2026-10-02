@@ -31,6 +31,7 @@
   <body>
     <main>
       <h1>EcoNest MySQL Explorer</h1>
+      <p class="muted">Browse retained raw readings, compact household events, and the latest evidence-backed behavior profile. Important events are kept separately so motion, watering, device-health, and thermostat changes remain understandable over time.</p>
 
       <p id="message"></p>
 
@@ -40,6 +41,12 @@
         <section class="card readings-card">
           <div class="controls"><h2>Recent readings</h2><button id="refresh-readings">Refresh</button></div>
           <div class="scroll" id="recent-readings"></div>
+        </section>
+
+        <section class="card readings-card">
+          <div class="controls"><h2>Recent important events</h2><button id="refresh-events">Refresh</button></div>
+          <p class="muted">Events are compact state transitions, not every sensor update.</p>
+          <div class="scroll" id="recent-events"></div>
         </section>
 
         <section class="card browse-card">
@@ -63,6 +70,9 @@
               <button data-preset="missing">Devices with no readings</button>
               <button data-preset="types">Readings by device type</button>
               <button data-preset="audit">Recent audit events</button>
+              <button data-preset="events">Recent household events</button>
+              <button data-preset="availability">Device availability changes</button>
+              <button data-preset="profile">Latest behavior-profile record</button>
             </div>
             <div>
               <textarea id="sql">SELECT id, timestamp, data FROM sensor_readings ORDER BY timestamp DESC</textarea>
@@ -105,6 +115,21 @@ ORDER BY reading_count DESC`,
 FROM audit_events
 ORDER BY event_time DESC
 LIMIT 50`,
+        events: `SELECT occurred_at, event_type, entity_id, previous_state, new_state, metadata
+FROM home_events
+ORDER BY occurred_at DESC
+LIMIT 50`,
+        availability: `SELECT he.occurred_at, he.event_type, he.entity_id, r.name AS room, d.name AS device
+FROM home_events he
+LEFT JOIN devices d ON d.id = he.device_id
+LEFT JOIN rooms r ON r.id = he.room_id
+WHERE he.event_type IN ('device_became_unavailable', 'device_restored')
+ORDER BY he.occurred_at DESC
+LIMIT 50`,
+        profile: `SELECT profile_key, generated_at
+FROM behavior_profiles
+ORDER BY generated_at DESC
+LIMIT 10`,
       };
       const message = document.querySelector("#message");
 
@@ -162,16 +187,19 @@ LIMIT 50`,
 
       async function loadReadings() { showRows(document.querySelector("#recent-readings"), (await api("/monitor/api/readings")).rows); }
 
+      async function loadEvents() { showRows(document.querySelector("#recent-events"), (await api("/monitor/api/tables/home_events?limit=15")).rows); }
+
       async function loadTables() {
         const tables = (await api("/monitor/api/tables")).tables;
         document.querySelector("#table-select").innerHTML = tables.map(table => `<option value="${escapeHtml(table.name)}">${escapeHtml(table.name)} (${table.count})</option>`).join("");
       }
 
       async function loadExplorer() {
-        await Promise.all([loadSummary(), loadReadings(), loadTables()]);
+        await Promise.all([loadSummary(), loadReadings(), loadEvents(), loadTables()]);
       }
 
       document.querySelector("#refresh-readings").onclick = () => loadReadings().catch(error => message.textContent = error.message);
+      document.querySelector("#refresh-events").onclick = () => loadEvents().catch(error => message.textContent = error.message);
       document.querySelector("#browse-table").onclick = async () => {
         try { showRows(document.querySelector("#table-results"), (await api(`/monitor/api/tables/${document.querySelector("#table-select").value}`)).rows); }
         catch (error) { message.textContent = error.message; }

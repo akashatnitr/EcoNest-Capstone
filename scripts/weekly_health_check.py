@@ -11,6 +11,8 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from email.message import EmailMessage
 
+from orchestrator.core.weekly_health import WEEKLY_HEALTH_ENTITIES
+
 
 HA_URL = "http://localhost:8123"
 ORCHESTRATOR_URL = "http://localhost:8001"
@@ -19,39 +21,7 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 
 
-HA_ENTITIES = {
-    "Coffee Maker Smart Plug": "switch.plug_91",
-    "HydraWise Monitor Smart Plug": "switch.plug_92",
-    "Vacuum Cleaner Smart Plug": "switch.plug_93",
-    "Bedroom 1 TV Smart Plug": "switch.plug_94",
-    "Bedroom 2 Humidifier Smart Plug": "switch.feit_smart_plug1_humidifier_socket_1",
-    "Guest Bedroom TV Smart Plug": "switch.plug_fish_tank_light_socket_1",
-
-    "Front Door Motion Sensor": "binary_sensor.hobeian_zg_204zl",
-    "Garage Motion Sensor": "binary_sensor.motion_sensor_garage",
-
-    "Single Garage Door": "cover.garage_door_3",
-    "Double Garage Door": "cover.garage12",
-
-    "Permanent Lights 2": "light.permanent_lights_2",
-    "Permanent Lights": "light.permanent_lights",
-
-    "Media Room Lights": "light.upstairs_media_light_1",
-    "Study Room Lights": "light.sd_study_light_1",
-    "Living Room Lights": "light.sd_livingroom_light_1",
-    "Outdoor Front Lights": "light.outside_front_light_1",
-    "Bedroom 2 Lights": "light.bedroom_2_light_1",
-    "Hallway Lights": "light.hallway_kids_light_1",
-    "Bedroom 1 Lights": "light.bedroom_1_light_1",
-    "Master Bedroom Lights": "light.master_bedroom_light_1",
-
-    "Guest Room Fan": "fan.fan_switch",
-    "Guest Room Dimmer": "light.dimmer_switch_light_1",
-    "Bedroom 3 Dimmer": "light.dimmer_switch_2_light_1",
-    "Back Side Lights": "switch.ss01s_t1_3s_switch_1",
-
-    "WiFi Soil Sensor": "sensor.wifi_soil_sensor_temperature",
-}
+HA_ENTITIES = WEEKLY_HEALTH_ENTITIES
 
 
 CONTAINERS = [
