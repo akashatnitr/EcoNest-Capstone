@@ -3,12 +3,16 @@
 import asyncio
 import json
 import weakref
-from typing import Any, Optional, Type, TypeVar
+from typing import Any, Awaitable, Optional, Type, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
 from orchestrator.config import get_settings
+from orchestrator.core.execution_trace import (
+    finish_execution_trace,
+    start_model_execution_trace,
+)
 from orchestrator.llm.models import LLMMessage
 
 T = TypeVar("T", bound=BaseModel)
@@ -52,6 +56,19 @@ class LLMClient:
         temperature: float = 0.7,
         max_retries: int = 3,
         stream: bool = False,
+    ) -> str:
+        """Generate text with retry and optional fallback model."""
+        return await self._trace_model_call(
+            self._generate(prompt, system, temperature, max_retries, stream)
+        )
+
+    async def _generate(
+        self,
+        prompt: str,
+        system: Optional[str],
+        temperature: float,
+        max_retries: int,
+        stream: bool,
     ) -> str:
         """Generate text with retry and optional fallback model."""
         payload = {
@@ -151,6 +168,18 @@ class LLMClient:
         response_format: dict[str, Any] | None = None,
     ) -> str:
         """Chat completion using Ollama's /api/chat endpoint."""
+        return await self._trace_model_call(
+            self._chat(messages, temperature, stream, response_format)
+        )
+
+    async def _chat(
+        self,
+        messages: list[LLMMessage],
+        temperature: float,
+        stream: bool,
+        response_format: dict[str, Any] | None,
+    ) -> str:
+        """Chat completion using Ollama's /api/chat endpoint."""
         payload = {
             "model": self.model,
             "messages": [m.model_dump() for m in messages],
@@ -172,6 +201,17 @@ class LLMClient:
         if not isinstance(message, dict):
             return ""
         return str(message.get("content", ""))
+
+    async def _trace_model_call(self, request: Awaitable[str]) -> str:
+        """Record a local-model call when it belongs to a traced command task."""
+        task_id, trace_id = start_model_execution_trace(self.model)
+        try:
+            response = await request
+        except Exception as exc:
+            finish_execution_trace(task_id, trace_id, success=False, error=str(exc))
+            raise
+        finish_execution_trace(task_id, trace_id, success=True)
+        return response
 
     async def healthcheck(self) -> bool:
         """Return True if Ollama API is reachable."""
