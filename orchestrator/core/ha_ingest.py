@@ -17,6 +17,7 @@ from orchestrator.core.event_dispatcher import EventDispatcher
 from orchestrator.core.ha_registry import RegistryContext, fetch_registry_context
 from orchestrator.core.home_events import (
     ApplianceStatusCycleTracker,
+    PowerAnomalyTracker,
     classify_home_event,
     is_event_candidate,
     PowerCycleTracker,
@@ -61,6 +62,12 @@ class HomeAssistantIngestor:
             settings.APPLIANCE_CYCLE_START_WATTS,
             settings.APPLIANCE_CYCLE_END_WATTS,
             settings.APPLIANCE_CYCLE_MINIMUM_SECONDS,
+        )
+        self._power_anomalies = PowerAnomalyTracker(
+            meaningful_watts=100.0,
+            anomaly_multiplier=4.0,
+            minimum_samples=3,
+            history_size=12,
         )
         self._appliance_status_cycles = ApplianceStatusCycleTracker()
         self._registry: RegistryContext | None = None
@@ -139,10 +146,10 @@ class HomeAssistantIngestor:
         self.last_run_at = _utc_now()
         try:
             states = await self._fetch_states()
-            result, changed = await self._store_states(states)
+            result, changed, events = await self._store_states(states)
             result["statistics_rows_upserted"] = await self._sync_statistics_if_due()
             if self.event_dispatcher is not None:
-                result["events_dispatched"] = await self.event_dispatcher.dispatch(changed)
+                result["events_dispatched"] = await self.event_dispatcher.dispatch(events)
         except Exception as exc:
             self.failure_count += 1
             self.last_error = f"{exc.__class__.__name__}: {exc}"
@@ -237,7 +244,7 @@ class HomeAssistantIngestor:
             raise RuntimeError("Home Assistant /api/states did not return a list")
         return [state for state in states if isinstance(state, dict)]
 
-    async def _store_states(self, states: list[dict[str, Any]]) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    async def _store_states(self, states: list[dict[str, Any]],) -> tuple[dict[str, int], list[dict[str, Any]], list[dict[str, Any]],]:
         selected = [state for state in states if _is_sensor_state(state)]
         changed = [state for state in selected if self._is_changed(state)]
         event_states = [state for state in states if is_event_candidate(state)]
@@ -287,7 +294,7 @@ class HomeAssistantIngestor:
                         },
                     )
                     inserted += 1
-                home_events_recorded = await self._store_home_events(
+                home_events_recorded, normalized_events = await self._store_home_events(
                     session,
                     transitions,
                     device_contexts,
@@ -347,19 +354,21 @@ class HomeAssistantIngestor:
             "sensor_readings_purged": sensor_readings_purged,
             "comfort_observations_inserted": comfort_inserted,
             "weather_forecasts_inserted": forecast_inserted,
-        }, changed)
+        }, changed, normalized_events)
 
     async def _store_home_events(
         self,
         session: Any,
         transitions: list[tuple[dict[str, Any], dict[str, Any]]],
         device_contexts: dict[str, tuple[int, int]],
-    ) -> int:
+    ) -> tuple[int, list[dict[str, Any]]]:
         """Persist only classified transitions, retaining availability changes too."""
         recorded = 0
+        normalized_events: list[dict[str, Any]] = []
         for previous, current in transitions:
             events = [event for event in [classify_home_event(previous, current)] if event]
             events.extend(self._power_cycles.observe(previous, current))
+            events.extend(self._power_anomalies.observe(previous, current))
             events.extend(self._appliance_status_cycles.observe(previous, current))
             if not events:
                 continue
@@ -376,6 +385,7 @@ class HomeAssistantIngestor:
                 row = result.mappings().first()
                 context = (int(row["id"]), int(row["room_id"])) if row else None
             for event in events:
+                normalized_events.append(event)
                 await record_home_event(
                     session,
                     event,
@@ -383,7 +393,7 @@ class HomeAssistantIngestor:
                     room_id=context[1] if context else None,
                 )
                 recorded += 1
-        return recorded
+        return recorded, normalized_events
 
     def _event_transitions(
         self, states: list[dict[str, Any]]
