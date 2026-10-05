@@ -11,6 +11,10 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from email.message import EmailMessage
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from orchestrator.core.weekly_health import WEEKLY_HEALTH_ENTITIES
 
 
