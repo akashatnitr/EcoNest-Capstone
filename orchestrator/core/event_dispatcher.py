@@ -113,6 +113,7 @@ def _normalize_event(
         "new_state": new_state,
         "metadata": metadata,
         "trigger": "ha_event_dispatcher",
+        "use_llm": True,
     }
 
     # Preserve the input contracts expected by the specialist agents.

@@ -279,6 +279,8 @@ class AgentOrchestrator:
             "security": "security",
             "irrigation": "irrigation",
             "irrigation_question": "irrigation",
+            "sensor": "sensor",
+            "device": "device",
             "event_history": "event_history",
             "home_data": "event_history",
         }.get(requested_type)

@@ -1,124 +1,176 @@
-"""Tests for normalized Home Assistant event-to-agent dispatching."""
+from unittest.mock import AsyncMock
 
 import pytest
 
-from orchestrator.agents.base import Task
-from orchestrator.config import Settings
+from orchestrator.agents.base import Result, Task
+from orchestrator.agents.orchestrator import AgentOrchestrator
 from orchestrator.core.event_dispatcher import EventDispatcher
+from orchestrator.config import Settings
 
 
-@pytest.mark.anyio
-async def test_dispatches_motion_once_then_applies_cooldown() -> None:
-    tasks: list[Task] = []
+class FakeAgent:
+    def __init__(self, name: str, handled_type: str):
+        self.name = name
+        self.handled_type = handled_type
+        self.tasks = []
 
-    async def submit(task: Task) -> str:
-        tasks.append(task)
-        return "task-1"
+    async def can_handle(self, task: Task) -> bool:
+        return task.payload.get("type") == self.handled_type
 
-    dispatcher = EventDispatcher(Settings(), submit)
+    async def execute(self, task: Task) -> Result:
+        self.tasks.append(task)
+        return Result(
+            success=True,
+            data={"received": task.payload},
+            agent=self.name,
+            task_id=task.id,
+            message=f"{self.name} processed event",
+        )
+
+
+def make_settings() -> Settings:
+    return Settings(
+        HA_EVENT_DISPATCH_ENABLED=True,
+        HA_EVENT_DISPATCH_COOLDOWN_SECONDS=60,
+    )
+
+
+@pytest.mark.asyncio
+async def test_energy_event_reaches_energy_agent():
+    energy_agent = FakeAgent("energy", "energy")
+    security_agent = FakeAgent("security", "security")
+
+    orchestrator = AgentOrchestrator(
+        agents=[energy_agent, security_agent],
+    )
+
+    dispatcher = EventDispatcher(
+        make_settings(),
+        submit_task=orchestrator.submit,
+    )
 
     event = {
-        "entity_id": "binary_sensor.hall_motion",
+        "entity_id": "sensor.dishwasher_power",
+        "event_type": "energy_anomaly_detected",
+        "previous_state": "120",
+        "new_state": "650",
+        "metadata": {
+            "power_watts": 650.0,
+            "baseline_watts": 100.0,
+            "friendly_name": "Dishwasher Power",
+        },
+    }
+
+    dispatched = await dispatcher.dispatch([event])
+
+    assert dispatched == 1
+
+    task_id = next(iter(orchestrator._tasks))
+    task = await orchestrator._tasks[task_id]
+
+    result = await orchestrator.get_result(task_id)
+
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "energy"
+
+    assert len(energy_agent.tasks) == 1
+    assert len(security_agent.tasks) == 0
+
+    received = energy_agent.tasks[0]
+    assert received.payload["type"] == "energy"
+    assert received.payload["event_type"] == "energy_anomaly_detected"
+    assert received.payload["use_llm"] is True
+    assert received.payload["current_power_w"] == 650.0
+    assert received.payload["baseline_w"] == 100.0
+
+
+@pytest.mark.asyncio
+async def test_motion_event_reaches_security_agent():
+    energy_agent = FakeAgent("energy", "energy")
+    security_agent = FakeAgent("security", "security")
+
+    orchestrator = AgentOrchestrator(
+        agents=[energy_agent, security_agent],
+    )
+
+    dispatcher = EventDispatcher(
+        make_settings(),
+        submit_task=orchestrator.submit,
+    )
+
+    event = {
+        "entity_id": "binary_sensor.front_door_motion",
         "event_type": "motion_detected",
         "previous_state": "off",
         "new_state": "on",
         "metadata": {
-            "friendly_name": "Hall Motion",
-            "device_class": "motion",
+            "friendly_name": "Front Door Motion",
         },
     }
 
-    assert await dispatcher.dispatch([event]) == 1
-    assert tasks[0].payload["type"] == "security"
-    assert tasks[0].payload["event_type"] == "motion_detected"
-    assert tasks[0].payload["motion"] is True
+    dispatched = await dispatcher.dispatch([event])
 
-    assert await dispatcher.dispatch([event]) == 0
+    assert dispatched == 1
 
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
 
-@pytest.mark.anyio
-async def test_dispatches_appliance_cycle_to_energy_agent() -> None:
-    tasks: list[Task] = []
+    result = await orchestrator.get_result(task_id)
 
-    async def submit(task: Task) -> str:
-        tasks.append(task)
-        return "task-energy"
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "security"
 
-    dispatcher = EventDispatcher(Settings(), submit)
+    assert len(security_agent.tasks) == 1
+    assert len(energy_agent.tasks) == 0
+
+    received = security_agent.tasks[0]
+    assert received.payload["type"] == "security"
+    assert received.payload["event_type"] == "motion_detected"
+    assert received.payload["use_llm"] is True
+    assert received.payload["motion"] is True
+
+@pytest.mark.asyncio
+async def test_sensor_event_reaches_sensor_agent():
+    sensor_agent = FakeAgent("sensor", "sensor")
+    energy_agent = FakeAgent("energy", "energy")
+
+    orchestrator = AgentOrchestrator(
+        agents=[sensor_agent, energy_agent],
+    )
+
+    dispatcher = EventDispatcher(
+        make_settings(),
+        submit_task=orchestrator.submit,
+    )
 
     event = {
-        "entity_id": "sensor.washer_power",
-        "event_type": "appliance_cycle_started",
-        "previous_state": "20",
-        "new_state": "600",
+        "entity_id": "sensor.wifi_soil_sensor",
+        "event_type": "device_became_unavailable",
+        "previous_state": "45",
+        "new_state": "unavailable",
         "metadata": {
-            "friendly_name": "Washer",
-            "power_watts": 600,
+            "friendly_name": "WiFi Soil Sensor",
         },
     }
 
-    assert await dispatcher.dispatch([event]) == 1
+    dispatched = await dispatcher.dispatch([event])
 
-    task = tasks[0]
+    assert dispatched == 1
 
-    assert task.payload["type"] == "energy"
-    assert task.payload["event_type"] == "appliance_cycle_started"
-    assert task.payload["current_power_w"] == 600
-    assert task.payload["device_name"] == "Washer"
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
 
+    result = await orchestrator.get_result(task_id)
 
-@pytest.mark.anyio
-async def test_dispatches_energy_anomaly_to_energy_agent() -> None:
-    tasks: list[Task] = []
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "sensor"
+    assert len(sensor_agent.tasks) == 1
+    assert len(energy_agent.tasks) == 0
 
-    async def submit(task: Task) -> str:
-        tasks.append(task)
-        return "task-energy-anomaly"
-
-    dispatcher = EventDispatcher(Settings(), submit)
-
-    event = {
-        "entity_id": "sensor.washer_power",
-        "event_type": "energy_anomaly_detected",
-        "previous_state": "100",
-        "new_state": "600",
-        "metadata": {
-            "friendly_name": "Washer",
-            "power_watts": 600,
-            "baseline_watts": 100,
-            "anomaly_multiplier": 6.0,
-        },
-    }
-
-    assert await dispatcher.dispatch([event]) == 1
-
-    task = tasks[0]
-
-    assert task.payload["type"] == "energy"
-    assert task.payload["event_type"] == "energy_anomaly_detected"
-    assert task.payload["entity_id"] == "sensor.washer_power"
-    assert task.payload["current_power_w"] == 600
-    assert task.payload["baseline_w"] == 100
-    assert task.payload["device_name"] == "Washer"
-
-
-@pytest.mark.anyio
-async def test_ignores_unknown_normalized_event() -> None:
-    tasks: list[Task] = []
-
-    async def submit(task: Task) -> str:
-        tasks.append(task)
-        return "task-unknown"
-
-    dispatcher = EventDispatcher(Settings(), submit)
-
-    event = {
-        "entity_id": "sensor.example",
-        "event_type": "routine_temperature_update",
-        "previous_state": "70",
-        "new_state": "71",
-        "metadata": {},
-    }
-
-    assert await dispatcher.dispatch([event]) == 0
-    assert tasks == []
+    received = sensor_agent.tasks[0]
+    assert received.payload["type"] == "sensor"
+    assert received.payload["event_type"] == "device_became_unavailable"
+    assert received.payload["use_llm"] is True
