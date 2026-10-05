@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from orchestrator.api import command
 from orchestrator.agents.base import Result
+from orchestrator.api import command
 from orchestrator.mcp.models import ToolExecutionResult
 
 
@@ -50,6 +50,8 @@ def test_command_page_uses_prompt_and_confirmation(client):
     assert "View ${events.length} matching records" in response.text
     assert "Current room condition" in response.text
     assert "Technical details" in response.text
+    assert "Live activity" in response.text
+    assert "execution_trace" in response.text
     assert "function technicalDetails(data, interpretationMessage)" in response.text
     assert "interpretation.classList.add(\"hide\")" in response.text
     assert "Prompt history" in response.text
@@ -63,6 +65,31 @@ def test_command_page_uses_prompt_and_confirmation(client):
     assert 'id="feedbackCorrection"' in response.text
     assert 'id="entityId"' not in response.text
     assert 'id="action"' not in response.text
+
+
+def test_task_status_includes_live_capability_trace(client, monkeypatch):
+    """The polling endpoint must expose safe timing for active capability calls."""
+    monkeypatch.setattr(
+        command._command_orchestrator, "get_result", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        command,
+        "task_execution_trace",
+        lambda _: [
+            {
+                "kind": "tool",
+                "name": "query_mysql",
+                "agent": "energy",
+                "status": "running",
+                "duration_ms": 25.0,
+            }
+        ],
+    )
+
+    response = client.get("/command/task/live-trace")
+
+    assert response.status_code == 200
+    assert response.json()["execution_trace"][0]["name"] == "query_mysql"
 
 
 def test_feedback_requires_a_completed_task_owned_by_the_resident(

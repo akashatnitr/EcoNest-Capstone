@@ -1,8 +1,8 @@
 """Browser command-console routes and model-assisted command interpretation."""
 
+import re
 from datetime import UTC, datetime, time
 from pathlib import Path
-import re
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -12,8 +12,11 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orchestrator.agents.history_analysis import (
+    HistoryAnalysisPlan,
+    RoomComfortQueryPlan,
+)
 from orchestrator.agents.orchestrator import AgentOrchestrator
-from orchestrator.agents.history_analysis import HistoryAnalysisPlan, RoomComfortQueryPlan
 from orchestrator.api.auth import UserProfile, get_optional_current_user
 from orchestrator.config import get_settings
 from orchestrator.core.command_feedback import (
@@ -22,6 +25,11 @@ from orchestrator.core.command_feedback import (
     save_command_feedback,
 )
 from orchestrator.core.database import get_mysql_session
+from orchestrator.core.execution_trace import (
+    reset_execution_trace_context,
+    set_execution_trace_context,
+    task_execution_trace,
+)
 from orchestrator.core.permissions import AGENT_RUN, USER_ADMIN, Role, has_permission
 from orchestrator.llm.client import LLMClient
 from orchestrator.llm.models import LLMMessage
@@ -139,14 +147,17 @@ class CommandInterpretation(BaseModel):
         "home_state_query",
     ] = "device_control"
     entity_id: str | None = None
-    action: Literal[
-        "turn_on",
-        "turn_off",
-        "set_brightness",
-        "set_temperature",
-        "open",
-        "close",
-    ] | None = None
+    action: (
+        Literal[
+            "turn_on",
+            "turn_off",
+            "set_brightness",
+            "set_temperature",
+            "open",
+            "close",
+        ]
+        | None
+    ) = None
     brightness: int | None = Field(default=None, ge=0, le=100)
     temperature: float | None = None
     conditions: list[ConditionSpec] = Field(default_factory=list, max_length=4)
@@ -166,16 +177,19 @@ class InterpretCommandResponse(BaseModel):
         "condition_not_met",
         "needs_clarification",
     ]
-    request_kind: Literal[
-        "device_control",
-        "energy_recommendation",
-        "security_recommendation",
-        "watering_recommendation",
-        "irrigation_question",
-        "event_history",
-        "historical_analysis",
-        "home_state_query",
-    ] | None = None
+    request_kind: (
+        Literal[
+            "device_control",
+            "energy_recommendation",
+            "security_recommendation",
+            "watering_recommendation",
+            "irrigation_question",
+            "event_history",
+            "historical_analysis",
+            "home_state_query",
+        ]
+        | None
+    ) = None
     task_id: str | None = None
     entity_id: str | None = None
     entity_name: str | None = None
@@ -186,6 +200,7 @@ class InterpretCommandResponse(BaseModel):
     conditions: list[ConditionSpec] = Field(default_factory=list)
     history_analysis: HistoryAnalysisPlan | None = None
     room_comfort_query: RoomComfortQueryPlan | None = None
+    execution_trace: list[dict[str, object]] = Field(default_factory=list)
     message: str
 
 
@@ -303,11 +318,16 @@ async def interpret_command(
     if not isinstance(catalog_conditions, list):
         catalog_conditions = []
     model_devices = _relevant_devices(request.intent, compact_devices)
-    interpretation = await _interpret_with_model(
-        request.intent,
-        model_devices,
-        _relevant_condition_capabilities(request.intent, catalog_conditions),
-    )
+    trace_context = set_execution_trace_context(task_id, "command_interpreter")
+    try:
+        interpretation = await _interpret_with_model(
+            request.intent,
+            model_devices,
+            _relevant_condition_capabilities(request.intent, catalog_conditions),
+        )
+    finally:
+        reset_execution_trace_context(trace_context)
+    interpretation_trace = task_execution_trace(task_id)
     interpretation = _complete_unambiguous_plan(
         request.intent,
         interpretation,
@@ -316,7 +336,9 @@ async def interpret_command(
     )
     interpretation = _validate_history_analysis_intent(request.intent, interpretation)
     interpretation = _validate_room_comfort_intent(request.intent, interpretation)
-    response = _validated_interpretation(interpretation, compact_devices)
+    response = _validated_interpretation(interpretation, compact_devices).model_copy(
+        update={"execution_trace": interpretation_trace}
+    )
     if response.status == "confirmation_required":
         response = await _evaluate_conditional_action(
             request.intent,
@@ -377,15 +399,30 @@ async def _start_advisory_request(
         "type": agent_type,
         "recommendation_only": True,
     }
-    if request_kind not in {"irrigation_question", "event_history", "historical_analysis", "home_state_query"}:
+    if request_kind not in {
+        "irrigation_question",
+        "event_history",
+        "historical_analysis",
+        "home_state_query",
+    }:
         payload["use_llm"] = True
     if request_kind == "event_history":
         cycle_search = _appliance_cycle_search(intent)
         if cycle_search:
-            payload.update({"history_kind": "appliance_cycle", "event_search": cycle_search})
-    if request_kind == "historical_analysis" and response is not None and response.history_analysis:
+            payload.update(
+                {"history_kind": "appliance_cycle", "event_search": cycle_search}
+            )
+    if (
+        request_kind == "historical_analysis"
+        and response is not None
+        and response.history_analysis
+    ):
         payload["history_analysis"] = response.history_analysis.model_dump()
-    if request_kind == "home_state_query" and response is not None and response.room_comfort_query:
+    if (
+        request_kind == "home_state_query"
+        and response is not None
+        and response.room_comfort_query
+    ):
         payload["room_comfort_query"] = response.room_comfort_query.model_dump()
     task_id = await _command_orchestrator.submit_http_api(
         intent=intent,
@@ -432,7 +469,12 @@ async def command_task_status(
     _command_actor(current_user)
     result = await _command_orchestrator.get_result(task_id)
     if result is None:
-        return {"task_id": task_id, "status": "running", "result": None}
+        return {
+            "task_id": task_id,
+            "status": "running",
+            "result": None,
+            "execution_trace": task_execution_trace(task_id),
+        }
     return {
         "task_id": task_id,
         "status": "completed" if result.success else "failed",
@@ -441,6 +483,7 @@ async def command_task_status(
         "agent": result.agent,
         "confidence": result.confidence,
         "metadata": result.metadata,
+        "execution_trace": task_execution_trace(task_id),
     }
 
 
@@ -468,17 +511,27 @@ async def submit_command_feedback(
         agent=result.agent,
         result_status="completed" if result.success else "failed",
         rating=request.rating,
-        comment=(request.comment.strip() or None) if request.comment is not None else None,
-        correction=(request.correction.strip() or None) if request.correction is not None else None,
+        comment=(request.comment.strip() or None)
+        if request.comment is not None
+        else None,
+        correction=(request.correction.strip() or None)
+        if request.correction is not None
+        else None,
     )
 
 
 def _feedback_reviewer(current_user: UserProfile | None) -> UserProfile:
     """Require an authenticated operator; demo access cannot approve training data."""
     if current_user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to review corrections")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign in to review corrections",
+        )
     if not has_permission(current_user.role, USER_ADMIN):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user:admin permission required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="user:admin permission required",
+        )
     return current_user
 
 
@@ -501,13 +554,21 @@ async def review_feedback_correction(
     """Approve or reject one correction after the reviewer checks source evidence."""
     reviewer = _feedback_reviewer(current_user)
     found = await review_command_correction(
-        session, task_id=request.task_id, user_id=request.user_id,
-        reviewer_id=reviewer.id, approved=request.approved,
+        session,
+        task_id=request.task_id,
+        user_id=request.user_id,
+        reviewer_id=reviewer.id,
+        approved=request.approved,
         evidence_note=request.evidence_note.strip(),
     )
     if not found:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Correction not found")
-    return {"task_id": request.task_id, "review_status": "approved" if request.approved else "rejected"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Correction not found"
+        )
+    return {
+        "task_id": request.task_id,
+        "review_status": "approved" if request.approved else "rejected",
+    }
 
 
 def _feedback_response_text(data: Any, message: str) -> str:
@@ -520,7 +581,8 @@ def _feedback_response_text(data: Any, message: str) -> str:
         if isinstance(recommendations, list):
             parts = [
                 f"{item.get('action', 'Recommendation')}: {item.get('reasoning', '')}"
-                if isinstance(item, dict) else item
+                if isinstance(item, dict)
+                else item
                 for item in recommendations
                 if isinstance(item, dict | str)
             ]
@@ -550,12 +612,15 @@ def _command_actor(current_user: UserProfile | None) -> UserProfile:
 
 def _direct_advisory_request_kind(
     intent: str,
-) -> Literal[
-    "energy_recommendation",
-    "security_recommendation",
-    "watering_recommendation",
-    "irrigation_question",
-] | None:
+) -> (
+    Literal[
+        "energy_recommendation",
+        "security_recommendation",
+        "watering_recommendation",
+        "irrigation_question",
+    ]
+    | None
+):
     """Route clear advisory requests before costly device-plan generation.
 
     Advisory categories are non-controlling and therefore safe to recognize from
@@ -572,10 +637,22 @@ def _direct_advisory_request_kind(
     if any(term in lowered for term in _ADVISORY_TERMS["watering_recommendation"]):
         return "watering_recommendation"
     irrigation_activity_words = (*_CONDITIONAL_IRRIGATION_WORDS, "watered")
-    factual_words = ("was ", "is ", "did ", "when ", "how long", "run today", "has ", "recent", "last ")
-    if any(word in lowered for word in irrigation_activity_words) and any(
-        word in lowered for word in factual_words
-    ) and not any(word in lowered for word in ("recommend", "advice", "should")):
+    factual_words = (
+        "was ",
+        "is ",
+        "did ",
+        "when ",
+        "how long",
+        "run today",
+        "has ",
+        "recent",
+        "last ",
+    )
+    if (
+        any(word in lowered for word in irrigation_activity_words)
+        and any(word in lowered for word in factual_words)
+        and not any(word in lowered for word in ("recommend", "advice", "should"))
+    ):
         return "irrigation_question"
     if any(term in lowered for term in _CONDITIONAL_IRRIGATION_WORDS):
         if any(word in lowered for word in factual_words) and not any(
@@ -589,7 +666,9 @@ def _direct_advisory_request_kind(
 def _appliance_cycle_search(intent: str) -> str | None:
     """Extract a simple appliance name from factual completed-cycle questions."""
     lowered = " ".join(intent.lower().split())
-    if "cycle" not in lowered or not any(word in lowered for word in _CYCLE_HISTORY_WORDS):
+    if "cycle" not in lowered or not any(
+        word in lowered for word in _CYCLE_HISTORY_WORDS
+    ):
         return None
     match = re.search(
         r"(?:when (?:was|did)|last|recent) (?:the )?(?:last )?"
@@ -738,8 +817,16 @@ def _history_period_days(intent: str) -> int | None:
         )
         return next((days for phrase, days in named_periods if phrase in intent), None)
     numbers = {
-        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
     }
     amount_text, unit = match.groups()
     amount = int(amount_text) if amount_text.isdigit() else numbers[amount_text]
@@ -777,7 +864,9 @@ def _room_comfort_plan_hint(intent: str) -> RoomComfortQueryPlan | None:
         return None
     metric = (
         "target_temperature"
-        if "comfort" in lowered or "target temperature" in lowered or "setpoint" in lowered
+        if "comfort" in lowered
+        or "target temperature" in lowered
+        or "setpoint" in lowered
         else "current_temperature"
         if "temperature" in lowered
         else "humidity"
@@ -956,7 +1045,10 @@ def _complete_unambiguous_plan(
     entity_id = interpretation.entity_id
     if entity_id not in available_entities:
         entity_id = None
-    elif preferred_domains and devices_by_entity[entity_id].get("domain") not in preferred_domains:
+    elif (
+        preferred_domains
+        and devices_by_entity[entity_id].get("domain") not in preferred_domains
+    ):
         entity_id = None
     elif not _action_target_matches_device(target_terms, devices_by_entity[entity_id]):
         entity_id = None
@@ -997,7 +1089,9 @@ def _complete_unambiguous_plan(
     inferred_conditions = interpretation.conditions if has_explicit_condition else []
     explicit_setpoint = "temperature target" in lowered or "thermostat" in lowered
     if has_explicit_condition and explicit_setpoint:
-        value_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:degrees?|°)?\s*(?:f|fahrenheit)?\b", lowered)
+        value_match = re.search(
+            r"\b(\d+(?:\.\d+)?)\s*(?:degrees?|°)?\s*(?:f|fahrenheit)?\b", lowered
+        )
         climate = next(
             (item for item in conditions if item.get("domain") == "climate"), None
         )
@@ -1025,7 +1119,9 @@ def _complete_unambiguous_plan(
             "entity_id": entity_id,
             "action": action,
             "conditions": inferred_conditions,
-            "clarification": None if entity_id and action else interpretation.clarification,
+            "clarification": None
+            if entity_id and action
+            else interpretation.clarification,
         }
     )
 
@@ -1033,16 +1129,26 @@ def _complete_unambiguous_plan(
 def _action_safety_clarification(intent: str) -> str | None:
     """Reject broad or multi-device control before an inventory/model plan."""
     lowered = " ".join(intent.lower().split())
-    if "unlock" in lowered or re.search(r"\b(?:every|all)\b.*\b(?:light|door)", lowered):
+    if "unlock" in lowered or re.search(
+        r"\b(?:every|all)\b.*\b(?:light|door)", lowered
+    ):
         return (
             "EcoNest cannot prepare a combined whole-home or door-unlock command. "
             "Please request one specific device action at a time."
         )
-    if lowered in {"make it warmer.", "make it warmer", "make it cooler.", "make it cooler"}:
+    if lowered in {
+        "make it warmer.",
+        "make it warmer",
+        "make it cooler.",
+        "make it cooler",
+    }:
         return "Please include the room and target temperature."
     if re.fullmatch(r"(?:please )?turn (?:on|off) (?:the )?lights?\.?", lowered):
         return "Please include the room or the specific light to control."
-    if re.fullmatch(r"(?:please )?turn (?:on|off) (?:the )?(dryer|washer|tv|television|xbox)\.?", lowered):
+    if re.fullmatch(
+        r"(?:please )?turn (?:on|off) (?:the )?(dryer|washer|tv|television|xbox)\.?",
+        lowered,
+    ):
         return (
             "Please identify the specific appliance control. EcoNest will not assume that "
             "a feature switch represents the whole appliance."
@@ -1053,14 +1159,29 @@ def _action_safety_clarification(intent: str) -> str | None:
 def _action_target_terms(intent: str) -> set[str]:
     """Return the room/device words that must match a proposed control target."""
     ignored = {
-        "action", "brightness", "brighten", "cooler", "degree", "dim", "f",
-        "fahrenheit", "light", "on", "off", "percent", "set", "temperature",
-        "thermostat", "warmer",
+        "action",
+        "brightness",
+        "brighten",
+        "cooler",
+        "degree",
+        "dim",
+        "f",
+        "fahrenheit",
+        "light",
+        "on",
+        "off",
+        "percent",
+        "set",
+        "temperature",
+        "thermostat",
+        "warmer",
     }
     return _meaningful_terms(intent) - ignored
 
 
-def _action_target_matches_device(target_terms: set[str], device: dict[str, Any]) -> bool:
+def _action_target_matches_device(
+    target_terms: set[str], device: dict[str, Any]
+) -> bool:
     """Require a named room or device word before proposing a control target."""
     if not target_terms:
         return False
@@ -1088,9 +1209,7 @@ def _validated_interpretation(
             status="advisory_started",
             request_kind="security_recommendation",
             confidence=interpretation.confidence,
-            message=(
-                "EcoNest is preparing a security assessment and recommendations."
-            ),
+            message=("EcoNest is preparing a security assessment and recommendations."),
         )
     if interpretation.request_kind == "watering_recommendation":
         return InterpretCommandResponse(
@@ -1204,9 +1323,7 @@ async def _evaluate_conditional_action(
         return _unsupported_condition_response()
 
     days_match = re.search(r"\b(?:last|past)\s+(\d+)\s+days?\b", lowered)
-    is_negative = bool(
-        re.search(r"\b(has not|hasn't|not|was not|wasn't)\b", lowered)
-    )
+    is_negative = bool(re.search(r"\b(has not|hasn't|not|was not|wasn't)\b", lowered))
     is_today = "today" in lowered
     if days_match is not None and is_negative:
         days = min(max(int(days_match.group(1)), 1), 7)
@@ -1245,7 +1362,9 @@ async def _evaluate_conditional_action(
             agent="command_condition_evaluator",
             source="command_center",
         )
-        rows = result.result if result.success and isinstance(result.result, list) else []
+        rows = (
+            result.result if result.success and isinstance(result.result, list) else []
+        )
         run_count = int(rows[0].get("run_count") or 0) if rows else 0
     except Exception:
         return InterpretCommandResponse(
@@ -1268,10 +1387,7 @@ async def _evaluate_conditional_action(
         )
     return response.model_copy(
         update={
-            "message": (
-                f"EcoNest found {condition_description}. "
-                f"{response.message}"
-            )
+            "message": (f"EcoNest found {condition_description}. {response.message}")
         }
     )
 
@@ -1320,7 +1436,11 @@ async def _evaluate_discovered_conditions(
             return _unsupported_condition_response()
         attributes = state.get("attributes")
         attributes = attributes if isinstance(attributes, dict) else {}
-        actual = state.get("state") if condition.property == "state" else attributes.get(condition.property)
+        actual = (
+            state.get("state")
+            if condition.property == "state"
+            else attributes.get(condition.property)
+        )
         if actual is None or not _condition_matches(actual, condition):
             return InterpretCommandResponse(
                 status="condition_not_met",
@@ -1333,9 +1453,7 @@ async def _evaluate_discovered_conditions(
         evidence.append(f"{condition.entity_id} {condition.property.replace('_', ' ')}")
     return response.model_copy(
         update={
-            "message": (
-                f"EcoNest verified: {', '.join(evidence)}. {response.message}"
-            )
+            "message": (f"EcoNest verified: {', '.join(evidence)}. {response.message}")
         }
     )
 

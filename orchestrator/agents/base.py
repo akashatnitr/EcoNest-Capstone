@@ -12,6 +12,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from orchestrator.core.audit import write_audit_event
 from orchestrator.core.command_feedback import approved_correction_guidance
 from orchestrator.core.database import mysql_session_context
+from orchestrator.core.execution_trace import (
+    reset_execution_trace_context,
+    set_execution_trace_context,
+)
 from orchestrator.core.permissions import AGENT_RUN, Role, normalize_role
 from orchestrator.llm.client import LLMClient
 from orchestrator.mcp.executor import MCPToolExecutor
@@ -88,11 +92,16 @@ class BaseAgent(ABC):
         try:
             async with mysql_session_context() as session:
                 return await approved_correction_guidance(
-                    session, user_id=int(task.user_id), agent=self.name, prompt=task.intent
+                    session,
+                    user_id=int(task.user_id),
+                    agent=self.name,
+                    prompt=task.intent,
                 )
         except (RuntimeError, ValueError, SQLAlchemyError) as exc:
             # Unit tests and background tasks may run without a resident/database.
-            logger.warning("Reviewed-feedback lookup unavailable: %s", type(exc).__name__)
+            logger.warning(
+                "Reviewed-feedback lookup unavailable: %s", type(exc).__name__
+            )
             return ""
 
     async def invoke_mcp_tool(
@@ -125,6 +134,7 @@ class BaseAgent(ABC):
     async def execute(self, task: Task) -> Result:
         """Run a task with shared capability checks and structured logging."""
         started_at = monotonic()
+        trace_context = set_execution_trace_context(task.id, self.name)
         result: Result
         try:
             routed_agent = task.metadata.get("routed_agent")
@@ -155,6 +165,8 @@ class BaseAgent(ABC):
                 error=exc.__class__.__name__,
                 metadata={"error_message": str(exc)},
             )
+        finally:
+            reset_execution_trace_context(trace_context)
         duration_ms = round((monotonic() - started_at) * 1000, 3)
         self._log_run(task, result, duration_ms)
         return result

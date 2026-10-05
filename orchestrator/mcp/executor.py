@@ -5,8 +5,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from orchestrator.core.permissions import Role, has_permission
 from orchestrator.core.audit import write_audit_event
+from orchestrator.core.execution_trace import (
+    finish_execution_trace,
+    start_execution_trace,
+)
+from orchestrator.core.permissions import Role, has_permission
 from orchestrator.mcp.catalog import register_builtin_mcp_components
 from orchestrator.mcp.models import ToolExecutionResult
 from orchestrator.mcp.registry import resource_registry, tool_registry
@@ -52,6 +56,7 @@ class MCPToolExecutor:
     ) -> ToolExecutionResult:
         """Validate permissions and arguments before invoking one MCP tool."""
         started_at = monotonic()
+        trace_id = start_execution_trace(task_id, kind="tool", name=name, agent=agent)
         try:
             meta = self._tool_registry.get(name)
             if meta is None:
@@ -79,6 +84,7 @@ class MCPToolExecutor:
             else:
                 execution = ToolExecutionResult(capability=name, result=result)
         except Exception as exc:
+            finish_execution_trace(task_id, trace_id, success=False, error=str(exc))
             self._record_tool_execution(
                 name,
                 arguments,
@@ -91,6 +97,7 @@ class MCPToolExecutor:
             )
             raise
 
+        finish_execution_trace(task_id, trace_id, success=execution.success)
         self._record_tool_execution(
             name,
             arguments,
@@ -114,6 +121,7 @@ class MCPToolExecutor:
     ) -> dict[str, Any]:
         """Read a registered MCP resource through the shared catalog."""
         started_at = monotonic()
+        trace_id = start_execution_trace(task_id, kind="resource", name=uri, agent=agent)
         try:
             register_builtin_mcp_components()
             resource = resource_registry.get(uri)
@@ -124,6 +132,7 @@ class MCPToolExecutor:
             else:
                 result = await resource["handler"]()
         except Exception as exc:
+            finish_execution_trace(task_id, trace_id, success=False, error=str(exc))
             self._record_resource_read(
                 uri,
                 task_id=task_id,
@@ -135,6 +144,7 @@ class MCPToolExecutor:
             )
             raise
 
+        finish_execution_trace(task_id, trace_id, success=True)
         self._record_resource_read(
             uri,
             task_id=task_id,
