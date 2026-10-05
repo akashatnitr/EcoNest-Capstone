@@ -221,6 +221,116 @@ class PowerCycleTracker:
             self._started.pop(entity_id, None)
         return events
 
+class PowerAnomalyTracker:
+    """Detect unusually high individual-appliance power draw."""
+
+    def __init__(
+        self,
+        meaningful_watts: float = 100.0,
+        anomaly_multiplier: float = 4.0,
+        minimum_samples: int = 3,
+        history_size: int = 12,
+    ) -> None:
+        self.meaningful_watts = max(1.0, meaningful_watts)
+        self.anomaly_multiplier = max(1.0, anomaly_multiplier)
+        self.minimum_samples = max(1, minimum_samples)
+        self._history: dict[str, list[float]] = {}
+        self._active: set[str] = set()
+        self._history_size = max(2, history_size)
+
+    def observe(
+        self,
+        previous: dict[str, Any],
+        current: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Detect an appliance spike without contaminating its baseline."""
+        if not _is_individual_power_sensor(current):
+            return []
+
+        entity_id = str(current.get("entity_id") or "")
+        current_watts = _power_watts(current)
+
+        if not entity_id or current_watts is None:
+            return []
+
+        history = self._history.setdefault(entity_id, [])
+
+        # A low reading means the appliance returned to normal.
+        if current_watts < self.meaningful_watts:
+            self._active.discard(entity_id)
+            return []
+
+        baseline_values = [
+            value
+            for value in history
+            if value >= self.meaningful_watts
+        ]
+
+        # Establish a baseline before detecting anomalies.
+        if len(baseline_values) < self.minimum_samples:
+            history.append(current_watts)
+            self._trim_history(history)
+            return []
+
+        baseline_watts = sum(baseline_values) / len(baseline_values)
+
+        is_anomaly = (
+            current_watts >= self.meaningful_watts
+            and current_watts >= baseline_watts * self.anomaly_multiplier
+        )
+
+        if is_anomaly:
+            # Don't repeatedly emit while the same spike remains active.
+            if entity_id in self._active:
+                return []
+
+            self._active.add(entity_id)
+
+            return [
+                _power_anomaly_event(
+                    current,
+                    current_watts,
+                    baseline_watts,
+                )
+            ]
+
+        # Normal reading resets the anomaly state and becomes baseline data.
+        self._active.discard(entity_id)
+        history.append(current_watts)
+        self._trim_history(history)
+
+        return []
+
+    def _trim_history(self, history: list[float]) -> None:
+        if len(history) > self._history_size:
+            del history[:-self._history_size]
+
+def _power_anomaly_event(
+    current: dict[str, Any],
+    current_watts: float,
+    baseline_watts: float,
+) -> dict[str, Any]:
+    """Build a normalized autonomous energy-anomaly event."""
+    attributes = _attributes(current)
+
+    return {
+        "occurred_at": _occurred_at(current),
+        "entity_id": str(current["entity_id"]),
+        "event_type": "energy_anomaly_detected",
+        "previous_state": _state(current) or None,
+        "new_state": _state(current) or None,
+        "metadata": {
+            "friendly_name": attributes.get("friendly_name"),
+            "power_watts": current_watts,
+            "baseline_watts": baseline_watts,
+            "anomaly_multiplier": (
+                current_watts / baseline_watts
+                if baseline_watts > 0
+                else None
+            ),
+        },
+        "source": "home_assistant",
+    }
 
 class ApplianceStatusCycleTracker:
     """Turn SmartThings-style appliance job states into full-cycle records."""
