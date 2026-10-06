@@ -122,31 +122,54 @@ class SecurityAgent(BaseAgent):
             message="Security assessment complete",
         )
 
-    async def _build_context(
-        self,
-        task: Task,
-    ) -> dict[str, Any]:
+    async def _build_context(self, task: Task) -> dict[str, Any]:
+        """Build contextual information for a security assessment."""
+        current_hour = task.payload.get("current_hour")
+        if current_hour is None:
+            current_hour = datetime.now().hour
 
-        hour = task.payload.get(
-            "current_hour",
-            datetime.now().hour,
-        )
-
-        try:
-            recent = await self.read_mcp_resource(task, "home://memory/recent")
-            interactions = recent.get("recent_interactions", [])
-            interaction_count = len(interactions) if isinstance(interactions, list) else 0
-        except Exception:
-            interaction_count = 0
-
-        return {
-            "hour": hour,
-            "source": task.metadata.get(
-                "source",
-                "direct",
-            ),
-            "recent_interactions": interaction_count,
+        context: dict[str, Any] = {
+            "hour": current_hour,
+            "source": task.metadata.get("source", ""),
+            "trigger": task.metadata.get("event_type")
+            or task.payload.get("event_type", ""),
         }
+
+        # Read recent episodic memory when available.
+        try:
+            memory = await self.read_mcp_resource(task, "home://memory/recent")
+            interactions = memory.get("recent_interactions", [])
+            context["recent_interactions"] = (
+                len(interactions) if isinstance(interactions, list) else 0
+            )
+        except Exception:
+            context["recent_interactions"] = 0
+
+        # For autonomous HA events, fetch the live state of the triggering entity
+        # through MCP rather than trusting only the event payload.
+        entity_id = str(task.payload.get("entity_id") or "").strip()
+        if entity_id:
+            try:
+                live_state = await self.invoke_mcp_tool(
+                    task,
+                    "ha_get_state",
+                    {"entity_id": entity_id},
+                )
+
+                if live_state.success:
+                    context["live_entity_state"] = live_state.result
+                else:
+                    context["live_entity_state"] = {
+                        "available": False,
+                        "warnings": live_state.warnings,
+                    }
+            except Exception:
+                context["live_entity_state"] = {
+                    "available": False,
+                    "warnings": ["Live Home Assistant state unavailable"],
+                }
+
+        return context
 
     def _observations_from_payload(
         self,

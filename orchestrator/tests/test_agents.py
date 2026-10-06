@@ -1605,6 +1605,57 @@ async def test_energy_agent_autonomous_event_invokes_llm():
 
 
 @pytest.mark.anyio
+async def test_energy_agent_gathers_live_ha_state_via_mcp():
+    agent = EnergyAgent()
+
+    agent._mysql_energy_context = AsyncMock(
+        return_value={"available": True}
+    )
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "sensor.dryer_power",
+                "state": "850",
+                "attributes": {
+                    "friendly_name": "Dryer Power",
+                    "unit_of_measurement": "W",
+                },
+            },
+        )
+    )
+    agent.tool_executor.execute = execute
+
+    context = await agent._build_context(
+        Task(
+            id="energy-mcp-context",
+            intent="energy event: appliance_cycle_started",
+            payload={
+                "type": "energy",
+                "event_type": "appliance_cycle_started",
+                "entity_id": "sensor.dryer_power",
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "appliance_cycle_started",
+            },
+        )
+    )
+
+    assert context["live_entity_state"]["state"] == "850"
+    assert (
+        context["live_entity_state"]["attributes"]["friendly_name"]
+        == "Dryer Power"
+    )
+
+    execute.assert_awaited_once()
+    assert execute.await_args.args[0] == "ha_get_state"
+    assert execute.await_args.args[1] == {
+        "entity_id": "sensor.dryer_power",
+    }
+
+@pytest.mark.anyio
 async def test_security_agent_autonomous_event_invokes_llm():
     from orchestrator.agents.security_agent import SecurityAgent
 
@@ -1656,6 +1707,51 @@ async def test_security_agent_autonomous_event_invokes_llm():
     assert result.success
     assert llm.called is True
 
+@pytest.mark.anyio
+async def test_security_agent_gathers_live_ha_state_via_mcp():
+    agent = SecurityAgent()
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "binary_sensor.front_door_motion",
+                "state": "on",
+                "attributes": {
+                    "friendly_name": "Front Door Motion",
+                },
+            },
+        )
+    )
+    agent.tool_executor.execute = execute
+
+    context = await agent._build_context(
+        Task(
+            id="sec-mcp-context",
+            intent="security event: motion_detected",
+            payload={
+                "type": "security",
+                "event_type": "motion_detected",
+                "entity_id": "binary_sensor.front_door_motion",
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "motion_detected",
+            },
+        )
+    )
+
+    assert context["live_entity_state"]["state"] == "on"
+    assert (
+        context["live_entity_state"]["attributes"]["friendly_name"]
+        == "Front Door Motion"
+    )
+
+    execute.assert_awaited_once()
+    assert execute.await_args.args[0] == "ha_get_state"
+    assert execute.await_args.args[1] == {
+        "entity_id": "binary_sensor.front_door_motion",
+    }
 
 @pytest.mark.anyio
 async def test_irrigation_agent_autonomous_event_invokes_llm():
@@ -1697,6 +1793,55 @@ async def test_irrigation_agent_autonomous_event_invokes_llm():
     assert llm.called is True
     assert result.data["model_explanation_used"] is True
 
+
+@pytest.mark.anyio
+async def test_irrigation_agent_gathers_live_ha_state_via_mcp():
+    from orchestrator.agents.irrigation_agent import IrrigationAgent
+    from orchestrator.mcp.models import ToolExecutionResult
+
+    agent = IrrigationAgent()
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "switch.front_lawn_watering",
+                "state": "on",
+                "attributes": {
+                    "friendly_name": "Front Lawn Watering",
+                },
+            },
+        )
+    )
+    agent.tool_executor.execute = execute
+
+    context = await agent._live_entity_state(
+        Task(
+            id="irrigation-mcp-context",
+            intent="irrigation event: watering_started",
+            payload={
+                "type": "irrigation",
+                "event_type": "watering_started",
+                "entity_id": "switch.front_lawn_watering",
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "watering_started",
+            },
+        )
+    )
+
+    assert context["state"] == "on"
+    assert (
+        context["attributes"]["friendly_name"]
+        == "Front Lawn Watering"
+    )
+
+    execute.assert_awaited_once()
+    assert execute.await_args.args[0] == "ha_get_state"
+    assert execute.await_args.args[1] == {
+        "entity_id": "switch.front_lawn_watering",
+    }
 
 @pytest.mark.anyio
 async def test_sensor_agent_autonomous_event_invokes_llm():
@@ -1748,6 +1893,72 @@ async def test_sensor_agent_autonomous_event_invokes_llm():
     assert result.success
     assert llm.called is True
     assert result.data["llm_assessment"] is not None
+
+@pytest.mark.anyio
+async def test_sensor_agent_gathers_live_ha_state_via_mcp():
+    agent = SensorAgent()
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "sensor.wifi_soil_sensor",
+                "state": "unavailable",
+                "attributes": {
+                    "friendly_name": "WiFi Soil Sensor",
+                },
+            },
+        )
+    )
+    agent.tool_executor.execute = execute
+
+    context = await agent._build_context(
+        Task(
+            id="sensor-mcp-context",
+            intent="sensor event: device_became_unavailable",
+            payload={
+                "type": "sensor",
+                "event_type": "device_became_unavailable",
+                "entity_id": "sensor.wifi_soil_sensor",
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "device_became_unavailable",
+            },
+        )
+    )
+
+    assert context["live_entity_state"]["state"] == "unavailable"
+    assert (
+        context["live_entity_state"]["attributes"]["friendly_name"]
+        == "WiFi Soil Sensor"
+    )
+
+    execute.assert_awaited_once()
+    assert execute.await_args.args[0] == "ha_get_state"
+    assert execute.await_args.args[1] == {
+        "entity_id": "sensor.wifi_soil_sensor",
+    }
+
+@pytest.mark.anyio
+async def test_orchestrator_does_not_classify_ha_irrigation_event_as_device_control():
+    orch = AgentOrchestrator()
+
+    task = Task(
+        id="irrigation-event-policy",
+        intent="irrigation event: watering_started at switch.front_lawn_watering",
+        payload={
+            "type": "irrigation",
+            "event_type": "watering_started",
+            "entity_id": "switch.front_lawn_watering",
+        },
+        metadata={
+            "source": "ha_event_dispatcher",
+            "event_type": "watering_started",
+        },
+    )
+
+    assert orch._is_device_control_task(task) is False
 
 @pytest.mark.anyio
 async def test_orchestrator_blocks_ha_event_device_action_by_default():

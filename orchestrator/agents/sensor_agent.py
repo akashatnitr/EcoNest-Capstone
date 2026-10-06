@@ -201,18 +201,50 @@ class SensorAgent(BaseAgent):
         try:
             recent = await self.read_mcp_resource(task, "home://memory/recent")
             interactions = recent.get("recent_interactions", [])
-            interaction_count = len(interactions) if isinstance(interactions, list) else 0
-
+            interaction_count = (
+                len(interactions)
+                if isinstance(interactions, list)
+                else 0
+            )
         except Exception:
             interaction_count = 0
 
-        return {
+        context = {
             "recent_interactions": interaction_count,
             "source": task.metadata.get(
                 "source",
                 "scheduled",
             ),
+            "trigger": task.metadata.get("event_type")
+            or task.payload.get("trigger")
+            or "manual",
         }
+
+        # For autonomous HA events, read the triggering entity's
+        # current state through the existing MCP boundary.
+        entity_id = str(task.payload.get("entity_id") or "").strip()
+        if entity_id:
+            try:
+                live_state = await self.invoke_mcp_tool(
+                    task,
+                    "ha_get_state",
+                    {"entity_id": entity_id},
+                )
+
+                if live_state.success:
+                    context["live_entity_state"] = live_state.result
+                else:
+                    context["live_entity_state"] = {
+                        "available": False,
+                        "warnings": live_state.warnings,
+                    }
+            except Exception:
+                context["live_entity_state"] = {
+                    "available": False,
+                    "warnings": ["Live Home Assistant state unavailable"],
+                }
+
+        return context
 
     def _recommendations(
         self,

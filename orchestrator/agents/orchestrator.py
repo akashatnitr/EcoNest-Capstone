@@ -583,6 +583,27 @@ class AgentOrchestrator:
         action = str(task.payload.get("action", "")).lower()
         domain = str(task.payload.get("domain", "")).lower()
         intent = task.intent.lower()
+
+        # HA event tasks describe something that already happened.
+        # They are not device-control requests unless an explicit
+        # control action is present in the task payload.
+        if task.metadata.get("source") == "ha_event_dispatcher":
+            return (
+                action
+                in {
+                    "turn_on",
+                    "turn_off",
+                    "toggle",
+                    "set_brightness",
+                    "open",
+                    "close",
+                    "set_temperature",
+                }
+                or domain
+                in {"device", "light", "switch", "cover", "climate", "fan"}
+                and bool(action)
+            )
+
         return (
             domain in {"device", "light", "switch", "cover", "climate", "fan"}
             or action

@@ -40,6 +40,38 @@ class IrrigationAgent(BaseAgent):
             for word in ("irrigation", "sprinkler", "watering")
         )
 
+    async def _live_entity_state(
+        self,
+        task: Task,
+    ) -> dict[str, Any]:
+        """Read the triggering Home Assistant entity through MCP."""
+        entity_id = str(task.payload.get("entity_id") or "").strip()
+        if not entity_id:
+            return {
+                "available": False,
+                "warnings": ["No triggering Home Assistant entity was provided"],
+            }
+
+        try:
+            result = await self.invoke_mcp_tool(
+                task,
+                "ha_get_state",
+                {"entity_id": entity_id},
+            )
+
+            if result.success:
+                return result.result
+
+            return {
+                "available": False,
+                "warnings": result.warnings,
+            }
+        except Exception:
+            return {
+                "available": False,
+                "warnings": ["Live Home Assistant state unavailable"],
+            }
+
     async def run(self, task: Task) -> Result:
         """Build a recommendation from retained forecast and zone information."""
         if task.payload.get("type") == "irrigation_question":
@@ -47,6 +79,7 @@ class IrrigationAgent(BaseAgent):
         forecasts = await self._forecast_rows(task)
         zones = await self._irrigation_zones(task)
         recent_runs = await self._recent_irrigation_runs(task)
+        live_entity_state = await self._live_entity_state(task)
         watering_history = _watering_history_summary(recent_runs)
         rainy = [row for row in forecasts if _forecast_indicates_rain(row)]
 
@@ -93,6 +126,7 @@ class IrrigationAgent(BaseAgent):
             zones,
             recent_runs,
             watering_history,
+            live_entity_state,
         )
         model_explanation_used = False
         if llm_reasoning and _is_safe_llm_explanation(llm_reasoning):
@@ -127,6 +161,7 @@ class IrrigationAgent(BaseAgent):
         zones: list[str],
         recent_runs: list[dict[str, Any]],
         watering_history: str,
+        live_entity_state: dict[str, Any],
     ) -> str | None:
         """Ask Gemma to explain, but not alter, calculated watering advice."""
         if task.payload.get("use_llm") is not True or not PROMPT_PATH.exists():
@@ -140,6 +175,7 @@ class IrrigationAgent(BaseAgent):
                 "recent_runs": recent_runs,
                 "watering_history": watering_history,
                 "recommendation": recommendation.model_dump(),
+                "live_entity_state": live_entity_state,
             },
         )
         prompt += await self.reviewed_feedback_guidance(task)
