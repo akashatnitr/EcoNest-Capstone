@@ -45,7 +45,6 @@ INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 DEVICE_CONTROL_KEYWORDS = (
-    "device",
     "turn on",
     "turn off",
     "dim",

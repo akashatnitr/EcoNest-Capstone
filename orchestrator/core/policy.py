@@ -20,6 +20,7 @@ AUTONOMOUS_SOURCES = {
     "autonomous_monitor",
     "background_monitor",
     "scheduled_autonomy",
+    "ha_event_dispatcher",
 }
 
 
