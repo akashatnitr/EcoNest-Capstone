@@ -736,7 +736,6 @@ async def test_orchestrator_blocks_autonomous_device_actions_by_default():
         metadata={"source": "background_monitor", "user_role": "homeowner"},
     )
 
-    orch.tool_executor.execute = AsyncMock()
     await orch._run_with_lifecycle(task)
 
     result = await orch.get_result("policy-auto-1")
@@ -1749,3 +1748,38 @@ async def test_sensor_agent_autonomous_event_invokes_llm():
     assert result.success
     assert llm.called is True
     assert result.data["llm_assessment"] is not None
+
+@pytest.mark.anyio
+async def test_orchestrator_blocks_ha_event_device_action_by_default():
+    orch = AgentOrchestrator(
+        agents=[_StaticAgent("device")],
+        current_hour_provider=lambda: 12,
+    )
+
+    task = Task(
+        id="policy-ha-event-1",
+        intent="device event: thermostat_target_changed at climate.downstairs",
+        payload={
+            "type": "device",
+            "event_type": "thermostat_target_changed",
+            "entity_id": "climate.downstairs",
+            "action": "set_temperature",
+            "domain": "climate",
+            "temperature": 72,
+        },
+        metadata={
+            "source": "ha_event_dispatcher",
+            "event_type": "thermostat_target_changed",
+        },
+    )
+
+    orch.tool_executor.execute = AsyncMock()
+
+    await orch._run_with_lifecycle(task)
+
+    result = await orch.get_result("policy-ha-event-1")
+
+    assert result is not None
+    assert not result.success
+    assert result.error == "policy_autonomous_action_restricted"
+    assert orch.agents[0].run_count == 0

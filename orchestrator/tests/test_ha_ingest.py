@@ -163,3 +163,99 @@ async def test_autonomous_energy_event_reaches_agent_and_llm():
     await asyncio.sleep(0.05)
 
     assert llm.called is True
+
+
+@pytest.mark.asyncio
+async def test_ha_ingestor_event_reaches_security_agent():
+    from orchestrator.agents.orchestrator import AgentOrchestrator
+    from orchestrator.agents.security_agent import SecurityAgent
+    from orchestrator.core.event_dispatcher import EventDispatcher
+    from orchestrator.core.home_events import classify_home_event
+
+    class FakeSecurityLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, messages, temperature=0.7):
+            self.called = True
+            return "No immediate security escalation is recommended."
+
+    llm = FakeSecurityLLM()
+    security_agent = SecurityAgent(llm=llm)
+
+    orchestrator = AgentOrchestrator(
+        agents=[security_agent],
+    )
+
+    dispatcher = EventDispatcher(
+        Settings(),
+        submit_task=orchestrator.submit,
+    )
+
+    ingestor = HomeAssistantIngestor(
+        Settings(),
+        event_dispatcher=dispatcher,
+    )
+
+    previous = {
+        "entity_id": "binary_sensor.front_door_motion",
+        "state": "off",
+        "last_updated": "2026-10-06T03:00:00+00:00",
+        "attributes": {
+            "friendly_name": "Front Door Motion",
+            "device_class": "motion",
+        },
+    }
+
+    current = {
+        "entity_id": "binary_sensor.front_door_motion",
+        "state": "on",
+        "last_updated": "2026-10-06T03:01:00+00:00",
+        "attributes": {
+            "friendly_name": "Front Door Motion",
+            "device_class": "motion",
+        },
+    }
+
+    ingestor._last_event_states[previous["entity_id"]] = previous
+    ingestor._fetch_states = AsyncMock(return_value=[current])
+    ingestor._sync_statistics_if_due = AsyncMock(return_value=0)
+
+    async def fake_store_states(states):
+        transitions = ingestor._event_transitions(states)
+
+        events = []
+        for old_state, new_state in transitions:
+            event = classify_home_event(old_state, new_state)
+            if event is not None:
+                events.append(event)
+
+        for state in states:
+            ingestor._last_event_states[state["entity_id"]] = state
+
+        return (
+            {
+                "readings_inserted": 0,
+                "home_events_recorded": len(events),
+                "home_events_purged": 0,
+                "sensor_readings_purged": 0,
+            },
+            [],
+            events,
+        )
+
+    ingestor._store_states = fake_store_states
+
+    result = await ingestor.run_once()
+
+    assert result["events_dispatched"] == 1
+
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
+
+    task_result = await orchestrator.get_result(task_id)
+
+    assert task_result is not None
+    assert task_result.success is True
+    assert task_result.agent == "security"
+    assert llm.called is True
