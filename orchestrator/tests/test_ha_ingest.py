@@ -6,6 +6,7 @@ import pytest
 from orchestrator.config import Settings
 from orchestrator.core.ha_ingest import HomeAssistantIngestor, _is_sensor_state, _room_environments
 from unittest.mock import AsyncMock
+from orchestrator.mcp.models import ToolExecutionResult
 
 def test_adaptive_ingestion_keeps_climate_weather_and_irrigation_states():
     assert _is_sensor_state({"entity_id": "climate.media_room", "state": "cool"})
@@ -259,3 +260,341 @@ async def test_ha_ingestor_event_reaches_security_agent():
     assert task_result.success is True
     assert task_result.agent == "security"
     assert llm.called is True
+
+
+# ------------------------------------------------------------------
+# Level 2 autonomous event -> specialist -> MCP -> LLM integration
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_level2_security_event_reaches_agent_mcp_and_llm():
+    from orchestrator.agents.security_agent import SecurityAgent
+    from orchestrator.agents.orchestrator import AgentOrchestrator
+    from orchestrator.core.event_dispatcher import EventDispatcher
+
+    class FakeSecurityLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, prompt, temperature=0.7):
+            self.called = True
+            return "No immediate security escalation is recommended."
+
+    llm = FakeSecurityLLM()
+    agent = SecurityAgent(llm=llm)
+
+    agent._observations_from_graph = AsyncMock(return_value=[])
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "binary_sensor.front_door_motion",
+                "state": "on",
+                "attributes": {
+                    "friendly_name": "Front Door Motion",
+                },
+            },
+        ),
+    )
+    agent.tool_executor.execute = execute
+    agent.read_mcp_resource = AsyncMock(
+        return_value={"recent_interactions": []}
+    )
+
+    orchestrator = AgentOrchestrator(agents=[agent])
+    dispatcher = EventDispatcher(
+        Settings(),
+        submit_task=orchestrator.submit,
+    )
+
+    event = {
+        "entity_id": "binary_sensor.front_door_motion",
+        "event_type": "motion_detected",
+        "previous_state": "off",
+        "new_state": "on",
+        "metadata": {
+            "friendly_name": "Front Door Motion",
+        },
+    }
+
+    assert await dispatcher.dispatch([event]) == 1
+
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
+    result = await orchestrator.get_result(task_id)
+
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "security"
+    assert llm.called is True
+
+    ha_calls = [
+        call for call in execute.await_args_list
+        if call.args[0] == "ha_get_state"
+    ]
+    assert ha_calls
+    assert ha_calls[0].args[1] == {
+        "entity_id": "binary_sensor.front_door_motion",
+    }
+
+    assert not any(
+        call.args[0] == "ha_call_service"
+        for call in execute.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_level2_energy_event_reaches_agent_mcp_and_llm():
+    from orchestrator.agents.energy_agent import EnergyAgent
+    from orchestrator.agents.orchestrator import AgentOrchestrator
+    from orchestrator.core.event_dispatcher import EventDispatcher
+
+    class FakeEnergyLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate_structured(
+            self,
+            messages,
+            output_model,
+            temperature=0.7,
+        ):
+            self.called = True
+            return output_model(
+                priority="HIGH",
+                action="Investigate the unusually high appliance power draw.",
+                reasoning="The current power is above the supplied baseline.",
+            )
+
+    llm = FakeEnergyLLM()
+    agent = EnergyAgent(llm=llm)
+
+    agent._mysql_energy_context = AsyncMock(
+        return_value={"available": True}
+    )
+    agent._observations_from_graph = AsyncMock(return_value=[])
+    agent._history_from_mysql = AsyncMock(return_value=[])
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "sensor.dishwasher_power",
+                "state": "650",
+                "attributes": {
+                    "friendly_name": "Dishwasher Power",
+                    "unit_of_measurement": "W",
+                },
+            },
+        ),
+    )
+    agent.tool_executor.execute = execute
+
+    orchestrator = AgentOrchestrator(agents=[agent])
+    dispatcher = EventDispatcher(
+        Settings(),
+        submit_task=orchestrator.submit,
+    )
+
+    event = {
+        "entity_id": "sensor.dishwasher_power",
+        "event_type": "energy_anomaly_detected",
+        "previous_state": "120",
+        "new_state": "650",
+        "metadata": {
+            "power_watts": 650.0,
+            "baseline_watts": 100.0,
+            "friendly_name": "Dishwasher Power",
+        },
+    }
+
+    assert await dispatcher.dispatch([event]) == 1
+
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
+    result = await orchestrator.get_result(task_id)
+
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "energy"
+    assert llm.called is True
+
+    ha_calls = [
+        call for call in execute.await_args_list
+        if call.args[0] == "ha_get_state"
+    ]
+    assert ha_calls
+    assert ha_calls[0].args[1] == {
+        "entity_id": "sensor.dishwasher_power",
+    }
+
+    assert not any(
+        call.args[0] == "ha_call_service"
+        for call in execute.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_level2_irrigation_event_reaches_agent_mcp_and_llm():
+    from orchestrator.agents.irrigation_agent import IrrigationAgent
+    from orchestrator.agents.orchestrator import AgentOrchestrator
+    from orchestrator.core.event_dispatcher import EventDispatcher
+
+    class FakeIrrigationLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, prompt, temperature=0.7):
+            self.called = True
+            return (
+                "Recent conditions support reviewing the watering "
+                "schedule before running the zone."
+            )
+
+    llm = FakeIrrigationLLM()
+    agent = IrrigationAgent(llm=llm)
+
+    agent._forecast_rows = AsyncMock(return_value=[])
+    agent._irrigation_zones = AsyncMock(
+        return_value=["switch.front_lawn_watering"]
+    )
+    agent._recent_irrigation_runs = AsyncMock(return_value=[])
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "switch.front_lawn_watering",
+                "state": "on",
+                "attributes": {
+                    "friendly_name": "Front Lawn Watering",
+                },
+            },
+        ),
+    )
+    agent.tool_executor.execute = execute
+
+    orchestrator = AgentOrchestrator(agents=[agent])
+    dispatcher = EventDispatcher(
+        Settings(),
+        submit_task=orchestrator.submit,
+    )
+
+    event = {
+        "entity_id": "switch.front_lawn_watering",
+        "event_type": "watering_started",
+        "previous_state": "off",
+        "new_state": "on",
+        "metadata": {
+            "friendly_name": "Front Lawn Watering",
+        },
+    }
+
+    assert await dispatcher.dispatch([event]) == 1
+
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
+    result = await orchestrator.get_result(task_id)
+
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "irrigation"
+    assert llm.called is True
+
+    ha_calls = [
+        call for call in execute.await_args_list
+        if call.args[0] == "ha_get_state"
+    ]
+    assert ha_calls
+    assert ha_calls[0].args[1] == {
+        "entity_id": "switch.front_lawn_watering",
+    }
+
+    assert not any(
+        call.args[0] == "ha_call_service"
+        for call in execute.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_level2_sensor_event_reaches_agent_mcp_and_llm():
+    from orchestrator.agents.sensor_agent import SensorAgent
+    from orchestrator.agents.orchestrator import AgentOrchestrator
+    from orchestrator.core.event_dispatcher import EventDispatcher
+
+    class FakeSensorLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, prompt, temperature=0.7):
+            self.called = True
+            return (
+                "The sensor should be reviewed because its "
+                "state is unavailable."
+            )
+
+    llm = FakeSensorLLM()
+    agent = SensorAgent(llm=llm)
+
+    agent._observations_from_graph = AsyncMock(return_value=[])
+    agent.read_mcp_resource = AsyncMock(
+        return_value={"recent_interactions": []}
+    )
+
+    execute = AsyncMock(
+        return_value=ToolExecutionResult(
+            capability="ha_get_state",
+            result={
+                "entity_id": "sensor.wifi_soil_sensor",
+                "state": "unavailable",
+                "attributes": {
+                    "friendly_name": "WiFi Soil Sensor",
+                },
+            },
+        ),
+    )
+    agent.tool_executor.execute = execute
+
+    orchestrator = AgentOrchestrator(agents=[agent])
+    dispatcher = EventDispatcher(
+        Settings(),
+        submit_task=orchestrator.submit,
+    )
+
+    event = {
+        "entity_id": "sensor.wifi_soil_sensor",
+        "event_type": "device_became_unavailable",
+        "previous_state": "45",
+        "new_state": "unavailable",
+        "metadata": {
+            "friendly_name": "WiFi Soil Sensor",
+        },
+    }
+
+    assert await dispatcher.dispatch([event]) == 1
+
+    task_id = next(iter(orchestrator._tasks))
+    await orchestrator._tasks[task_id]
+    result = await orchestrator.get_result(task_id)
+
+    assert result is not None
+    assert result.success is True
+    assert result.agent == "sensor"
+    assert llm.called is True
+    assert result.data["llm_assessment"] is not None
+
+    ha_calls = [
+        call for call in execute.await_args_list
+        if call.args[0] == "ha_get_state"
+    ]
+    assert ha_calls
+    assert ha_calls[0].args[1] == {
+        "entity_id": "sensor.wifi_soil_sensor",
+    }
+
+    assert not any(
+        call.args[0] == "ha_call_service"
+        for call in execute.await_args_list
+    )

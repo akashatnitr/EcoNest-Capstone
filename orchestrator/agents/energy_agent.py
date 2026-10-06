@@ -241,7 +241,33 @@ class EnergyAgent(BaseAgent):
             or task.payload.get("trigger")
             or "manual",
         }
+
         context["mysql"] = await self._mysql_energy_context(task)
+
+        # For autonomous HA events, fetch the live state of the triggering
+        # entity through MCP so energy reasoning uses current device context.
+        entity_id = str(task.payload.get("entity_id") or "").strip()
+        if entity_id:
+            try:
+                live_state = await self.invoke_mcp_tool(
+                    task,
+                    "ha_get_state",
+                    {"entity_id": entity_id},
+                )
+
+                if live_state.success:
+                    context["live_entity_state"] = live_state.result
+                else:
+                    context["live_entity_state"] = {
+                        "available": False,
+                        "warnings": live_state.warnings,
+                    }
+            except Exception:
+                context["live_entity_state"] = {
+                    "available": False,
+                    "warnings": ["Live Home Assistant state unavailable"],
+                }
+
         return context
 
     def _pricing_from_forecast(
