@@ -1531,3 +1531,221 @@ async def test_sensor_agent_llm_failure():
     )
 
     assert result.success
+
+@pytest.mark.anyio
+async def test_energy_agent_autonomous_event_invokes_llm():
+    class _EnergyLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate_structured(
+            self, messages, output_model, temperature=0.7
+        ):
+            self.called = True
+            assert "EcoNest's energy optimization agent" in messages[0].content
+
+            return output_model(
+                priority="HIGH",
+                action="Investigate the unusually high appliance power draw.",
+                reasoning="The current power reading is significantly above the supplied baseline.",
+            )
+
+    llm = _EnergyLLM()
+    agent = EnergyAgent(llm=llm)
+
+    async def _context(task):
+        return {
+            "current_hour": 18,
+            "source": "ha_event_dispatcher",
+            "trigger": "energy_anomaly_detected",
+            "mysql": {"available": False},
+        }
+
+    async def _graph_observations(task):
+        return []
+
+    async def _mysql_history(task):
+        return []
+
+    agent._build_context = _context
+    agent._observations_from_graph = _graph_observations
+    agent._history_from_mysql = _mysql_history
+
+    result = await agent.run(
+        Task(
+            id="autonomous-energy-llm",
+            intent="energy event: energy_anomaly_detected at sensor.dryer_power",
+            payload={
+                "type": "energy",
+                "event_type": "energy_anomaly_detected",
+                "entity_id": "sensor.dryer_power",
+                "use_llm": True,
+                "observations": [
+                    {
+                        "entity_id": "sensor.dryer_power",
+                        "name": "Dryer",
+                        "current_power_w": 650,
+                        "baseline_w": 100,
+                        "reason": "Power is significantly above baseline.",
+                    }
+                ],
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "energy_anomaly_detected",
+            },
+        )
+    )
+
+    assert result.success
+    assert llm.called is True
+    assert (
+        result.data["recommendations"][0]["action"]
+        == "Investigate the unusually high appliance power draw."
+    )
+
+
+@pytest.mark.anyio
+async def test_security_agent_autonomous_event_invokes_llm():
+    from orchestrator.agents.security_agent import SecurityAgent
+
+    class _SecurityLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, prompt, temperature=0.7):
+            self.called = True
+            return "Review the detected motion event and confirm whether follow-up is needed."
+
+    llm = _SecurityLLM()
+    agent = SecurityAgent(llm=llm)
+
+    agent._build_context = AsyncMock(
+        return_value={
+            "hour": 18,
+            "source": "ha_event_dispatcher",
+            "trigger": "motion_detected",
+        }
+    )
+    agent._observations_from_graph = AsyncMock(return_value=[])
+
+    result = await agent.run(
+        Task(
+            id="autonomous-security-llm",
+            intent="security event: motion_detected at binary_sensor.front_door_motion",
+            payload={
+                "type": "security",
+                "event_type": "motion_detected",
+                "entity_id": "binary_sensor.front_door_motion",
+                "use_llm": True,
+                "motion": True,
+                "observations": [
+                    {
+                        "entity_id": "binary_sensor.front_door_motion",
+                        "state": "on",
+                        "name": "Front Door Motion",
+                    }
+                ],
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "motion_detected",
+            },
+        )
+    )
+
+    assert result.success
+    assert llm.called is True
+
+
+@pytest.mark.anyio
+async def test_irrigation_agent_autonomous_event_invokes_llm():
+    from orchestrator.agents.irrigation_agent import IrrigationAgent
+
+    class _IrrigationLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, prompt, temperature=0.7):
+            self.called = True
+            return "Recent conditions support reviewing the watering schedule before running the zone."
+
+    llm = _IrrigationLLM()
+    agent = IrrigationAgent(llm=llm)
+
+    agent._forecast_rows = AsyncMock(return_value=[])
+    agent._irrigation_zones = AsyncMock(return_value=["front_lawn"])
+    agent._recent_irrigation_runs = AsyncMock(return_value=[])
+
+    result = await agent.run(
+        Task(
+            id="autonomous-irrigation-llm",
+            intent="irrigation event: watering_started at switch.front_lawn_watering",
+            payload={
+                "type": "irrigation",
+                "event_type": "watering_started",
+                "entity_id": "switch.front_lawn_watering",
+                "use_llm": True,
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "watering_started",
+            },
+        )
+    )
+
+    assert result.success
+    assert llm.called is True
+    assert result.data["model_explanation_used"] is True
+
+
+@pytest.mark.anyio
+async def test_sensor_agent_autonomous_event_invokes_llm():
+    from orchestrator.agents.sensor_agent import SensorAgent
+
+    class _SensorLLM:
+        def __init__(self):
+            self.called = False
+
+        async def generate(self, prompt, temperature=0.7):
+            self.called = True
+            return "The sensor should be reviewed because its state is unavailable."
+
+    llm = _SensorLLM()
+    agent = SensorAgent(llm=llm)
+
+    agent._build_context = AsyncMock(
+        return_value={
+            "source": "ha_event_dispatcher",
+            "trigger": "device_became_unavailable",
+        }
+    )
+    agent._observations_from_graph = AsyncMock(return_value=[])
+
+    result = await agent.run(
+        Task(
+            id="autonomous-sensor-llm",
+            intent="sensor event: device_became_unavailable at sensor.wifi_soil_sensor",
+            payload={
+                "type": "sensor",
+                "event_type": "device_became_unavailable",
+                "entity_id": "sensor.wifi_soil_sensor",
+                "use_llm": True,
+                "observations": [
+                    {
+                        "entity_id": "sensor.wifi_soil_sensor",
+                        "state": "unavailable",
+                        "name": "WiFi Soil Sensor",
+                    }
+                ],
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "device_became_unavailable",
+            },
+        )
+    )
+
+    assert result.success
+    assert llm.called is True
+    assert result.data["llm_assessment"] is not None
