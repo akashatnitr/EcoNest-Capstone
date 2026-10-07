@@ -6,68 +6,152 @@
     <title>EcoNest Launchpad</title>
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0d1323; color: #f6f7ff; }
+      * { box-sizing: border-box; }
       body { margin: 0; min-height: 100vh; background: #0d1323; }
-      main { width: min(1100px, calc(100% - 36px)); margin: 0 auto; padding: 54px 0 80px; }
-      .eyebrow { color: #ae9bff; font-size: .82rem; font-weight: 750; letter-spacing: .08em; margin: 0 0 10px; }
-      h1 { font-size: clamp(2.4rem, 6vw, 4.5rem); letter-spacing: -.055em; margin: 0; }
-      .lede { color: #c4cde6; font-size: 1.08rem; line-height: 1.6; max-width: 720px; margin: 14px 0 36px; }
-      .groups { display: grid; gap: 25px; }
-      h2 { font-size: 1rem; color: #c7bbff; letter-spacing: .05em; text-transform: uppercase; margin: 0 0 11px; }
-      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-      .link { display: block; min-height: 108px; box-sizing: border-box; padding: 18px; border: 1px solid #40527b; border-radius: 14px; background: #141e33; color: inherit; text-decoration: none; transition: transform .15s ease, border-color .15s ease, background .15s ease; }
-      .link:hover, .link:focus-visible { transform: translateY(-2px); border-color: #ad96ff; background: #1b2945; outline: none; }
-      .link strong { display: block; color: #fff; font-size: 1.05rem; margin-bottom: 7px; }
-      .link span { color: #bfc9e4; font-size: .9rem; line-height: 1.42; }
-      .primary { border-color: #5a4d95; box-shadow: inset 4px 0 #ae91ff; }
-      .external { border-color: #285d79; box-shadow: inset 4px 0 #68baf4; }
-      .support { border-color: #4a6570; box-shadow: inset 4px 0 #69d4c4; }
-      .footer { margin-top: 30px; color: #94a4cb; font-size: .9rem; }
-      @media (max-width: 760px) { main { padding-top: 34px; } .grid { grid-template-columns: 1fr; } }
+      .shell { display: grid; grid-template-columns: 290px minmax(0, 1fr); min-height: 100vh; transition: grid-template-columns .22s ease; }
+      .shell.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+      .sidebar { display: flex; flex-direction: column; gap: 26px; padding: 29px 18px; border-right: 1px solid #2d3d60; background: #10182b; overflow: hidden; transition: opacity .16s ease, padding .22s ease; }
+      .sidebar-collapsed .sidebar { opacity: 0; padding-left: 0; padding-right: 0; pointer-events: none; }
+      .nav-collapse { position: fixed; z-index: 5; top: 17px; left: 246px; width: 30px; height: 30px; border: 1px solid #d2c4ac; border-radius: 8px; background: #fffdfa; color: #493b2b; cursor: pointer; font: inherit; font-size: 1rem; transition: left .22s ease, background .15s ease; }
+      .nav-collapse:hover, .nav-collapse:focus-visible { background: #eadfc9; outline: 3px solid rgba(111, 82, 55, .18); outline-offset: 2px; }
+      .sidebar-collapsed .nav-collapse { left: 16px; }
+      .brand { padding: 0 10px; }
+      .eyebrow { color: #ae9bff; font-size: .75rem; font-weight: 800; letter-spacing: .1em; margin: 0 0 7px; }
+      h1 { font-size: 1.55rem; letter-spacing: -.04em; margin: 0; }
+      .brand p:last-child { color: #aebbd9; font-size: .88rem; line-height: 1.45; margin: 7px 0 0; }
+      nav { display: grid; gap: 20px; overflow-y: auto; }
+      .nav-group { display: grid; gap: 6px; }
+      .nav-group h2 { color: #9eadd0; font-size: .7rem; letter-spacing: .1em; margin: 0 10px 4px; text-transform: uppercase; }
+      .nav-link { width: 100%; display: grid; gap: 3px; padding: 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #eaf0ff; cursor: pointer; font: inherit; text-align: left; }
+      .nav-link:hover, .nav-link:focus-visible { background: #182640; border-color: #42557c; outline: none; }
+      .nav-link[aria-current="page"] { background: #242051; border-color: #7564bd; box-shadow: inset 3px 0 #b49cff; }
+      .nav-link strong { font-size: .93rem; }
+      .nav-link span { color: #aab8d6; font-size: .76rem; line-height: 1.35; }
+      .sidebar-footer { margin: auto 10px 0; color: #8495bb; font-size: .73rem; line-height: 1.45; }
+      .workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 100vh; }
+      .workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 19px 28px; border-bottom: 1px solid #2d3d60; background: #111a2f; }
+      .workspace-title { min-width: 0; }
+      .workspace-title p { color: #9dadcf; font-size: .76rem; font-weight: 750; letter-spacing: .08em; margin: 0 0 4px; text-transform: uppercase; }
+      .workspace-title h2 { font-size: 1.22rem; letter-spacing: -.025em; margin: 0; }
+      .open-page { flex: 0 0 auto; border: 1px solid #52678f; border-radius: 8px; color: #e5eaff; padding: 8px 11px; font-size: .82rem; text-decoration: none; }
+      .open-page:hover, .open-page:focus-visible { background: #263656; outline: none; }
+      .content-frame { width: 100%; height: 100%; min-height: 0; border: 0; background: #0d1323; }
+      @media (max-width: 850px) {
+        .shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+        .sidebar { gap: 14px; padding: 17px; border-bottom: 1px solid #2d3d60; border-right: 0; }
+        nav { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+        .nav-group { display: flex; gap: 7px; }
+        .nav-group h2, .nav-link span, .sidebar-footer { display: none; }
+        .nav-link { display: block; width: max-content; padding: 8px 10px; white-space: nowrap; }
+        .workspace { min-height: calc(100vh - 179px); }
+        .workspace-header { padding: 14px 18px; }
+        .nav-collapse { top: 15px; left: auto; right: 16px; }
+        .sidebar-collapsed .nav-collapse { left: auto; right: 16px; }
+        .shell.sidebar-collapsed { grid-template-columns: 1fr; grid-template-rows: 0 minmax(0, 1fr); }
+        .sidebar-collapsed .sidebar { padding-top: 0; padding-bottom: 0; }
+      }
     </style>
+    <link rel="stylesheet" href="/static/econest-theme.css" />
   </head>
   <body>
-    <main>
-      <p class="eyebrow">ECONEST / LAUNCHPAD</p>
-      <h1>Open EcoNest.</h1>
-      <p class="lede">One place to reach every EcoNest dashboard, data view, integration, and developer tool.</p>
-
-      <div class="groups">
-        <section>
-          <h2>Use EcoNest</h2>
-          <div class="grid">
-            <a class="link primary" href="/command"><strong>User prompts</strong><span>Ask a question, request a recommendation, or propose a device action.</span></a>
-            <a class="link primary" href="/autonomy"><strong>Autonomous actions</strong><span>Review scheduled energy, security, and watering recommendations.</span></a>
-            <a class="link primary" href="/analytics"><strong>Insights</strong><span>Explore learned energy, comfort, irrigation, and cost analytics.</span></a>
-            <a class="link primary" href="/benchmarks"><strong>Benchmark report</strong><span>Review EcoNest resource use, response time, and local power measurements.</span></a>
-            <a class="link primary" href="/mcp/activity"><strong>MCP activity</strong><span>See the audited tool calls behind EcoNest tasks.</span></a>
-            <a class="link primary" href="/demo"><strong>Demo</strong><span>Walk through EcoNest workflows and their intermediate steps.</span></a>
-          </div>
-        </section>
-
-        <section>
-          <h2>Data and integrations</h2>
-          <div class="grid">
-            <a class="link support" href="/monitor"><strong>MySQL Explorer</strong><span>Browse retained sensor records and important household events.</span></a>
-            <a class="link support" href="/schema"><strong>MySQL relationship map</strong><span>Visualize the live database schema and table relationships.</span></a>
-            <a id="home-assistant" class="link external" target="_blank" rel="noopener"><strong>Home Assistant</strong><span>Open the live smart-home dashboard and device state.</span></a>
-            <a id="arcadedb" class="link external" target="_blank" rel="noopener"><strong>ArcadeDB</strong><span>Inspect EcoNest’s room, device, sensor, and capability graph.</span></a>
-          </div>
-        </section>
-
-        <section>
-          <h2>Developer tools</h2>
-          <div class="grid">
-            <a class="link support" href="/docs"><strong>Orchestrator API</strong><span>Open interactive API documentation for integrations and troubleshooting.</span></a>
-            <a class="link support" href="/health"><strong>System health</strong><span>View the current MySQL and ArcadeDB health status.</span></a>
-          </div>
-        </section>
-      </div>
-      <p class="footer">External links use this page’s current host automatically, so the launchpad works through the Mac Mini’s Tailscale address without storing it in the page.</p>
-    </main>
+    <div class="shell">
+      <button id="navCollapse" class="nav-collapse" type="button" aria-controls="launchpadNav" aria-expanded="true" title="Collapse navigation">‹</button>
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">ECONEST / LAUNCHPAD</p>
+          <h1>EcoNest</h1>
+          <p>Dashboards, home data, and developer tools in one workspace.</p>
+        </div>
+        <nav id="launchpadNav" aria-label="EcoNest pages">
+          <section class="nav-group" aria-label="Use EcoNest">
+            <h2>Use EcoNest</h2>
+            <button class="nav-link" type="button" data-page="/command" data-title="User prompts" data-description="Ask questions, request recommendations, or prepare a device action."><strong>User prompts</strong><span>Questions and device actions</span></button>
+            <button class="nav-link" type="button" data-page="/autonomy" data-title="Autonomous actions" data-description="Review scheduled energy, security, and watering recommendations."><strong>Autonomous actions</strong><span>Scheduled recommendations</span></button>
+            <button class="nav-link" type="button" data-page="/benchmarks" data-title="Benchmark report" data-description="Review resource use, response times, and health measurements."><strong>Benchmark report</strong><span>Performance and health</span></button>
+            <button class="nav-link" type="button" data-page="/analytics" data-title="Insights" data-description="Explore learned household patterns and analytics."><strong>Insights</strong><span>Household learning</span></button>
+            <button class="nav-link" type="button" data-page="/mcp/activity" data-title="MCP activity" data-description="See audited capability calls behind EcoNest tasks."><strong>MCP activity</strong><span>Capability audit log</span></button>
+          </section>
+          <section class="nav-group" aria-label="Data and integrations">
+            <h2>Data and integrations</h2>
+            <button class="nav-link" type="button" data-page="/monitor" data-title="MySQL Explorer" data-description="Browse retained sensor records and important household events."><strong>MySQL Explorer</strong><span>Retained household data</span></button>
+            <button class="nav-link" type="button" data-page="/schema" data-title="MySQL relationship map" data-description="Visualize the live database schema and table relationships."><strong>MySQL relationship map</strong><span>Database relationships</span></button>
+            <button class="nav-link" type="button" data-external="home-assistant" data-title="Home Assistant" data-description="Open the live smart-home dashboard and device state."><strong>Home Assistant</strong><span>Live smart-home dashboard</span></button>
+            <button class="nav-link" type="button" data-external="arcadedb" data-title="ArcadeDB" data-description="Inspect EcoNest’s room, device, sensor, and capability graph."><strong>ArcadeDB</strong><span>Home graph database</span></button>
+          </section>
+          <section class="nav-group" aria-label="Developer tools">
+            <h2>Developer tools</h2>
+            <button class="nav-link" type="button" data-page="/docs" data-title="Orchestrator API" data-description="Interactive API documentation for integrations and troubleshooting."><strong>Orchestrator API</strong><span>FastAPI documentation</span></button>
+            <button class="nav-link" type="button" data-page="/health" data-title="System health" data-description="Current MySQL and ArcadeDB health status."><strong>System health</strong><span>Service availability</span></button>
+          </section>
+        </nav>
+        <p class="sidebar-footer">Pages remain in this workspace. Use “Open separately” only when a service requires its own tab.</p>
+      </aside>
+      <main class="workspace">
+        <header class="workspace-header">
+          <div class="workspace-title"><p id="pageDescription">Questions and device actions</p><h2 id="pageTitle">User prompts</h2></div>
+          <a id="openPage" class="open-page" href="/command" target="_blank" rel="noopener">Open separately ↗</a>
+        </header>
+        <iframe id="contentFrame" class="content-frame" title="EcoNest User prompts" src="/command"></iframe>
+      </main>
+    </div>
     <script>
       const host = window.location.hostname;
-      document.querySelector("#home-assistant").href = `http://${host}:8123/home/overview`;
-      document.querySelector("#arcadedb").href = `http://${host}:2480/`;
+      const externalPages = {
+        "home-assistant": `http://${host}:8123/home/overview`,
+        arcadedb: `http://${host}:2480/`,
+      };
+      const links = Array.from(document.querySelectorAll(".nav-link"));
+      const frame = document.querySelector("#contentFrame");
+      const title = document.querySelector("#pageTitle");
+      const description = document.querySelector("#pageDescription");
+      const openPage = document.querySelector("#openPage");
+      const shell = document.querySelector(".shell");
+      const navCollapse = document.querySelector("#navCollapse");
+      const NAVIGATION_STATE_KEY = "econest_launchpad_navigation_collapsed";
+
+      function setNavigationCollapsed(collapsed) {
+        shell.classList.toggle("sidebar-collapsed", collapsed);
+        navCollapse.setAttribute("aria-expanded", String(!collapsed));
+        navCollapse.textContent = collapsed ? "☰" : "‹";
+        navCollapse.title = collapsed ? "Show navigation" : "Collapse navigation";
+        localStorage.setItem(NAVIGATION_STATE_KEY, String(collapsed));
+      }
+
+      function showEmbeddingNotice(page) {
+        frame.removeAttribute("src");
+        frame.srcdoc = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>:root{color-scheme:light;font-family:Inter,system-ui,sans-serif;background:#f7f2e8;color:#292823}body{display:grid;min-height:100vh;margin:0;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#eadfc9,transparent 30rem),#f7f2e8}.notice{max-width:560px;border:1px solid #ded7c8;border-radius:16px;background:#fffdfa;padding:28px;box-shadow:0 12px 32px #58492d1a}.eyebrow{color:#6f5237;font-size:.78rem;font-weight:800;letter-spacing:.09em}h1{font-size:1.7rem;margin:10px 0}p{color:#69655b;line-height:1.55}a{display:inline-block;margin-top:8px;border:1px solid #8fa687;border-radius:9px;background:#b6c7ad;color:#263327;font-weight:800;padding:10px 14px;text-decoration:none}</style></head><body><section class="notice"><p class="eyebrow">EMBEDDING BLOCKED BY HOME ASSISTANT</p><h1>This dashboard must open separately.</h1><p>Home Assistant prevents other pages from embedding its interface to protect against clickjacking. EcoNest cannot override that browser security policy.</p><a href="${page}" target="_blank" rel="noopener">Open Home Assistant ↗</a></section></body></html>`;
+      }
+
+      function selectPage(link, updateHash = true) {
+        const page = link.dataset.page || externalPages[link.dataset.external];
+        if (!page) return;
+        links.forEach((item) => item.removeAttribute("aria-current"));
+        link.setAttribute("aria-current", "page");
+        title.textContent = link.dataset.title || "EcoNest";
+        description.textContent = link.dataset.description || "";
+        frame.title = `EcoNest ${link.dataset.title || "page"}`;
+        if (link.dataset.external === "home-assistant") {
+          showEmbeddingNotice(page);
+        } else {
+          frame.removeAttribute("srcdoc");
+          if (frame.src !== page) frame.src = page;
+        }
+        openPage.href = page;
+        if (updateHash) window.location.hash = encodeURIComponent(link.dataset.page || link.dataset.external || "command");
+      }
+
+      function selectFromHash() {
+        const key = decodeURIComponent(window.location.hash.slice(1) || "command");
+        const link = links.find((item) => item.dataset.page === `/${key.replace(/^\//, "")}` || item.dataset.external === key)
+          || links.find((item) => item.dataset.page === "/command");
+        if (link) selectPage(link, false);
+      }
+
+      links.forEach((link) => link.addEventListener("click", () => selectPage(link)));
+      navCollapse.addEventListener("click", () => setNavigationCollapsed(!shell.classList.contains("sidebar-collapsed")));
+      window.addEventListener("hashchange", selectFromHash);
+      setNavigationCollapsed(localStorage.getItem(NAVIGATION_STATE_KEY) === "true");
+      selectFromHash();
     </script>
   </body>
 </html>

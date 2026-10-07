@@ -25,3 +25,10 @@ def test_autonomy_run_once_reports_disabled_monitor(client, monkeypatch):
     response = client.post("/autonomy/run-once")
 
     assert response.status_code == 409
+
+
+def test_shared_pastel_theme_is_served(client) -> None:
+    response = client.get("/static/econest-theme.css")
+
+    assert response.status_code == 200
+    assert "Shared EcoNest neutral earth interface" in response.text

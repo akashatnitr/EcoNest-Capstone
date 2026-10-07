@@ -2,9 +2,11 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api import (
     analytics,
@@ -90,6 +92,11 @@ app = FastAPI(
     description="Smart Home Sensor With Reasoning",
     version=settings.VERSION,
     lifespan=lifespan,
+)
+app.mount(
+    "/static",
+    StaticFiles(directory=Path(__file__).resolve().parent / "static"),
+    name="static",
 )
 
 

@@ -40,7 +40,7 @@ def test_benchmark_page_is_served(client) -> None:
     assert "fetch('/health',{cache:'no-store'})" in response.text
     assert "newest saved measurement" in response.text
     assert "It does not run a new host benchmark" in response.text
-    assert "${earlierCpuEvidence(data)}${weeklyHealthSection(data)}${overview(data,liveHealth)}" in response.text
+    assert "${weeklyHealthSection(data)}${earlierCpuEvidence(data)}${overview(data,liveHealth)}" in response.text
     assert "Weekly health check" in response.text
     assert "Device availability" in response.text
 
