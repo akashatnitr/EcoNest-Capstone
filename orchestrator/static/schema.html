@@ -24,6 +24,7 @@
     .table { position: absolute; width: 190px; border: 1px solid #4b9c70; border-radius: 10px; overflow: hidden; background: #0b291c; box-shadow: 0 8px 22px #0008; cursor: pointer; user-select: none; } .table:hover, .table.selected { border-color: #9ef2bc; box-shadow: 0 0 0 2px #9ef2bc55, 0 8px 22px #0008; } .table.audit { border-color: #927ac8; background: #211a37; } .table header { min-height: 0; padding: 9px 11px; border: 0; background: #15472f; color: #fff; font-weight: 750; font-size: .88rem; } .table.audit header { background: #47377a; } .fields { padding: 8px 11px 10px; color: #bedaca; font: .73rem ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.55; } .key { color: #8df0b5; } .fk { color: #8bc8ff; }
     @media (max-width: 780px) { main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } aside { border-right: 0; border-bottom: 1px solid #295440; padding: 14px 18px; } #details { min-height: 0; } .hint { display: none; } }
   </style>
+  <link rel="stylesheet" href="/static/econest-theme.css" />
 </head>
 <body>
   <header><div><h1>EcoNest MySQL relationship map</h1><p>Live documentation of EcoNest’s retained household data and table relationships.</p></div><div class="controls"><button id="zoomOut" aria-label="Zoom out">−</button><button id="reset">Reset view</button><button id="zoomIn" aria-label="Zoom in">+</button></div></header>

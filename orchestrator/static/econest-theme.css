@@ -1,0 +1,138 @@
+/* Shared EcoNest neutral earth interface — loaded after each page's local layout CSS. */
+:root {
+  color-scheme: light !important;
+  --econest-ink: #292823;
+  --econest-muted: #69655b;
+  --econest-line: #ded7c8;
+  --econest-surface: rgba(255, 255, 255, 0.82);
+  --econest-earth: #b89a78;
+  --econest-earth-deep: #6f5237;
+  --econest-sage: #b6c7ad;
+  --econest-sage-deep: #527052;
+  --econest-sand: #eadfc9;
+  --econest-cream: #f7f2e8;
+  background: #f7f2e8 !important;
+  color: var(--econest-ink) !important;
+}
+
+body {
+  background:
+    radial-gradient(circle at 7% 4%, rgba(234, 223, 201, 0.78), transparent 27rem),
+    radial-gradient(circle at 94% 12%, rgba(182, 199, 173, 0.52), transparent 26rem),
+    #f7f2e8 !important;
+  color: var(--econest-ink) !important;
+}
+
+.sidebar, .workspace-header, aside {
+  background: rgba(250, 247, 239, 0.88) !important;
+  border-color: var(--econest-line) !important;
+}
+
+header {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+body > header {
+  background: rgba(250, 247, 239, 0.88) !important;
+  border-color: var(--econest-line) !important;
+}
+
+.nav-link { color: var(--econest-ink) !important; }
+.nav-link span, .brand p:last-child, .sidebar-footer { color: var(--econest-muted) !important; }
+.nav-link:hover, .nav-link:focus-visible { background: #eee5d6 !important; border-color: #c9b79d !important; }
+.nav-link[aria-current="page"] { background: #e6ddce !important; border-color: #ae916e !important; box-shadow: inset 3px 0 #7e6243 !important; }
+.content-frame { background: #f7f2e8 !important; }
+
+h1, h2, h3, h4, strong { color: #292823 !important; }
+h1, h2 { font-family: ui-rounded, "Avenir Next", "Trebuchet MS", system-ui, sans-serif; }
+p, li, dd, label, .muted, .summary, .status { color: var(--econest-muted) !important; }
+
+.card, .insight, .profile, .legend, .readable-result, .execution-trace,
+.technical-metadata, .history-entry, .confirmation, .trace, .task, .item,
+.model-briefing, .metric, .profile-item, #details, .table, .notice, .empty {
+  background: var(--econest-surface) !important;
+  border-color: var(--econest-line) !important;
+  box-shadow: 0 12px 32px rgba(76, 62, 111, 0.1) !important;
+}
+
+.card, .insight, .profile, .legend, .readable-result, .trace, .task, .item,
+.model-briefing, .notice { backdrop-filter: blur(14px); }
+
+button, .button, a.button, .open-page {
+  background: var(--econest-sage) !important;
+  border: 1px solid rgba(82, 112, 82, 0.26) !important;
+  box-shadow: 0 4px 0 rgba(82, 112, 82, 0.2) !important;
+  color: #263327 !important;
+}
+
+button:hover, button:focus-visible, .button:hover, .button:focus-visible,
+a.button:hover, a.button:focus-visible, .open-page:hover, .open-page:focus-visible {
+  background: #a9bf9d !important;
+  outline: 3px solid rgba(82, 112, 82, 0.2) !important;
+  outline-offset: 2px;
+}
+
+button.secondary, .button.secondary, a.button.secondary, .presets button {
+  background: var(--econest-sand) !important;
+  color: #533f2b !important;
+  box-shadow: none !important;
+}
+
+input, textarea, select {
+  background: rgba(255, 255, 255, 0.76) !important;
+  border-color: #cfc3af !important;
+  color: var(--econest-ink) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: #8ea184 !important;
+  box-shadow: 0 0 0 3px rgba(82, 112, 82, 0.18) !important;
+  outline: none;
+}
+
+table { background: rgba(255, 255, 255, 0.55); }
+th, td { border-color: #e5ded1 !important; color: var(--econest-ink) !important; }
+th { color: var(--econest-earth-deep) !important; }
+pre, code { color: #4d463b !important; }
+pre {
+  background: #f0eadf !important;
+  border: 1px solid #ded3c0 !important;
+  line-height: 1.5;
+}
+
+.notice, .success, .chain, .outcome.success { border-left: 4px solid #759b70 !important; }
+.warning, .fallback, .outcome.skipped { background: #fbf2d9 !important; border-left: 4px solid #cba957 !important; color: #665225 !important; }
+.error, .outcome.failed, .trace.failed { background: #f9e8e0 !important; border-left: 4px solid #bb8068 !important; color: #713e30 !important; }
+.recommendation-item, .decision, .next { background: #f2ebdf !important; border-left-color: #aa8a66 !important; }
+.decision, .chain, .outcome, .fallback, .next { color: #40382f !important; }
+.chain { background: #e1ecdc !important; border-left: 4px solid #759b70 !important; }
+.chain *, .decision *, .outcome *, .fallback *, .next * { color: inherit !important; }
+.tag { background: #e9dfce !important; color: #5f4932 !important; }
+.tag.tool { background: #dce8d8 !important; color: #3f5e42 !important; }
+.tag.resource { background: #f4e8c8 !important; color: #6b572a !important; }
+.tag.error { background: #f1d9cf !important; color: #713e30 !important; }
+
+#viewport { background-color: #f1eadf !important; background-image: radial-gradient(#cdbda7 1px, transparent 1px) !important; }
+.table header, .table.audit header { background: #e7dbc9 !important; color: #483725 !important; }
+.table.audit { background: #faf7f1 !important; }
+.fields { color: #5d5142 !important; }
+.fields .key { color: #4e7651 !important; }
+.fields .fk { color: #58778b !important; }
+.edge-label { fill: #51483d !important; stroke: #f5eee2 !important; }
+.legend, .legend dd, .legend span, .hint { color: #615a50 !important; }
+
+.good, .verified { color: #416d46 !important; }
+.warn { color: #80621f !important; }
+
+.technical-details summary { color: #60482f !important; }
+.technical-details summary:hover { color: #3f5e42 !important; }
+.technical-metadata p { color: #4f493f !important; }
+.trace-row { border-color: #ddd5c8 !important; }
+.trace-name { color: #37342d !important; }
+.trace-time { color: #5d765b !important; }
+
+.eyebrow, header > p:first-child, .category, .nav-group h2 { color: var(--econest-earth-deep) !important; }
+.trace-dot { background: #759b70 !important; }
+.trace-row.running .trace-dot { background: #cba957 !important; }
+.trace-row.failed .trace-dot { background: #bb8068 !important; }
