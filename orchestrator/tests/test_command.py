@@ -56,6 +56,8 @@ def test_command_page_uses_prompt_and_confirmation(client):
     assert "interpretation.classList.add(\"hide\")" in response.text
     assert "Prompt history" in response.text
     assert "econest_prompt_history" in response.text
+    assert "data-history-reuse-index" in response.text
+    assert "position: sticky" in response.text
     assert "econest_prompt_browser_timing" in response.text
     assert "recordBrowserTiming(timing" in response.text
     assert "data-history-index" in response.text

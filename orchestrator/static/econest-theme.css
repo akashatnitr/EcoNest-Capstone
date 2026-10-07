@@ -79,6 +79,13 @@ button.secondary, .button.secondary, a.button.secondary, .presets button {
   box-shadow: none !important;
 }
 
+.history-reuse, .history-reuse:hover, .history-reuse:focus-visible {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+
 input, textarea, select {
   background: rgba(255, 255, 255, 0.76) !important;
   border-color: #cfc3af !important;
