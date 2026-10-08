@@ -44,11 +44,11 @@ host as the Launchpad.
 | Autonomous actions | Scheduled energy, security, and watering recommendations with recorded outcomes. |
 | Insights | Learned energy, comfort, irrigation, and electricity-cost analytics. |
 | MCP activity | The audited MCP calls behind EcoNest tasks, including tool, agent, timing, and result. |
-| Demo | Guided EcoNest workflows and intermediate steps. |
 | MySQL Explorer | Read-only operational records and retained sensor data. |
 | MySQL relationship map | Visual guide to the live MySQL tables and their relationships. |
 | Home Assistant | The live smart-home dashboard and final authority for device states and service calls. |
 | ArcadeDB | The room, device, sensor, capability, and relationship graph. |
+| Google Calendar | Read-only household-calendar context and connection status. |
 | Orchestrator API | Interactive API documentation for integration and troubleshooting. |
 | System health | Current MySQL and ArcadeDB health status. |
 
@@ -73,6 +73,57 @@ host as the Launchpad.
 - **Sensor Agent:** Diagnoses sensor readings and health.
 - **Device Agent:** Validates a device capability and action, calls Home
   Assistant through MCP, and verifies the resulting state.
+
+## External connectors and household context
+
+Connectors let EcoNest use approved external information without giving an
+external provider direct control over the home. Each connector follows the
+same high-level boundary:
+
+```text
+External provider → connector wrapper → bounded EcoNest context → agents/policy
+```
+
+The connector wrapper is responsible for authentication, read-only retrieval,
+provider-specific parsing, privacy filtering, synchronization status, and audit
+metadata. Agents receive the bounded context rather than credentials or raw
+provider data. Context can influence an explanation or recommendation; it
+never authorizes a device action by itself.
+
+| Connector | Status | What EcoNest uses | What reaches agents | Device authority |
+| --- | --- | --- | --- | --- |
+| Home Assistant | Available | Live devices, sensor readings, and significant home events. | Live device/sensor facts through MCP. | Only after capability, policy, confirmation (when required), state verification, and audit checks. |
+| Google Calendar | Available, optional | Read-only events from one connected household calendar. | Derived `away` or `hosting` time windows and policy guidance. | None. Active context can queue advisory energy and security reviews only. |
+| Weather | Available through Home Assistant weather data | Forecast, precipitation, and outdoor conditions. | Bounded forecast facts used by irrigation and energy recommendations. | None by itself. |
+| Email | Planned | Explicitly user-approved household-relevant notices, such as travel or utility alerts. | A minimal, allowlisted category or time window—not raw email bodies by default. | None. Requires opt-in, sender/label allowlists, and a separate privacy review before implementation. |
+
+### What exists today
+
+- **Home Assistant** is EcoNest's live source of truth for devices and sensor
+  state. It is also the only connector that can carry out an approved device
+  service call.
+- **Google Calendar** uses read-only OAuth access. Event titles are shown only
+  on demand in the Calendar page and are neither retained nor sent to Gemma.
+  EcoNest stores only a non-identifying event hash, a derived `away` or
+  `hosting` window, and bounded guidance.
+- **Weather** is collected through the Home Assistant weather capability and
+  informs read-only watering and energy recommendations.
+- When an `away` or `hosting` Calendar window becomes active, EcoNest can
+  synchronize it on a short interval and queue one advisory Energy review and
+  one advisory Security review for that event. Those reviews are visible in
+  **Autonomous actions**, are recorded as `calendar_context`, and do not call
+  Home Assistant to change a device.
+
+### Planned connector work
+
+1. Add a connector status view with last synchronization time, scoped access,
+   and error state for every provider.
+2. Add user-controlled context rules, for example which calendars or weather
+   signals may inform recommendations.
+3. Evaluate an opt-in email connector that reduces allowlisted messages to
+   privacy-preserving categories before any model sees them.
+4. Keep the same safety boundary for every new connector: it may supply
+   evidence, but it cannot bypass policy, confirmation, or safety checks.
 
 ## Gemma prompts and when they run
 
@@ -300,8 +351,9 @@ outside git.
 
 EcoNest includes a Google Calendar connection page at
 `/integrations/google-calendar`. It requests only the read-only Calendar events
-scope and stores OAuth credentials encrypted. It does not yet sync event text
-into agent prompts or control any device.
+scope and stores OAuth credentials encrypted. It derives bounded `away` or
+`hosting` context windows rather than syncing event text into model prompts,
+and it never controls a device.
 
 Create a Google Cloud OAuth **Web application** client, add this callback URL
 (replace the host if EcoNest is deployed elsewhere), then add the following to
@@ -314,6 +366,9 @@ GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 GOOGLE_CALENDAR_REDIRECT_URI=http://localhost:8001/integrations/google-calendar/callback
 # Generate once with: poetry run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY=your-fernet-key
+# Advisory-only calendar-context reviews; no Home Assistant actions are enabled by this.
+GOOGLE_CALENDAR_AUTONOMOUS_REVIEWS_ENABLED=true
+GOOGLE_CALENDAR_SYNC_INTERVAL_SECONDS=60
 ```
 
 Use the actual externally reachable EcoNest URL as the redirect URI if the
@@ -325,9 +380,11 @@ docker compose -f docker-compose.real.yml up -d --no-deps orchestrator
 ```
 
 Then open **Google Calendar** in the Launchpad and select **Connect Google
-Calendar**. Calendar event text is not treated as an instruction; later phases
-will derive a bounded household context such as `hosting` or `away` before it
-is made available to a model or policy.
+Calendar**. Calendar event text is not treated as an instruction. EcoNest
+derives a bounded household context such as `hosting` or `away`, then supplies
+that context to recommendations and policies. An active relevant context can
+queue one energy and one security **advisory** review; it cannot authorize a
+Home Assistant service call.
 
 When `COMMAND_CENTER_AUTH_REQUIRED=false` for a local demo, set a random
 `GOOGLE_CALENDAR_SETUP_PASSPHRASE` too. It is required only to start the
