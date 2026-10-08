@@ -64,6 +64,67 @@ flowchart LR
 | Relationship context and reasoning topology | ArcadeDB | Graph data is populated through explicit sync/bootstrap operations. |
 | LLM inference | Ollama | Uses the configured primary model with fallback behavior. It is not a data store. |
 
+## Graph layer and execution boundary
+
+EcoNest treats the relationship graph as its **household knowledge layer**:
+it provides structured context for reasoning, but it does not authorize or
+perform control. The execution path is intentionally separate.
+
+```mermaid
+flowchart LR
+    Sources[HA, MySQL, and approved connectors] --> Graph[ArcadeDB household knowledge graph]
+    Sources --> Facts[Live facts through MCP]
+    Graph --> Reasoning[Gemma and specialist agents]
+    Facts --> Reasoning
+    Reasoning --> Proposal[Recommendation or proposed action]
+    Proposal --> Gate[Deterministic policy and safety gate]
+    Gate -->|Rejected, advisory, or confirmation needed| Record[User-facing result and audit]
+    Gate -->|Approved device action only| Executor[Device Agent execution boundary]
+    Executor --> MCP[MCP device tool]
+    MCP --> HA[Home Assistant service call]
+    HA --> Verify[Read-back state verification]
+    Verify --> Record
+```
+
+### The household knowledge graph
+
+ArcadeDB models the relationships that are difficult to recover from isolated
+sensor values: household → room → device → sensor/observation, device
+capabilities, and the links between contextual observations. This lets a
+specialist agent ground a question such as “what is happening in the media
+room?” in related rooms, devices, and capabilities instead of guessing from a
+single label.
+
+The graph is deliberately **not** a replacement for Home Assistant or MySQL:
+
+| Layer | Responsibility | Cannot do |
+| --- | --- | --- |
+| MySQL | Durable inventory, readings, analytics, users, and audit-oriented records. | Authorize a Home Assistant command. |
+| ArcadeDB graph layer | Relationship context and topology used to ground reasoning. | Treat a graph record as guaranteed live state or issue a device action. |
+| Home Assistant | Current device state and device service calls. | Bypass EcoNest's policy, permission, and confirmation requirements. |
+| Gemma / agents | Interpret a bounded goal, explain evidence, and propose a recommendation. | Directly invoke Home Assistant or grant themselves permission. |
+
+### The execution boundary
+
+The **Device Agent** is EcoNest's execution boundary (this may be called the
+"executor" layer in project discussions). It is separate from Gemma's
+reasoning. A proposed action reaches Home Assistant only when all of the
+following succeed:
+
+1. The request maps to a known device and supported capability.
+2. The caller has the required permission and the entity/action is allowed by
+   policy.
+3. Current Home Assistant state supports the transition.
+4. The user has confirmed the command when confirmation is required.
+5. The Device Agent uses an approved MCP tool to make the service call.
+6. EcoNest reads Home Assistant again to verify the expected new state and
+   writes an audit result.
+
+External connectors, graph results, and Gemma output are **evidence only**:
+they can change the recommendation or explanation, but cannot cross this
+boundary by themselves. In particular, Calendar context can queue
+advisory-only energy/security reviews and remains unable to control devices.
+
 ## Main ingestion paths
 
 ### Authenticated collector submission

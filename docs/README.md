@@ -21,6 +21,12 @@ Read them in this order:
   reading records.
 - **ArcadeDB:** EcoNest's relationship/reasoning graph. It is not the primary
   sink for normal ingestion.
+- **Graph layer (the household "brain"):** the bounded relationship context
+  supplied by ArcadeDB to EcoNest reasoning. It informs a decision but never
+  controls a device.
+- **Execution boundary:** the Device Agent, MCP device tools, policy checks,
+  and Home Assistant verification path. This is the only layer permitted to
+  request a device service call after all checks pass.
 - **Orchestrator:** the FastAPI application in `orchestrator/` that owns the
   current API, authentication, graph integration, MCP tools, agents, and
   optional HA polling.
