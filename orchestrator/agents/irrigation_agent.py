@@ -131,11 +131,7 @@ class IrrigationAgent(BaseAgent):
         model_explanation_used = False
         if llm_reasoning and _is_safe_llm_explanation(llm_reasoning):
             recommendation = recommendation.model_copy(
-                update={
-                    "reasoning": (
-                        f"{recommendation.reasoning} {llm_reasoning}"
-                    )
-                }
+                update={"reasoning": (f"{recommendation.reasoning} {llm_reasoning}")}
             )
             model_explanation_used = True
 
@@ -149,6 +145,12 @@ class IrrigationAgent(BaseAgent):
                 "recent_irrigation_runs": recent_runs,
                 "watering_history_summary": watering_history,
                 "model_explanation_used": model_explanation_used,
+                "context": {
+                    "source": task.metadata.get("source", "direct"),
+                    "trigger": task.metadata.get("event_type")
+                    or task.payload.get("event_type"),
+                    "live_entity_state": live_entity_state,
+                },
             },
             message="Irrigation review complete",
         )
@@ -178,6 +180,7 @@ class IrrigationAgent(BaseAgent):
                 "live_entity_state": live_entity_state,
             },
         )
+        prompt += self.calendar_context_guidance(task)
         prompt += await self.reviewed_feedback_guidance(task)
         try:
             response = await self.llm.generate(prompt, temperature=0.2)
@@ -223,9 +226,13 @@ class IrrigationAgent(BaseAgent):
                 },
             },
         )
-        runs = result.result if result.success and isinstance(result.result, list) else []
+        runs = (
+            result.result if result.success and isinstance(result.result, list) else []
+        )
         if not runs:
-            answer = "No completed irrigation runs are recorded for today in Central time."
+            answer = (
+                "No completed irrigation runs are recorded for today in Central time."
+            )
         else:
             descriptions = []
             for run in runs:
@@ -256,7 +263,9 @@ class IrrigationAgent(BaseAgent):
                 )
             },
         )
-        runs = result.result if result.success and isinstance(result.result, list) else []
+        runs = (
+            result.result if result.success and isinstance(result.result, list) else []
+        )
         if not runs:
             answer = "No completed irrigation runs have been retained yet."
         else:
@@ -288,7 +297,9 @@ class IrrigationAgent(BaseAgent):
                 )
             },
         )
-        rows = result.result if result.success and isinstance(result.result, list) else []
+        rows = (
+            result.result if result.success and isinstance(result.result, list) else []
+        )
         return [row for row in rows if isinstance(row, dict)]
 
     async def _irrigation_zones(self, task: Task) -> list[str]:
@@ -306,7 +317,9 @@ class IrrigationAgent(BaseAgent):
                 )
             },
         )
-        rows = result.result if result.success and isinstance(result.result, list) else []
+        rows = (
+            result.result if result.success and isinstance(result.result, list) else []
+        )
         return [
             str(row["ha_entity_id"])
             for row in rows
@@ -327,7 +340,9 @@ class IrrigationAgent(BaseAgent):
                 )
             },
         )
-        rows = result.result if result.success and isinstance(result.result, list) else []
+        rows = (
+            result.result if result.success and isinstance(result.result, list) else []
+        )
         return [row for row in rows if isinstance(row, dict)]
 
 
@@ -335,7 +350,9 @@ def _forecast_indicates_rain(row: dict[str, Any]) -> bool:
     """Return whether a forecast row contains material rain evidence."""
     precipitation = _number(row.get("precipitation_in")) or 0.0
     condition = str(row.get("condition_name") or "").lower()
-    return precipitation >= 0.05 or any(word in condition for word in ("rain", "storm", "shower"))
+    return precipitation >= 0.05 or any(
+        word in condition for word in ("rain", "storm", "shower")
+    )
 
 
 def _number(value: Any) -> float | None:
@@ -357,7 +374,9 @@ def _forecast_time_label(row: dict[str, Any]) -> str:
         return "time unavailable"
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(ZoneInfo("America/Chicago")).strftime("%b %-d at %-I %p CT")
+    return parsed.astimezone(ZoneInfo("America/Chicago")).strftime(
+        "%b %-d at %-I %p CT"
+    )
 
 
 def _watering_history_summary(runs: list[dict[str, Any]]) -> str:

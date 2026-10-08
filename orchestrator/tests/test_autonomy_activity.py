@@ -116,6 +116,39 @@ def test_energy_recommendations_are_shown_as_timestamped_advisory_cards() -> Non
     assert views[0]["outcome"]["detail"] == "EcoNest did not control any device."
 
 
+def test_recommendation_view_preserves_event_trigger_and_state_details() -> None:
+    """Expose retained event evidence for the collapsed UI technical details."""
+    views = _recommendation_views(
+        [
+            {
+                "timestamp": "2026-10-07T20:00:00+00:00",
+                "event_type": "energy.recommendations.generated",
+                "source": "ha_event_dispatcher",
+                "technical_details": {
+                    "trigger_source": "ha_event_dispatcher",
+                    "trigger_type": "energy_anomaly_detected",
+                    "entity_id": "sensor.dryer_power",
+                    "state_before": "80",
+                    "state_after_event": "900",
+                    "live_state": {"available": True, "state": "900"},
+                    "review_completed": True,
+                },
+                "recommendations": [
+                    {
+                        "priority": "HIGH",
+                        "action": "Review dryer power",
+                        "reasoning": "Power rose sharply.",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert views[0]["technical_details"]["trigger_type"] == "energy_anomaly_detected"
+    assert views[0]["technical_details"]["state_before"] == "80"
+    assert views[0]["technical_details"]["state_after_event"] == "900"
+
+
 def test_recommendation_schedule_rotates_in_ten_minute_slots() -> None:
     """Energy, security, and watering repeat in a thirty-minute cycle."""
     assert scheduled_recommendation_kind(datetime(2026, 9, 24, 9, 0)) == "energy"
@@ -132,14 +165,22 @@ def test_security_and_watering_reviews_are_shown_as_advisory_cards() -> None:
                 "timestamp": "2026-09-24T14:10:00+00:00",
                 "event_type": "security.recommendations.generated",
                 "recommendations": [
-                    {"priority": "LOW", "action": "Continue monitoring", "reasoning": "No anomaly."}
+                    {
+                        "priority": "LOW",
+                        "action": "Continue monitoring",
+                        "reasoning": "No anomaly.",
+                    }
                 ],
             },
             {
                 "timestamp": "2026-09-24T14:20:00+00:00",
                 "event_type": "irrigation.recommendations.generated",
                 "recommendations": [
-                    {"priority": "LOW", "action": "Skip scheduled watering", "reasoning": "Rain forecast."}
+                    {
+                        "priority": "LOW",
+                        "action": "Skip scheduled watering",
+                        "reasoning": "Rain forecast.",
+                    }
                 ],
             },
         ]

@@ -616,6 +616,7 @@ class EnergyAgent(BaseAgent):
                 "demand_forecast": [item.model_dump() for item in forecast],
             },
         )
+        prompt += self.calendar_context_guidance(task)
         prompt += await self.reviewed_feedback_guidance(task)
         try:
             generated = await self.llm.generate_structured(

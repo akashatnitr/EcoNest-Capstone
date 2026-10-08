@@ -11,9 +11,15 @@ from pydantic import BaseModel, Field
 
 from orchestrator.agents.base import Task
 from orchestrator.agents.orchestrator import AgentOrchestrator
+from orchestrator.config import get_settings
+from orchestrator.core.database import mysql_session_context
+from orchestrator.core.google_calendar import (
+    claim_active_calendar_context_reviews,
+    connected_calendar_user_ids,
+    sync_calendar_context,
+)
 from orchestrator.core.audit import read_recent_audit_events_async
 from orchestrator.core.permissions import Role
-from orchestrator.config import get_settings
 
 router = APIRouter(tags=["autonomy"])
 _energy_orchestrator = AgentOrchestrator()
@@ -63,9 +69,7 @@ async def request_energy_recommendations(
     request: EnergyRecommendationRequest,
 ) -> dict[str, str]:
     """Queue an on-demand advisory energy review for the activity feed."""
-    task_id = await _submit_advisory_review(
-        "energy", request.intent, request.payload
-    )
+    task_id = await _submit_advisory_review("energy", request.intent, request.payload)
     return {"task_id": task_id, "status": "submitted"}
 
 
@@ -130,7 +134,11 @@ async def _submit_advisory_review(
     return await _energy_orchestrator.submit(
         Task(
             intent=intent,
-            payload={**payload, "type": kind, "use_llm": kind == "energy"},
+            payload={
+                **payload,
+                "type": kind,
+                "use_llm": bool(payload.get("use_llm", kind == "energy")),
+            },
             timeout_seconds=settings.OLLAMA_TIMEOUT_SECONDS,
             metadata={
                 "source": "http_api",
@@ -140,6 +148,57 @@ async def _submit_advisory_review(
             },
         )
     )
+
+
+async def submit_calendar_preview_reviews(
+    calendar_context: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Run calendar-triggered advisory reviews without granting device control."""
+    context_mode = str(calendar_context.get("mode") or "normal")
+    if context_mode not in {"away", "hosting"}:
+        return []
+    review_payload = {
+        "calendar_context": calendar_context,
+        "use_llm": True,
+        "recommendation_only": True,
+    }
+    reviews: list[dict[str, str]] = []
+    for kind, intent in (
+        ("energy", f"Review energy recommendations for a household that is {context_mode}."),
+        ("security", f"Review security recommendations for a household that is {context_mode}."),
+    ):
+        task_id = await _energy_orchestrator.submit(
+            Task(
+                intent=intent,
+                payload={**review_payload, "type": kind},
+                timeout_seconds=settings.OLLAMA_TIMEOUT_SECONDS,
+                metadata={
+                    "source": "calendar_context",
+                    "event_type": "calendar_context_detected",
+                    "user_role": Role.HOMEOWNER.value,
+                    "routed_agent": kind,
+                    "recommendation_kind": kind,
+                },
+            )
+        )
+        reviews.append({"kind": kind, "task_id": task_id})
+    return reviews
+
+
+async def run_calendar_context_reviews() -> dict[str, int]:
+    """Synchronize connected calendars and queue one advisory review per active event."""
+    synced = 0
+    queued = 0
+    async with mysql_session_context() as session:
+        user_ids = await connected_calendar_user_ids(session)
+        for user_id in user_ids:
+            result = await sync_calendar_context(session, settings, user_id)
+            if not result.get("synced"):
+                continue
+            synced += 1
+            for context in await claim_active_calendar_context_reviews(session, user_id):
+                queued += len(await submit_calendar_preview_reviews(context))
+    return {"synced_calendars": synced, "queued_reviews": queued}
 
 
 def scheduled_recommendation_kind(now: datetime | None = None) -> str:
@@ -205,6 +264,7 @@ def _recommendation_view(event: dict[str, Any]) -> dict[str, Any]:
         "should_act": bool(data.get("should_act", True)),
         "source": data.get("source") or "autonomy monitor",
         "fallback_reason": data.get("fallback_reason"),
+        "technical_details": _technical_details(event),
     }
 
 
@@ -245,6 +305,7 @@ def _advisory_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]
                 "should_act": False,
                 "source": event.get("source") or "advisory review",
                 "fallback_reason": None,
+                "technical_details": _technical_details(event),
                 "outcome": {
                     "state": "advisory",
                     "label": "Recommendation only",
@@ -253,6 +314,12 @@ def _advisory_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]
             }
         )
     return views
+
+
+def _technical_details(event: dict[str, Any]) -> dict[str, Any]:
+    """Return bounded trigger and state facts retained with a recommendation."""
+    details = event.get("technical_details")
+    return details if isinstance(details, dict) else {}
 
 
 def _advisory_category(event: dict[str, Any]) -> str:

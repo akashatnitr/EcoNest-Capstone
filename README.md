@@ -296,6 +296,44 @@ Configuration and secrets remain in the local `.env` file and must not be
 committed. Home Assistant registry exports and real household data also remain
 outside git.
 
+### Connect Google Calendar (read-only household context)
+
+EcoNest includes a Google Calendar connection page at
+`/integrations/google-calendar`. It requests only the read-only Calendar events
+scope and stores OAuth credentials encrypted. It does not yet sync event text
+into agent prompts or control any device.
+
+Create a Google Cloud OAuth **Web application** client, add this callback URL
+(replace the host if EcoNest is deployed elsewhere), then add the following to
+the ignored local `.env` file:
+
+```env
+GOOGLE_CALENDAR_ENABLED=true
+GOOGLE_CALENDAR_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
+GOOGLE_CALENDAR_REDIRECT_URI=http://localhost:8001/integrations/google-calendar/callback
+# Generate once with: poetry run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY=your-fernet-key
+```
+
+Use the actual externally reachable EcoNest URL as the redirect URI if the
+browser reaches EcoNest through another host or port. Recreate the orchestrator
+after updating `.env`:
+
+```bash
+docker compose -f docker-compose.real.yml up -d --no-deps orchestrator
+```
+
+Then open **Google Calendar** in the Launchpad and select **Connect Google
+Calendar**. Calendar event text is not treated as an instruction; later phases
+will derive a bounded household context such as `hosting` or `away` before it
+is made available to a model or policy.
+
+When `COMMAND_CENTER_AUTH_REQUIRED=false` for a local demo, set a random
+`GOOGLE_CALENDAR_SETUP_PASSPHRASE` too. It is required only to start the
+Calendar OAuth flow, and this demo path closes once a calendar is connected.
+Do not use it as a replacement for normal sign-in in a deployed environment.
+
 ### Use the Apple GPU for Gemma on macOS
 
 Docker Desktop does not pass the Apple GPU through to the Ollama container. To

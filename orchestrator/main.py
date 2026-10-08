@@ -13,6 +13,7 @@ from orchestrator.api import (
     auth,
     autonomy,
     benchmarks,
+    calendar,
     command,
     demo,
     devices,
@@ -27,6 +28,7 @@ from orchestrator.api import (
 )
 from orchestrator.config import get_settings
 from orchestrator.core.autonomy import AutonomousMonitor
+from orchestrator.core.calendar_monitor import CalendarContextMonitor
 from orchestrator.core.database import (
     close_databases,
     healthcheck_arcadedb,
@@ -42,12 +44,13 @@ settings = get_settings()
 autonomous_monitor: AutonomousMonitor | None = None
 ha_ingestor: HomeAssistantIngestor | None = None
 graph_sync_monitor: GraphSyncMonitor | None = None
+calendar_context_monitor: CalendarContextMonitor | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage database connections across the application lifespan."""
-    global autonomous_monitor, ha_ingestor, graph_sync_monitor
+    global autonomous_monitor, calendar_context_monitor, ha_ingestor, graph_sync_monitor
     await init_databases()
     if settings.HA_INGEST_ENABLED:
         ha_ingestor = HomeAssistantIngestor(settings, EventDispatcher(settings))
@@ -55,6 +58,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.GRAPH_SYNC_ENABLED:
         graph_sync_monitor = GraphSyncMonitor(settings)
         graph_sync_monitor.start()
+    if (
+        settings.GOOGLE_CALENDAR_ENABLED
+        and settings.GOOGLE_CALENDAR_AUTONOMOUS_REVIEWS_ENABLED
+    ):
+        calendar_context_monitor = CalendarContextMonitor(
+            autonomy.run_calendar_context_reviews,
+            interval_seconds=settings.GOOGLE_CALENDAR_SYNC_INTERVAL_SECONDS,
+        )
+        calendar_context_monitor.start()
     if settings.AUTONOMY_MONITOR_ENABLED:
         autonomous_monitor = AutonomousMonitor(
             lambda: demo.collect_periodic_feedback(trigger="background_monitor"),
@@ -75,6 +87,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if calendar_context_monitor is not None:
+            await calendar_context_monitor.stop()
+            calendar_context_monitor = None
         if graph_sync_monitor is not None:
             await graph_sync_monitor.stop()
             graph_sync_monitor = None
@@ -104,6 +119,7 @@ app.include_router(auth.router)
 app.include_router(analytics.router)
 app.include_router(autonomy.router)
 app.include_router(benchmarks.router)
+app.include_router(calendar.router)
 app.include_router(command.router)
 app.include_router(demo.router)
 app.include_router(devices.router)

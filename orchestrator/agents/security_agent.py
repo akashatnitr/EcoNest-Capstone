@@ -416,6 +416,7 @@ class SecurityAgent(BaseAgent):
                 "severity": severity,
             },
         )
+        prompt += self.calendar_context_guidance(task)
         prompt += await self.reviewed_feedback_guidance(task)
 
         try:

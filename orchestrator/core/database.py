@@ -47,6 +47,7 @@ async def init_databases() -> None:
     from orchestrator.core.home_events import ensure_home_events_schema
     from orchestrator.core.irrigation import ensure_irrigation_runs_schema
     from orchestrator.core.weather import ensure_weather_forecast_schema
+    from orchestrator.core.google_calendar import ensure_google_calendar_schema
 
     async with mysql_session_context() as session:
         await ensure_energy_analytics_schema(session)
@@ -56,6 +57,7 @@ async def init_databases() -> None:
         await ensure_command_feedback_schema(session)
         await ensure_irrigation_runs_schema(session)
         await ensure_weather_forecast_schema(session)
+        await ensure_google_calendar_schema(session)
 
     # ArcadeDB async HTTP client
     _arcadedb_client = httpx.AsyncClient(

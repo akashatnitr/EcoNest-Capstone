@@ -27,6 +27,38 @@ def test_autonomy_run_once_reports_disabled_monitor(client, monkeypatch):
     assert response.status_code == 409
 
 
+def test_autonomy_page_exposes_the_disabled_execution_stage(client) -> None:
+    """The activity UI must not imply disabled autonomous actions were executed."""
+    response = client.get("/autonomy")
+
+    assert response.status_code == 200
+    assert "Autonomous decision pipeline" in response.text
+    assert "Autonomous device actions disabled" in response.text
+    assert "Execute and verify" in response.text
+    assert 'fetch("/autonomy/status")' in response.text
+
+
+def test_autonomy_page_can_hide_and_restore_recommendation_history(client) -> None:
+    """Clearing the visible feed is reversible and does not delete audit data."""
+    response = client.get("/autonomy")
+
+    assert response.status_code == 200
+    assert "Hide current history" in response.text
+    assert "Restore hidden history" in response.text
+    assert "econest_autonomy_history_cutoff" in response.text
+
+
+def test_autonomy_page_exposes_recommendation_technical_details(client) -> None:
+    """Cards should make retained trigger and state evidence inspectable."""
+    response = client.get("/autonomy")
+
+    assert response.status_code == 200
+    assert "Technical details" in response.text
+    assert "What triggered this review" in response.text
+    assert "State before event" in response.text
+    assert "State after event" in response.text
+
+
 def test_shared_pastel_theme_is_served(client) -> None:
     response = client.get("/static/econest-theme.css")
 

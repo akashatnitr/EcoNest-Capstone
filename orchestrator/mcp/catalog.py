@@ -9,6 +9,7 @@ from orchestrator.mcp.prompts import (
 from orchestrator.mcp.registry import register_prompt, register_resource, register_tool
 from orchestrator.mcp.resources import (
     home_analytics_resource,
+    home_calendar_context_resource,
     home_condition_catalog_resource,
     home_devices_resource,
     home_snapshot_resource,
@@ -111,6 +112,11 @@ def register_builtin_mcp_components() -> None:
     )
     register_resource(
         "home://analytics", "Home analytics context", home_analytics_resource
+    )
+    register_resource(
+        "home://calendar/context",
+        "Derived read-only household calendar context",
+        home_calendar_context_resource,
     )
     register_resource(
         "home://ontology", "Smart-home ontology context", ontology_resource

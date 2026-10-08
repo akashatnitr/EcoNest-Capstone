@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EcoNest · Google Calendar</title>
+    <link rel="stylesheet" href="/static/econest-theme.css" />
+    <style>
+      body { margin: 0; min-height: 100vh; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      main { max-width: 940px; margin: 0 auto; padding: 48px 28px 72px; }
+      .eyebrow { color: var(--econest-earth-deep); font-size: .77rem; font-weight: 800; letter-spacing: .1em; margin: 0 0 8px; text-transform: uppercase; }
+      h1 { font-size: clamp(2rem, 4vw, 3rem); margin: 0; }
+      .intro { max-width: 690px; font-size: 1.04rem; line-height: 1.6; margin: 14px 0 28px; }
+      .card { border: 1px solid var(--econest-line); border-radius: 18px; padding: 26px; }
+      .connection { display: flex; justify-content: space-between; gap: 24px; align-items: center; }
+      .connection h2 { margin: 0 0 7px; }
+      .connection p { margin: 0; line-height: 1.5; }
+      .badge { display: inline-flex; padding: 6px 9px; border-radius: 999px; background: var(--econest-sand); color: #5f4932; font-size: .83rem; font-weight: 750; }
+      .badge.connected { background: #dce8d8; color: #3f5e42; }
+      .connect { text-decoration: none; white-space: nowrap; }
+      .setup { display: grid; gap: 10px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--econest-line); }
+      .setup[hidden] { display: none !important; }
+      .setup label { font-size: .88rem; font-weight: 750; }
+      .setup-row { display: flex; gap: 10px; align-items: center; }
+      .setup input { min-width: 0; flex: 1; padding: 10px 12px; border-radius: 9px; font: inherit; }
+      .setup small { color: var(--econest-muted); line-height: 1.45; }
+      .context { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--econest-line); }
+      .context-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .context-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .context h2 { margin: 0; font-size: 1.1rem; }
+      .context p { line-height: 1.5; }
+      .review-status { padding: 10px 12px; border-radius: 9px; background: #eaf1e7; color: #36513b; font-size: .9rem; }
+      .context-list { display: grid; gap: 8px; padding: 0; margin: 12px 0 0; list-style: none; }
+      .context-list li { padding: 10px 12px; border-radius: 9px; background: #f2ebdf; color: #40382f; font-size: .9rem; }
+      .details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+      .details article { border: 1px solid var(--econest-line); border-radius: 12px; background: rgba(255,255,255,.48); padding: 15px; }
+      .details h3 { font-size: .9rem; margin: 0 0 7px; }
+      .details p { font-size: .9rem; line-height: 1.5; margin: 0; }
+      .privacy { margin-top: 24px; padding: 18px; border-left: 4px solid var(--econest-sage-deep); background: #eaf1e7; border-radius: 10px; }
+      .privacy h2 { margin: 0 0 7px; font-size: 1rem; }
+      .privacy p { margin: 0; line-height: 1.55; }
+      @media (max-width: 720px) { main { padding: 32px 18px; }.connection, .setup-row { align-items: flex-start; flex-direction: column; }.details { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">ECONEST / INTEGRATIONS</p>
+      <h1>Google Calendar context</h1>
+      <p class="intro">Connect one household calendar so EcoNest can understand approved home modes such as hosting or away time. Calendar events inform recommendations; they never authorize a device action.</p>
+      <section class="card" aria-live="polite">
+        <div class="connection">
+          <div>
+            <span id="badge" class="badge">Checking setup…</span>
+            <h2 id="headline">Google Calendar</h2>
+            <p id="status">Checking whether this integration is ready.</p>
+          </div>
+          <a id="connect" class="button connect" href="/integrations/google-calendar/connect" target="_top" hidden>Connect Google Calendar ↗</a>
+        </div>
+        <section id="localSetup" class="setup" hidden>
+          <label for="setupPassphrase">One-time local Calendar setup passphrase</label>
+          <div class="setup-row"><input id="setupPassphrase" type="password" autocomplete="off" placeholder="Enter the local setup passphrase" /><button id="setupConnect" type="button">Continue to Google ↗</button></div>
+          <small>This is available only because this EcoNest instance is running in no-login demo mode. Once a calendar is connected, this setup path closes.</small>
+        </section>
+        <section id="context" class="context" hidden>
+          <div class="context-head"><h2>Calendar context preview</h2><div class="context-actions"><button id="previewReview" class="secondary" type="button" hidden>Preview autonomous review</button><button id="refreshContext" class="secondary" type="button">Refresh context</button></div></div>
+          <p id="contextSummary">No derived context has been synchronized yet.</p>
+          <p id="reviewStatus" class="review-status" hidden></p>
+          <ul id="contextList" class="context-list"></ul>
+        </section>
+        <section id="events" class="context" hidden>
+          <div class="context-head"><h2>Upcoming calendar events</h2><button id="refreshEvents" class="secondary" type="button">Refresh events</button></div>
+          <p>Shown only to you in this page. Event titles are not retained or sent to the model.</p>
+          <ul id="eventList" class="context-list"></ul>
+        </section>
+        <div class="details">
+          <article><h3>Access</h3><p>Read-only event access. EcoNest cannot create, edit, or delete calendar events.</p></article>
+          <article><h3>What EcoNest keeps</h3><p>Connection credentials are encrypted. The next phase derives minimal context windows rather than retaining event descriptions or attendees.</p></article>
+          <article><h3>How it will be used</h3><p>Hosting can defer comfort-reducing energy recommendations. Away time can improve advisory energy and security planning.</p></article>
+        </div>
+        <section class="privacy"><h2>Safety boundary</h2><p>Calendar text is not treated as an instruction. EcoNest applies explicit policy rules before a model sees a bounded household-context summary, and calendar context never bypasses confirmation or safety checks.</p></section>
+      </section>
+    </main>
+    <script>
+      const badge = document.querySelector("#badge"), headline = document.querySelector("#headline"), status = document.querySelector("#status"), connect = document.querySelector("#connect"), localSetup = document.querySelector("#localSetup"), setupPassphrase = document.querySelector("#setupPassphrase"), setupConnect = document.querySelector("#setupConnect"), context = document.querySelector("#context"), contextSummary = document.querySelector("#contextSummary"), contextList = document.querySelector("#contextList"), refreshContext = document.querySelector("#refreshContext"), previewReview = document.querySelector("#previewReview"), reviewStatus = document.querySelector("#reviewStatus"), eventsPanel = document.querySelector("#events"), eventList = document.querySelector("#eventList"), refreshEvents = document.querySelector("#refreshEvents");
+      const params = new URLSearchParams(window.location.search);
+      const escapeHtml = (value) => { const node = document.createElement("div"); node.textContent = String(value || ""); return node.innerHTML; };
+      async function loadStatus() {
+        try {
+          const response = await fetch("/integrations/google-calendar/status");
+          if (!response.ok) throw Error("Could not load Calendar integration status.");
+          const data = await response.json();
+          if (data.connected) {
+            badge.className = "badge connected"; badge.textContent = "Connected";
+            headline.textContent = "Google Calendar is connected";
+            status.textContent = `EcoNest has read-only access to the selected calendar. Context sync will consider the next ${data.sync_lookahead_days} days.`;
+          } else if (!data.configured) {
+            badge.textContent = "Setup required";
+            headline.textContent = "Google OAuth setup is required";
+            status.textContent = "Add the Google OAuth client ID, secret, and callback URL to EcoNest before a household can connect its calendar.";
+          } else {
+            badge.textContent = "Ready to connect";
+            headline.textContent = "Connect a household calendar";
+            status.textContent = "Sign in to Google to grant EcoNest read-only access to calendar events.";
+            connect.hidden = false;
+          }
+          localSetup.hidden = !data.local_setup_available || data.connected;
+          context.hidden = !data.connected; eventsPanel.hidden = !data.connected;
+          if (data.connected) { await loadContext(); await loadEvents(); }
+          if (params.get("status") === "connected") status.textContent = "Google Calendar was connected securely. Context synchronization is the next implementation step.";
+          if (params.get("status") === "cancelled") status.textContent = "Google Calendar connection was cancelled. No calendar data was saved.";
+        } catch (error) { badge.textContent = "Status unavailable"; status.textContent = error.message; }
+      }
+      function displayContext(data) {
+        const current = data.current_mode || "normal", windows = [...(data.active_contexts || []), ...(data.upcoming_contexts || [])];
+        contextSummary.textContent = current === "normal" ? "No active calendar context. EcoNest will use normal household policies." : `Current household context: ${current}. This is advisory evidence, not device-action authority.`;
+        contextList.innerHTML = windows.length ? windows.map(item => `<li><strong>${item.mode}</strong> · ${item.starts_at} to ${item.ends_at}<br>${(item.guidance || []).join(" · ")}</li>`).join("") : "<li>No relevant hosting or away context was found in the synchronized window.</li>";
+        previewReview.hidden = !windows.some(item => item.mode === "away" || item.mode === "hosting");
+      }
+      async function loadContext() {
+        const response = await fetch("/integrations/google-calendar/context");
+        if (response.ok) displayContext(await response.json());
+      }
+      function displayEvents(data) { const events = data.events || []; eventList.innerHTML = events.length ? events.map(event => `<li><strong>${escapeHtml(event.title)}</strong><br>${escapeHtml(event.starts_at)} to ${escapeHtml(event.ends_at)}</li>`).join("") : "<li>No upcoming events in the next 14 days.</li>"; }
+      async function loadEvents() { const response = await fetch("/integrations/google-calendar/events"); if (response.ok) displayEvents(await response.json()); }
+      setupConnect.addEventListener("click", async () => {
+        const passphrase = setupPassphrase.value;
+        if (!passphrase) { status.textContent = "Enter the local Calendar setup passphrase first."; return; }
+        setupConnect.disabled = true; status.textContent = "Verifying local setup and opening Google…";
+        try {
+          const response = await fetch("/integrations/google-calendar/authorize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passphrase }) });
+          const data = await response.json();
+          if (!response.ok) throw Error(data.detail || "Could not begin Google Calendar setup.");
+          window.top.location.assign(data.authorization_url);
+        } catch (error) { status.textContent = error.message; setupPassphrase.value = ""; setupConnect.disabled = false; }
+      });
+      refreshContext.addEventListener("click", async () => {
+        refreshContext.disabled = true; contextSummary.textContent = "Synchronizing derived calendar context…";
+        try { const response = await fetch("/integrations/google-calendar/context/refresh", { method: "POST" }), data = await response.json(); if (!response.ok) throw Error(data.detail || "Could not synchronize Calendar context."); displayContext(data); }
+        catch (error) { contextSummary.textContent = error.message; }
+        finally { refreshContext.disabled = false; }
+      });
+      previewReview.addEventListener("click", async () => {
+        previewReview.disabled = true; reviewStatus.hidden = false; reviewStatus.textContent = "Queueing advisory-only energy and security reviews…";
+        try {
+          const response = await fetch("/integrations/google-calendar/context/review", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok) throw Error(data.detail || "Could not queue the Calendar review.");
+          reviewStatus.textContent = `${data.message} Open Autonomous actions to follow the ${data.reviews.length} review(s).`;
+        } catch (error) { reviewStatus.textContent = error.message; }
+        finally { previewReview.disabled = false; }
+      });
+      refreshEvents.addEventListener("click", async () => { refreshEvents.disabled = true; try { await loadEvents(); } finally { refreshEvents.disabled = false; } });
+      loadStatus();
+    </script>
+  </body>
+</html>

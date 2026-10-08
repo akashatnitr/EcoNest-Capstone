@@ -5,6 +5,8 @@ from typing import Any
 import httpx
 
 from orchestrator.config import get_settings
+from orchestrator.core.database import mysql_session_context
+from orchestrator.core.google_calendar import current_calendar_context
 
 from orchestrator.llm.memory import (
     get_memory_summaries,
@@ -143,6 +145,21 @@ async def home_analytics_resource() -> dict[str, Any]:
         "type": "analytics",
         "hourly_power": [],
     }
+
+
+async def home_calendar_context_resource() -> dict[str, Any]:
+    """Return privacy-bounded calendar context for the local EcoNest household."""
+    try:
+        async with mysql_session_context() as session:
+            return await current_calendar_context(session, 0)
+    except Exception:
+        return {
+            "available": False,
+            "current_mode": "normal",
+            "active_contexts": [],
+            "upcoming_contexts": [],
+            "guidance": ["Calendar context is unavailable; use normal household policies"],
+        }
 
 
 async def ontology_resource() -> dict[str, Any]:

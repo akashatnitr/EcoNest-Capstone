@@ -356,7 +356,20 @@ async def test_orchestrator_audits_energy_recommendations_for_activity_history(
     )
     orchestrator = AgentOrchestrator()
     await orchestrator._audit_energy_recommendations(
-        Task(id="energy-history", intent="energy review", payload={}),
+        Task(
+            id="energy-history",
+            intent="energy review",
+            payload={
+                "entity_id": "sensor.dryer_power",
+                "event_type": "energy_anomaly_detected",
+                "previous_state": "80",
+                "new_state": "900",
+            },
+            metadata={
+                "source": "ha_event_dispatcher",
+                "event_type": "energy_anomaly_detected",
+            },
+        ),
         Result(
             success=True,
             agent="energy",
@@ -377,6 +390,16 @@ async def test_orchestrator_audits_energy_recommendations_for_activity_history(
     assert events[0][0] == "energy.recommendations.generated"
     assert events[0][1]["recommendation_only"] is True
     assert events[0][1]["recommendations"][0]["action"] == "Review standby loads"
+    assert events[0][1]["technical_details"] == {
+        "trigger_source": "ha_event_dispatcher",
+        "trigger_type": "energy_anomaly_detected",
+        "entity_id": "sensor.dryer_power",
+        "state_before": "80",
+        "state_after_event": "900",
+        "live_state": None,
+        "review_completed": True,
+        "simulated": False,
+    }
 
 
 @pytest.mark.anyio
@@ -441,17 +464,17 @@ async def test_energy_agent_uses_prompt_template_when_requested():
     agent = EnergyAgent(llm=_EnergyLLM())
     result = await agent.run(
         Task(
-                id="energy-llm",
-                intent="energy review",
-                payload={
-                    "use_llm": True,
-                    "current_hour": 17,
-                    "tariff_forecast": [
-                        {"start_hour": 0, "end_hour": 24, "cents_per_kwh": 18}
-                    ],
-                },
-            )
+            id="energy-llm",
+            intent="energy review",
+            payload={
+                "use_llm": True,
+                "current_hour": 17,
+                "tariff_forecast": [
+                    {"start_hour": 0, "end_hour": 24, "cents_per_kwh": 18}
+                ],
+            },
         )
+    )
 
     assert result.success
     assert result.data["recommendations"][0]["action"].startswith("Shift laundry")
@@ -1107,7 +1130,9 @@ async def test_device_agent_calls_home_assistant_for_entity_id():
     agent = DeviceAgent()
     execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "OnOff"}]
+            ),
             ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
             ToolExecutionResult(capability="ha_get_state", result={"state": "on"}),
         ]
@@ -1152,8 +1177,10 @@ async def test_device_agent_closes_home_assistant_cover():
             id="dev-cover",
             intent="close garage door",
             payload={
-                "device_id": "cover.garage12", "entity_id": "cover.garage12",
-                "domain": "cover", "action": "close",
+                "device_id": "cover.garage12",
+                "entity_id": "cover.garage12",
+                "domain": "cover",
+                "action": "close",
             },
         )
     )
@@ -1246,6 +1273,7 @@ async def test_device_agent_verifies_home_assistant_turn_off():
     assert execute.await_args_list[1].args[0] == "ha_call_service"
     assert execute.await_args_list[2].args[0] == "ha_get_state"
 
+
 @pytest.mark.anyio
 async def test_device_agent_verifies_home_assistant_brightness():
     agent = DeviceAgent()
@@ -1291,6 +1319,7 @@ async def test_device_agent_verifies_home_assistant_brightness():
     service_arguments = execute.await_args_list[1].args[1]
     assert service_arguments["service"] == "turn_on"
     assert service_arguments["service_data"] == {"brightness_pct": 50}
+
 
 @pytest.mark.anyio
 async def test_device_agent_fails_when_brightness_not_verified():
@@ -1344,7 +1373,9 @@ async def test_device_agent_retries_home_assistant_state_verification():
     agent = DeviceAgent()
     execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "OnOff"}]
+            ),
             ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
             ToolExecutionResult(capability="ha_get_state", result={"state": "off"}),
             ToolExecutionResult(capability="ha_get_state", result={"state": "on"}),
@@ -1379,7 +1410,9 @@ async def test_device_agent_sets_home_assistant_temperature():
                 result=[{"result": "TemperatureControl"}],
             ),
             ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
-            ToolExecutionResult(capability="ha_get_state", result={"attributes": {"temperature": 78.0}}),
+            ToolExecutionResult(
+                capability="ha_get_state", result={"attributes": {"temperature": 78.0}}
+            ),
         ]
     )
     agent.tool_executor.execute = execute
@@ -1388,8 +1421,11 @@ async def test_device_agent_sets_home_assistant_temperature():
             id="dev-temp",
             intent="set media room thermostat",
             payload={
-                "device_id": "climate.media_room", "entity_id": "climate.media_room",
-                "domain": "climate", "action": "set_temperature", "temperature": 78.0,
+                "device_id": "climate.media_room",
+                "entity_id": "climate.media_room",
+                "domain": "climate",
+                "action": "set_temperature",
+                "temperature": 78.0,
             },
         )
     )
@@ -1412,21 +1448,25 @@ async def test_device_agent_permission_allowed():
 
     agent.tool_executor.execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "turn_on"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "OnOff"}]
+            ),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "turn_on"}]
+            ),
         ]
     )
     result = await agent.run(
-            Task(
-                id="dev-perm-1",
-                intent="device",
-                user_id="test@example.com",
-                payload={
-                    "device_id": "light_1",
-                    "action": "turn_on",
-                },
-            )
+        Task(
+            id="dev-perm-1",
+            intent="device",
+            user_id="test@example.com",
+            payload={
+                "device_id": "light_1",
+                "action": "turn_on",
+            },
         )
+    )
 
     assert result.success
 
@@ -1437,23 +1477,25 @@ async def test_device_agent_accepts_arcadedb_gremlin_capability_rows():
     agent = DeviceAgent()
     agent.tool_executor.execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "OnOff"}]
+            ),
             ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
             ToolExecutionResult(capability="ha_get_state", result={"state": "off"}),
         ]
     )
     result = await agent.run(
-            Task(
-                id="dev-capability-row",
-                intent="turn off the media room light",
-                payload={
-                    "device_id": "light.upstairs_media_light_1",
-                    "entity_id": "light.upstairs_media_light_1",
-                    "domain": "light",
-                    "action": "turn_off",
-                },
-            )
+        Task(
+            id="dev-capability-row",
+            intent="turn off the media room light",
+            payload={
+                "device_id": "light.upstairs_media_light_1",
+                "entity_id": "light.upstairs_media_light_1",
+                "domain": "light",
+                "action": "turn_off",
+            },
         )
+    )
 
     assert result.success
     assert result.data["capability_check"]["allowed"] is True
@@ -1466,8 +1508,12 @@ async def test_device_agent_permission_denied():
 
     agent.tool_executor.execute = AsyncMock(
         side_effect=[
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "OnOff"}]),
-            ToolExecutionResult(capability="query_arcadedb", result=[{"result": "turn_off"}]),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "OnOff"}]
+            ),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "turn_off"}]
+            ),
         ]
     )
     result = await agent.run(
@@ -1487,7 +1533,6 @@ async def test_device_agent_permission_denied():
 
 # Test SecurityAgent & SensorAgent LLM Failure
 class _BrokenLLM:
-
     async def generate(
         self,
         prompt: str,
@@ -1531,15 +1576,14 @@ async def test_sensor_agent_llm_failure():
 
     assert result.success
 
+
 @pytest.mark.anyio
 async def test_energy_agent_autonomous_event_invokes_llm():
     class _EnergyLLM:
         def __init__(self):
             self.called = False
 
-        async def generate_structured(
-            self, messages, output_model, temperature=0.7
-        ):
+        async def generate_structured(self, messages, output_model, temperature=0.7):
             self.called = True
             assert "EcoNest's energy optimization agent" in messages[0].content
 
@@ -1608,9 +1652,7 @@ async def test_energy_agent_autonomous_event_invokes_llm():
 async def test_energy_agent_gathers_live_ha_state_via_mcp():
     agent = EnergyAgent()
 
-    agent._mysql_energy_context = AsyncMock(
-        return_value={"available": True}
-    )
+    agent._mysql_energy_context = AsyncMock(return_value={"available": True})
 
     execute = AsyncMock(
         return_value=ToolExecutionResult(
@@ -1644,16 +1686,14 @@ async def test_energy_agent_gathers_live_ha_state_via_mcp():
     )
 
     assert context["live_entity_state"]["state"] == "850"
-    assert (
-        context["live_entity_state"]["attributes"]["friendly_name"]
-        == "Dryer Power"
-    )
+    assert context["live_entity_state"]["attributes"]["friendly_name"] == "Dryer Power"
 
     execute.assert_awaited_once()
     assert execute.await_args.args[0] == "ha_get_state"
     assert execute.await_args.args[1] == {
         "entity_id": "sensor.dryer_power",
     }
+
 
 @pytest.mark.anyio
 async def test_security_agent_autonomous_event_invokes_llm():
@@ -1707,6 +1747,7 @@ async def test_security_agent_autonomous_event_invokes_llm():
     assert result.success
     assert llm.called is True
 
+
 @pytest.mark.anyio
 async def test_security_agent_gathers_live_ha_state_via_mcp():
     agent = SecurityAgent()
@@ -1753,6 +1794,7 @@ async def test_security_agent_gathers_live_ha_state_via_mcp():
         "entity_id": "binary_sensor.front_door_motion",
     }
 
+
 @pytest.mark.anyio
 async def test_irrigation_agent_autonomous_event_invokes_llm():
     from orchestrator.agents.irrigation_agent import IrrigationAgent
@@ -1792,6 +1834,8 @@ async def test_irrigation_agent_autonomous_event_invokes_llm():
     assert result.success
     assert llm.called is True
     assert result.data["model_explanation_used"] is True
+    assert result.data["context"]["trigger"] == "watering_started"
+    assert "live_entity_state" in result.data["context"]
 
 
 @pytest.mark.anyio
@@ -1832,16 +1876,14 @@ async def test_irrigation_agent_gathers_live_ha_state_via_mcp():
     )
 
     assert context["state"] == "on"
-    assert (
-        context["attributes"]["friendly_name"]
-        == "Front Lawn Watering"
-    )
+    assert context["attributes"]["friendly_name"] == "Front Lawn Watering"
 
     execute.assert_awaited_once()
     assert execute.await_args.args[0] == "ha_get_state"
     assert execute.await_args.args[1] == {
         "entity_id": "switch.front_lawn_watering",
     }
+
 
 @pytest.mark.anyio
 async def test_sensor_agent_autonomous_event_invokes_llm():
@@ -1894,6 +1936,7 @@ async def test_sensor_agent_autonomous_event_invokes_llm():
     assert llm.called is True
     assert result.data["llm_assessment"] is not None
 
+
 @pytest.mark.anyio
 async def test_sensor_agent_gathers_live_ha_state_via_mcp():
     agent = SensorAgent()
@@ -1940,6 +1983,7 @@ async def test_sensor_agent_gathers_live_ha_state_via_mcp():
         "entity_id": "sensor.wifi_soil_sensor",
     }
 
+
 @pytest.mark.anyio
 async def test_orchestrator_does_not_classify_ha_irrigation_event_as_device_control():
     orch = AgentOrchestrator()
@@ -1959,6 +2003,7 @@ async def test_orchestrator_does_not_classify_ha_irrigation_event_as_device_cont
     )
 
     assert orch._is_device_control_task(task) is False
+
 
 @pytest.mark.anyio
 async def test_orchestrator_blocks_ha_event_device_action_by_default():

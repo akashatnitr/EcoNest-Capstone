@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     COMMAND_CENTER_AUTH_REQUIRED: bool = True
 
+    # Google Calendar (read-only household context)
+    GOOGLE_CALENDAR_ENABLED: bool = False
+    GOOGLE_CALENDAR_CLIENT_ID: str = ""
+    GOOGLE_CALENDAR_CLIENT_SECRET: str = ""
+    GOOGLE_CALENDAR_REDIRECT_URI: str = ""
+    GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY: str = ""
+    GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS: int = 14
+    GOOGLE_CALENDAR_SETUP_PASSPHRASE: str = ""
+    GOOGLE_CALENDAR_AUTONOMOUS_REVIEWS_ENABLED: bool = True
+    GOOGLE_CALENDAR_SYNC_INTERVAL_SECONDS: int = 60
+
     # Orchestrator
     ORCHESTRATOR_URL: str = ""
     AUDIT_LOG_ENABLED: bool = True

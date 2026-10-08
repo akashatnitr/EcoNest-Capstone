@@ -31,7 +31,9 @@ MIN_LLM_CLASSIFICATION_CONFIDENCE = 0.45
 class IntentClassification(BaseModel):
     """LLM output for intent routing."""
 
-    category: str = Field(pattern="^(energy|security|irrigation|sensor|device|multi|unknown)$")
+    category: str = Field(
+        pattern="^(energy|security|irrigation|sensor|device|multi|unknown)$"
+    )
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     reasoning: str = ""
 
@@ -171,6 +173,7 @@ class AgentOrchestrator:
 
     async def _run_with_lifecycle(self, task: Task) -> None:
         """Run task with timeout, retry, and result storage."""
+        task = await self._attach_calendar_context(task)
         policy_result = await self._enforce_global_policy(task)
         if policy_result is not None:
             self._results[task.id] = policy_result
@@ -208,6 +211,22 @@ class AgentOrchestrator:
         await self._audit_security_recommendations(task, result)
         await self._audit_irrigation_recommendations(task, result)
         self._results[task.id] = result
+
+    async def _attach_calendar_context(self, task: Task) -> Task:
+        """Attach bounded calendar context through MCP before specialist reasoning."""
+        try:
+            context = await self.tool_executor.read_resource(
+                "home://calendar/context",
+                user_id=task.user_id,
+                task_id=task.id,
+                agent="orchestrator",
+                source=str(task.metadata.get("source", "agent")),
+            )
+        except Exception:
+            return task
+        return task.model_copy(
+            update={"metadata": {**task.metadata, "calendar_context": context}}
+        )
 
     async def _run_agent_with_retries(self, agent: BaseAgent, task: Task) -> Result:
         routed_task = task.model_copy(
@@ -470,12 +489,17 @@ class AgentOrchestrator:
                 "recommendations": normalized,
                 "pricing": result.data.get("pricing"),
                 "household_routines": result.data.get("household_routines", []),
+                "technical_details": _review_technical_details(task, result),
             },
         )
 
     async def _audit_security_recommendations(self, task: Task, result: Result) -> None:
         """Persist advisory security assessments for the recommendation activity feed."""
-        if not result.success or result.agent != "security" or not isinstance(result.data, dict):
+        if (
+            not result.success
+            or result.agent != "security"
+            or not isinstance(result.data, dict)
+        ):
             return
         items = result.data.get("recommendations")
         if not isinstance(items, list):
@@ -489,8 +513,15 @@ class AgentOrchestrator:
             for item in incidents
             if isinstance(item, dict) and item.get("reason")
         ]
-        action = recommendations[0] if recommendations else "Continue normal security monitoring"
-        reasoning = "; ".join(incident_reasons) or "No security anomaly was detected in the current assessment."
+        action = (
+            recommendations[0]
+            if recommendations
+            else "Continue normal security monitoring"
+        )
+        reasoning = (
+            "; ".join(incident_reasons)
+            or "No security anomaly was detected in the current assessment."
+        )
         await write_audit_event_async(
             "security.recommendations.generated",
             {
@@ -505,12 +536,19 @@ class AgentOrchestrator:
                         "reasoning": reasoning,
                     }
                 ],
+                "technical_details": _review_technical_details(task, result),
             },
         )
 
-    async def _audit_irrigation_recommendations(self, task: Task, result: Result) -> None:
+    async def _audit_irrigation_recommendations(
+        self, task: Task, result: Result
+    ) -> None:
         """Persist advisory irrigation reviews for the recommendation activity feed."""
-        if not result.success or result.agent != "irrigation" or not isinstance(result.data, dict):
+        if (
+            not result.success
+            or result.agent != "irrigation"
+            or not isinstance(result.data, dict)
+        ):
             return
         items = result.data.get("recommendations")
         if not isinstance(items, list):
@@ -526,6 +564,7 @@ class AgentOrchestrator:
                 "source": task.metadata.get("source", "direct"),
                 "recommendation_only": True,
                 "recommendations": recommendations,
+                "technical_details": _review_technical_details(task, result),
             },
         )
 
@@ -599,8 +638,7 @@ class AgentOrchestrator:
                     "close",
                     "set_temperature",
                 }
-                or domain
-                in {"device", "light", "switch", "cover", "climate", "fan"}
+                or domain in {"device", "light", "switch", "cover", "climate", "fan"}
                 and bool(action)
             )
 
@@ -665,3 +703,44 @@ def _audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "expected_outcome",
     }
     return {key: payload[key] for key in allowed_keys if key in payload}
+
+
+def _review_technical_details(task: Task, result: Result) -> dict[str, Any]:
+    """Retain bounded event evidence for the resident-facing activity trace."""
+    payload = task.payload
+    data = result.data if isinstance(result.data, dict) else {}
+    context = data.get("context") if isinstance(data.get("context"), dict) else {}
+    event_metadata = (
+        payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    )
+    event_type = task.metadata.get("event_type") or payload.get("event_type")
+    details = {
+        "trigger_source": task.metadata.get("source", "direct"),
+        "trigger_type": event_type,
+        "entity_id": payload.get("entity_id") or payload.get("device_id"),
+        "state_before": payload.get("previous_state"),
+        "state_after_event": payload.get("new_state"),
+        "live_state": _bounded_live_state(context.get("live_entity_state")),
+        "review_completed": result.success,
+        "simulated": bool(event_metadata.get("simulation")),
+    }
+    calendar_context = _bounded_calendar_context(task.metadata.get("calendar_context"))
+    if calendar_context is not None:
+        details["calendar_context"] = calendar_context
+    return details
+
+
+def _bounded_live_state(value: Any) -> dict[str, Any] | None:
+    """Expose only concise, useful state facts rather than a full HA payload."""
+    if not isinstance(value, dict):
+        return None
+    allowed_keys = ("available", "entity_id", "state", "friendly_name", "warnings")
+    return {key: value[key] for key in allowed_keys if key in value}
+
+
+def _bounded_calendar_context(value: Any) -> dict[str, Any] | None:
+    """Retain only derived calendar facts used in an advisory review."""
+    if not isinstance(value, dict) or not value.get("available"):
+        return None
+    allowed_keys = ("current_mode", "active_contexts", "upcoming_contexts", "guidance")
+    return {key: value[key] for key in allowed_keys if key in value}

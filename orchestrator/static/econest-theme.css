@@ -50,14 +50,15 @@ p, li, dd, label, .muted, .summary, .status { color: var(--econest-muted) !impor
 
 .card, .insight, .profile, .legend, .readable-result, .execution-trace,
 .technical-metadata, .history-entry, .confirmation, .trace, .task, .item,
-.model-briefing, .metric, .profile-item, #details, .table, .notice, .empty {
+.model-briefing, .metric, .profile-item, #details, .table, .notice, .empty, .calendar-glance,
+.pipeline, .pipeline-step {
   background: var(--econest-surface) !important;
   border-color: var(--econest-line) !important;
   box-shadow: 0 12px 32px rgba(76, 62, 111, 0.1) !important;
 }
 
 .card, .insight, .profile, .legend, .readable-result, .trace, .task, .item,
-.model-briefing, .notice { backdrop-filter: blur(14px); }
+.model-briefing, .notice, .pipeline, .pipeline-step { backdrop-filter: blur(14px); }
 
 button, .button, a.button, .open-page {
   background: var(--econest-sage) !important;
@@ -135,6 +136,12 @@ pre {
 .technical-details summary { color: #60482f !important; }
 .technical-details summary:hover { color: #3f5e42 !important; }
 .technical-metadata p { color: #4f493f !important; }
+.autonomy-technical { margin-top: 14px; border-top: 1px solid #e1d8c9; padding-top: 12px; }
+.technical-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin: 12px 0 0; }
+.technical-grid div { padding: 10px 12px; border: 1px solid #e1d8c9; border-radius: 10px; background: #fbf8f2; }
+.technical-grid dt { color: #5f4932 !important; font-size: .78rem; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; }
+.technical-grid dd { margin: 5px 0 0; color: #40382f !important; line-height: 1.45; }
+@media (max-width: 620px) { .technical-grid { grid-template-columns: 1fr; } }
 .trace-row { border-color: #ddd5c8 !important; }
 .trace-name { color: #37342d !important; }
 .trace-time { color: #5d765b !important; }
@@ -143,3 +150,13 @@ pre {
 .trace-dot { background: #759b70 !important; }
 .trace-row.running .trace-dot { background: #cba957 !important; }
 .trace-row.failed .trace-dot { background: #bb8068 !important; }
+
+/* Autonomous pipeline: keep state visible without implying disabled actions ran. */
+.pipeline-heading p, .pipeline-footnote, .pipeline-step span { color: var(--econest-muted) !important; }
+.mode-badge.loading { background: #e9dfce !important; color: #5f4932 !important; }
+.mode-badge.enabled { background: #dce8d8 !important; color: #3f5e42 !important; }
+.mode-badge.disabled { background: #f4e8c8 !important; color: #6b572a !important; }
+.pipeline-step.complete { border-color: #9bb894 !important; box-shadow: inset 3px 0 #759b70 !important; }
+.pipeline-step.blocked { background: #fbf2d9 !important; border-color: #d8be7d !important; box-shadow: inset 3px 0 #cba957 !important; }
+.pipeline-step.blocked span { color: #665225 !important; }
+.pipeline-step:not(:last-child)::after { color: #8a806f !important; }
