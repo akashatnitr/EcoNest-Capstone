@@ -74,6 +74,38 @@ host as the Launchpad.
 - **Device Agent:** Validates a device capability and action, calls Home
   Assistant through MCP, and verifies the resulting state.
 
+### Graph layer and execution boundary
+
+EcoNest separates understanding the home from changing the home:
+
+```text
+Home Assistant + MySQL + approved connectors
+                    ↓
+        ArcadeDB household knowledge graph
+                    ↓
+       Gemma and specialist-agent reasoning
+                    ↓
+          deterministic policy / safety gate
+                    ↓
+ Device Agent execution boundary → Home Assistant verification → audit record
+```
+
+**ArcadeDB is EcoNest's household knowledge graph, not a device controller.**
+It represents relationships such as which devices and sensors belong to a room,
+which capabilities a device has, and which observations provide context for a
+decision. It helps agents ground their reasoning, but it is not the source of
+truth for live state.
+
+**The Device Agent is the execution boundary.** It can request a Home
+Assistant service call only after the orchestrator has applied capability,
+permission, allowlist, current-state, and confirmation checks where required.
+Gemma, connector data, and graph results can recommend or explain an action;
+none can execute it directly. Home Assistant remains the authority for the
+device state, and EcoNest records the verified result in its audit trail.
+
+See [Architecture and data flow](docs/architecture-and-dataflow.md) for the
+full data-flow and source-of-truth boundaries.
+
 ## External connectors and household context
 
 Connectors let EcoNest use approved external information without giving an
