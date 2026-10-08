@@ -6,6 +6,7 @@ import httpx
 
 from orchestrator.config import get_settings
 from orchestrator.core.database import mysql_session_context
+from orchestrator.core.home_snapshot import build_home_snapshot
 from orchestrator.core.google_calendar import current_calendar_context
 
 from orchestrator.llm.memory import (
@@ -26,10 +27,44 @@ _CONDITION_ATTRIBUTE_TYPES = (str, int, float, bool)
 
 
 async def home_snapshot_resource() -> dict[str, Any]:
+    """Return the current canonical Home Assistant snapshot."""
+    if not settings.HA_TOKEN:
+        return {
+            "type": "snapshot",
+            "available": False,
+            "warnings": ["Home Assistant is not configured"],
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{settings.HA_URL.rstrip('/')}/api/states",
+                headers={"Authorization": f"Bearer {settings.HA_TOKEN}"},
+            )
+            response.raise_for_status()
+            states = response.json()
+    except httpx.HTTPError:
+        return {
+            "type": "snapshot",
+            "available": False,
+            "warnings": ["Home Assistant snapshot is unavailable"],
+        }
+
+    if not isinstance(states, list):
+        return {
+            "type": "snapshot",
+            "available": False,
+            "warnings": ["Home Assistant /api/states did not return a list"],
+        }
+
+    snapshot = build_home_snapshot(
+        [state for state in states if isinstance(state, dict)]
+    )
+
     return {
         "type": "snapshot",
-        "rooms": [],
-        "active_devices": [],
+        "available": True,
+        **snapshot,
     }
 
 

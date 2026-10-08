@@ -27,6 +27,7 @@ from orchestrator.core.permissions import Role
 from orchestrator.llm.client import LLMClient
 from orchestrator.llm.models import LLMMessage
 from orchestrator.mcp.tools.ha_tools import HAGetStateInput, ha_get_state_handler
+from orchestrator.core.home_snapshot import build_home_snapshot
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 settings = get_settings()
@@ -946,73 +947,22 @@ async def _wait_for_task(task_id: str) -> Result | None:
     return None
 
 
-def _build_household_feedback_snapshot(states: list[dict[str, Any]]) -> dict[str, Any]:
-    people = [
-        _entity_summary(item)
-        for item in states
-        if str(item.get("entity_id", "")).startswith(("person.", "device_tracker."))
-    ]
-    occupancy_status = _occupancy_status(people)
-    transition = _record_occupancy_observation(occupancy_status)
+def _build_household_feedback_snapshot(
+    states: list[dict[str, Any]],
+) -> dict[str, Any]:
+    snapshot = build_home_snapshot(states)
 
-    lights_on = [
-        _entity_summary(item)
-        for item in states
-        if str(item.get("entity_id", "")).startswith("light.")
-        and str(item.get("state", "")).lower() == "on"
-    ]
-    switches_on = [
-        _entity_summary(item)
-        for item in states
-        if str(item.get("entity_id", "")).startswith("switch.")
-        and str(item.get("state", "")).lower() == "on"
-    ]
-    covers_open = [
-        _entity_summary(item)
-        for item in states
-        if str(item.get("entity_id", "")).startswith("cover.")
-        and str(item.get("state", "")).lower() not in {"closed", "closing"}
-    ]
-    active_motion = [
-        _entity_summary(item)
-        for item in states
-        if str(item.get("entity_id", "")).startswith("binary_sensor.")
-        and "motion" in _entity_text(item)
-        and str(item.get("state", "")).lower() == "on"
-    ]
-    power_now = sorted(
-        [
-            _numeric_sensor_summary(item)
-            for item in states
-            if "power_minute_average" in str(item.get("entity_id", ""))
-        ],
-        key=lambda item: item["value"],
-        reverse=True,
-    )[:8]
-    energy_today = sorted(
-        [
-            _numeric_sensor_summary(item)
-            for item in states
-            if "energy_today" in str(item.get("entity_id", ""))
-        ],
-        key=lambda item: item["value"],
-        reverse=True,
-    )[:8]
+    transition = _record_occupancy_observation(
+        snapshot["occupancy_status"]
+    )
 
-    return {
-        "occupancy_status": occupancy_status,
-        "occupancy_transition": transition,
-        "observation_count": _feedback_memory["observation_count"],
-        "recent_occupancy_transitions": list(_feedback_memory["transitions"][-5:]),
-        "people": people[:10],
-        "lights_on": lights_on[:15],
-        "switches_on": switches_on[:15],
-        "covers_open": covers_open,
-        "active_motion": active_motion,
-        "top_power_now_w": power_now,
-        "top_energy_today_kwh": energy_today,
-    }
+    snapshot["occupancy_transition"] = transition
+    snapshot["observation_count"] = _feedback_memory["observation_count"]
+    snapshot["recent_occupancy_transitions"] = list(
+        _feedback_memory["transitions"][-5:]
+    )
 
+    return snapshot
 
 async def _llm_periodic_feedback(snapshot: dict[str, Any]) -> dict[str, Any]:
     prompt = (

@@ -18,6 +18,7 @@ from orchestrator.api import (
     demo,
     devices,
     graph,
+    home,
     launchpad,
     mcp,
     monitor,
@@ -124,6 +125,7 @@ app.include_router(command.router)
 app.include_router(demo.router)
 app.include_router(devices.router)
 app.include_router(graph.router)
+app.include_router(home.router)
 app.include_router(launchpad.router)
 app.include_router(mcp.router)
 app.include_router(mcp_server.router)
