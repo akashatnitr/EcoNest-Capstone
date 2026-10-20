@@ -21,6 +21,9 @@ services:
     environment:
       ARCADEDB_USER: ${ARCADEDB_USER:-root}
       ARCADEDB_PASSWORD: ${ARCADEDB_PASSWORD:-playwithdata}
+      # EcoNest does not use remote JMX. Disable the image's default listener,
+      # which can fail when Docker Desktop cannot resolve a container hostname.
+      ARCADEDB_JMX: ""
       ARCADEDB_SETTINGS: >-
         -Darcadedb.server.rootPassword=${ARCADEDB_PASSWORD:-playwithdata}
         -Darcadedb.server.defaultDatabases=${ARCADEDB_DATABASE:-econest}[${ARCADEDB_USER:-root}:${ARCADEDB_PASSWORD:-playwithdata}:admin]
@@ -104,6 +107,7 @@ services:
       HA_URL: ${HA_URL:-http://host.docker.internal:8123}
       HA_TOKEN: ${HA_TOKEN:?Set HA_TOKEN in your .env before starting econest-real}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
+      LOCAL_STT_MODEL_DIR: /models
       HA_INGEST_ENABLED: ${HA_INGEST_ENABLED:-true}
       HA_INGEST_INTERVAL_SECONDS: ${HA_INGEST_INTERVAL_SECONDS:-60}
       HA_REGISTRY_REFRESH_SECONDS: ${HA_REGISTRY_REFRESH_SECONDS:-300}
@@ -118,12 +122,24 @@ services:
       GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY: ${GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY:-}
       GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS: ${GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS:-14}
       GOOGLE_CALENDAR_SETUP_PASSPHRASE: ${GOOGLE_CALENDAR_SETUP_PASSPHRASE:-}
+      GMAIL_ENABLED: ${GMAIL_ENABLED:-false}
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_REDIRECT_URI: ${GMAIL_REDIRECT_URI:-}
+      GMAIL_TOKEN_ENCRYPTION_KEY: ${GMAIL_TOKEN_ENCRYPTION_KEY:-}
+      GMAIL_ALLOWED_LABEL_IDS: ${GMAIL_ALLOWED_LABEL_IDS:-INBOX}
+      GMAIL_ALLOWED_SENDER_DOMAINS: ${GMAIL_ALLOWED_SENDER_DOMAINS:-}
+      GMAIL_CONTEXT_RETENTION_DAYS: ${GMAIL_CONTEXT_RETENTION_DAYS:-14}
+      GMAIL_READ_BODY_FOR_CONTEXT: ${GMAIL_READ_BODY_FOR_CONTEXT:-false}
+      GMAIL_SETUP_PASSPHRASE: ${GMAIL_SETUP_PASSPHRASE:-}
       AUDIT_LOG_MAX_BYTES: ${AUDIT_LOG_MAX_BYTES:-10485760}
       AUDIT_LOG_BACKUP_COUNT: ${AUDIT_LOG_BACKUP_COUNT:-5}
       AUTONOMY_MONITOR_ENABLED: ${AUTONOMY_MONITOR_ENABLED:-true}
       AUTONOMY_MONITOR_INTERVAL_SECONDS: ${AUTONOMY_MONITOR_INTERVAL_SECONDS:-300}
       AUTONOMY_MONITOR_RUN_ON_STARTUP: ${AUTONOMY_MONITOR_RUN_ON_STARTUP:-true}
-      AUTONOMY_ACTIONS_ENABLED: ${AUTONOMY_ACTIONS_ENABLED:-true}
+      # Keep the occupied home protected while ingestion backfills energy history.
+      # Explicit opt-in is required before any real device control is enabled.
+      AUTONOMY_ACTIONS_ENABLED: ${AUTONOMY_ACTIONS_ENABLED:-false}
       AUTONOMY_ACTION_CONFIDENCE_THRESHOLD: ${AUTONOMY_ACTION_CONFIDENCE_THRESHOLD:-0.85}
       AUTONOMY_ALLOWED_ACTIONS: ${AUTONOMY_ALLOWED_ACTIONS:-light.turn_off,light.turn_on}
       AUTONOMY_ALLOWED_ENTITIES: ${AUTONOMY_ALLOWED_ENTITIES:-light.upstairs_media_light_1}
@@ -136,6 +152,7 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      - whisper-models:/models
     command: >
       sh -c 'poetry install --no-interaction && poetry run poe dev'
     healthcheck:
@@ -149,3 +166,4 @@ volumes:
   arcadedb-data:
   mysql-data:
   ollama-data:
+  whisper-models:

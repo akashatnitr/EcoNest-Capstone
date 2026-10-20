@@ -3,10 +3,117 @@
 from datetime import datetime
 
 from orchestrator.api.autonomy import (
+    _action_activity_view,
+    _active_task_view,
+    _deduplicate_action_activity,
     _recommendation_view,
     _recommendation_views,
     scheduled_recommendation_kind,
 )
+
+
+def test_action_activity_maps_live_and_retained_work_to_lifecycle_states() -> None:
+    """The dashboard exposes status, rationale, and progress for each action."""
+    active = _active_task_view(
+        {"task_id": "task-1", "intent": "Review household energy use."}
+    )
+    pending = _action_activity_view(
+        {
+            "reason": "Power usage changed.",
+            "outcome": {"state": "pending", "label": "Awaiting execution result"},
+        }
+    )
+    completed = _action_activity_view(
+        {
+            "reason": "The review found no safety issue.",
+            "outcome": {"state": "advisory", "label": "Recommendation only"},
+        }
+    )
+    failed = _action_activity_view(
+        {
+            "reason": "The device did not respond.",
+            "outcome": {"state": "failed", "label": "Failed — device action error"},
+        }
+    )
+
+    assert active["status"] == "active"
+    assert active["rationale"] == "Review household energy use."
+    assert pending["status"] == "pending"
+    assert completed["status"] == "completed"
+    assert failed["status"] == "failed"
+    assert failed["execution_progress"]["label"] == "Failed — device action error"
+
+
+def test_action_activity_shows_one_latest_dryer_monitoring_advisory() -> None:
+    """Recurring dryer monitoring advice is one current board item, not many actions."""
+    actions = [
+        {
+            "status": "completed",
+            "category": "Energy",
+            "action": "Monitor the dryer's energy consumption.",
+            "rationale": "It is currently drawing 1803.3 W.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+        {
+            "status": "completed",
+            "category": "Energy",
+            "action": "Monitor the dryer's energy consumption closely.",
+            "rationale": "It has just started a cycle.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+        {
+            "status": "completed",
+            "category": "Energy",
+            "action": "Review the refrigerator's power use.",
+            "rationale": "The refrigerator is using its normal load.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+        {
+            "status": "pending",
+            "category": "Energy",
+            "action": "Monitor the dryer's energy consumption.",
+            "rationale": "A review is running.",
+            "execution_progress": {"label": "Awaiting result"},
+        },
+        {
+            "status": "completed",
+            "category": "Energy",
+            "action": "Investigate the Balance Power Minute Average sensor.",
+            "rationale": "The current reading is high.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+        {
+            "status": "completed",
+            "category": "Energy",
+            "action": "Monitor the Balance Power Minute Average sensor.",
+            "rationale": "Its deviation needs attention.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+        {
+            "status": "completed",
+            "category": "Watering",
+            "action": "Skip scheduled watering",
+            "rationale": "Rain is expected.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+        {
+            "status": "completed",
+            "category": "Watering",
+            "action": "Skip scheduled watering",
+            "rationale": "The schedule does not need to run.",
+            "execution_progress": {"label": "Recommendation only"},
+        },
+    ]
+
+    visible = _deduplicate_action_activity(actions)
+
+    assert [item["action"] for item in visible] == [
+        "Monitor the dryer's energy consumption.",
+        "Review the refrigerator's power use.",
+        "Monitor the dryer's energy consumption.",
+        "Investigate the Balance Power Minute Average sensor.",
+        "Skip scheduled watering",
+    ]
 
 
 def test_recommendation_view_preserves_human_decision_context() -> None:

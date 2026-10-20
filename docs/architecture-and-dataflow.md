@@ -95,6 +95,23 @@ specialist agent ground a question such as “what is happening in the media
 room?” in related rooms, devices, and capabilities instead of guessing from a
 single label.
 
+For Gemma-backed reviews, the `home://household-context` MCP resource builds a
+small request-specific evidence package. It matches entity IDs, device names,
+and room names from the task against the graph, then returns the matched
+devices/rooms, room-related sensors, and known device capabilities alongside a
+compact live Home Assistant snapshot and Calendar context. The graph portion
+is relationship evidence only; the snapshot is the separate live-state source.
+When enabled, the same package can also include Gmail-derived notice categories;
+it never includes Gmail bodies, attachments, sender addresses, or subject text.
+
+`GraphBrainContextWrapper` is the first implementation of EcoNest's shared
+context-wrapper contract. It exposes `build_context(intent, payload)` and
+`status()`. The latter is available through
+`home://household-context/status` and reports availability, topology counts,
+freshness, and warnings without returning raw graph records. Future provider
+wrappers use the same contract so their data reaches agents as bounded context,
+not as direct provider access.
+
 The graph is deliberately **not** a replacement for Home Assistant or MySQL:
 
 | Layer | Responsibility | Cannot do |
@@ -124,6 +141,30 @@ External connectors, graph results, and Gemma output are **evidence only**:
 they can change the recommendation or explanation, but cannot cross this
 boundary by themselves. In particular, Calendar context can queue
 advisory-only energy/security reviews and remains unable to control devices.
+
+### External connector wrapper boundary
+
+Every external connector follows the same high-level wrapper path:
+
+```text
+Provider OAuth/API → connector wrapper → privacy reduction → bounded household context → agents/policy
+```
+
+The wrapper owns OAuth credential encryption, provider retrieval, availability
+status, auditing, and provider-specific privacy reduction. The provider itself
+does not become an agent tool and cannot authorize a device action.
+
+| Connector | Raw provider access | Stored / agent-visible result | Boundary |
+| --- | --- | --- | --- |
+| Google Calendar | Read-only Calendar events | Derived `away` or `hosting` windows and guidance. | No event text reaches agents; advisory reviews only. |
+| Gmail | `gmail.metadata` by default, restricted to configured label IDs and sender domains. An explicit local test mode may use `gmail.readonly` for a bounded plain-text body. | Short-lived `travel` or `utility` notice category, derived time window, and guidance. | No body, attachment, sender address, or subject is retained or supplied to Gemma. Sync fails closed without a sender-domain allowlist. |
+
+The owner-facing `GET /integrations/google-calendar/upcoming-context` view
+combines upcoming Calendar entries with scheduled Gmail-derived notices for the
+User prompts and Autonomous actions pages. Calendar entries retain their source
+label and are displayed on demand; Gmail entries use a generated category label
+such as `Travel context (Gmail)` and never expose email text.
+| Home Assistant weather | Read-only HA weather capability. | Bounded forecast facts. | Forecasts are evidence for recommendations, never action authority. |
 
 ## Main ingestion paths
 

@@ -12,6 +12,8 @@ from orchestrator.mcp.resources import (
     home_calendar_context_resource,
     home_condition_catalog_resource,
     home_devices_resource,
+    home_household_context_resource,
+    home_household_context_status_resource,
     home_snapshot_resource,
     ontology_resource,
     recent_memory_resource,
@@ -117,6 +119,16 @@ def register_builtin_mcp_components() -> None:
         "home://calendar/context",
         "Derived read-only household calendar context",
         home_calendar_context_resource,
+    )
+    register_resource(
+        "home://household-context",
+        "Bounded live, calendar, and graph context for agent reasoning",
+        home_household_context_resource,
+    )
+    register_resource(
+        "home://household-context/status",
+        "Graph/brain context wrapper status",
+        home_household_context_status_resource,
     )
     register_resource(
         "home://ontology", "Smart-home ontology context", ontology_resource

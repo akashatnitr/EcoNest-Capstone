@@ -19,6 +19,7 @@ class IrrigationRecommendation(BaseModel):
     """One cautious watering recommendation for the household."""
 
     priority: str
+    status: str
     action: str
     reasoning: str
 
@@ -89,7 +90,8 @@ class IrrigationAgent(BaseAgent):
                 default=0.0,
             )
             recommendation = IrrigationRecommendation(
-                priority="LOW",
+                priority="ADVISORY",
+                status="Rain expected",
                 action="Skip scheduled watering",
                 reasoning=(
                     "A near-term forecast indicates rain "
@@ -100,18 +102,22 @@ class IrrigationAgent(BaseAgent):
                 ),
             )
         elif forecasts:
+            status, interval_note = _watering_interval_status(recent_runs)
             recommendation = IrrigationRecommendation(
-                priority="LOW",
+                priority="ADVISORY",
+                status=status,
                 action="Review watering schedule before running zones",
                 reasoning=(
                     "No material rain is forecast in the next 24 hours. "
                     f"{watering_history} "
-                    "EcoNest recommends reviewing the watering schedule before running zones."
+                    f"{interval_note} EcoNest recommends reviewing the watering "
+                    "schedule before running zones."
                 ),
             )
         else:
             recommendation = IrrigationRecommendation(
-                priority="LOW",
+                priority="ADVISORY",
+                status="Insufficient weather evidence",
                 action="Keep irrigation under manual schedule",
                 reasoning=(
                     "No current weather forecast is available to support a watering decision. "
@@ -180,7 +186,7 @@ class IrrigationAgent(BaseAgent):
                 "live_entity_state": live_entity_state,
             },
         )
-        prompt += self.calendar_context_guidance(task)
+        prompt += self.household_context_guidance(task)
         prompt += await self.reviewed_feedback_guidance(task)
         try:
             response = await self.llm.generate(prompt, temperature=0.2)
@@ -390,6 +396,40 @@ def _watering_history_summary(runs: list[dict[str, Any]]) -> str:
     return (
         f"The most recent recorded watering was {zone} for {duration} minutes "
         f"on {started_at}; {len(runs)} completed run(s) are recorded in the last 14 days."
+    )
+
+
+def _watering_interval_status(runs: list[dict[str, Any]]) -> tuple[str, str]:
+    """Describe time since the latest run without guessing plant water needs."""
+    if not runs:
+        return (
+            "No recent watering record",
+            "EcoNest cannot tell whether a zone is due without a retained run or soil-moisture evidence.",
+        )
+
+    latest_started_at = runs[0].get("started_at")
+    try:
+        latest = datetime.fromisoformat(str(latest_started_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return (
+            "Recent watering time unavailable",
+            "EcoNest has a watering record but cannot calculate how long ago it ran.",
+        )
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=UTC)
+    elapsed_seconds = (datetime.now(UTC) - latest.astimezone(UTC)).total_seconds()
+    elapsed_hours = max(0, int(elapsed_seconds // 3600))
+
+    if elapsed_hours < 48:
+        return (
+            "Recently watered — verify before running",
+            f"The latest recorded run was about {elapsed_hours} hours ago. "
+            "Without a soil-moisture sensor, EcoNest cannot confirm that another run is needed.",
+        )
+    return (
+        "Schedule may be due — verify before running",
+        f"The latest recorded run was about {elapsed_hours} hours ago. "
+        "EcoNest still needs a zone schedule or soil-moisture evidence before it can call watering urgent.",
     )
 
 

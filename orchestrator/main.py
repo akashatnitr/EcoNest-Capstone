@@ -2,10 +2,13 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import ipaddress
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from orchestrator.api import (
@@ -18,13 +21,16 @@ from orchestrator.api import (
     demo,
     devices,
     graph,
+    gmail,
     home,
+    integrations,
     launchpad,
     mcp,
     monitor,
     ontology,
     readings,
     schema,
+    simulation,
     users,
 )
 from orchestrator.config import get_settings
@@ -39,6 +45,7 @@ from orchestrator.core.database import (
 from orchestrator.core.event_dispatcher import EventDispatcher
 from orchestrator.core.graph_sync import GraphSyncMonitor
 from orchestrator.core.ha_ingest import HomeAssistantIngestor
+from orchestrator.core.security import decode_token
 from orchestrator.mcp import server as mcp_server
 
 settings = get_settings()
@@ -109,6 +116,73 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def redirect_direct_tailscale_ip_to_https(request: Request, call_next: Any) -> Any:
+    """Upgrade direct Tailnet-IP visits to the configured HTTPS hostname.
+
+    Microphone access is granted only to secure browser contexts.  Redirecting
+    at the application boundary also covers the Launchpad and its embedded
+    pages, rather than fixing only the standalone command page.
+    """
+    public_https_url = settings.ECONEST_PUBLIC_HTTPS_URL.rstrip("/")
+    if public_https_url and _is_direct_tailscale_ip_request(request):
+        location = f"{public_https_url}{request.url.path}"
+        if request.url.query:
+            location = f"{location}?{request.url.query}"
+        return RedirectResponse(location, status_code=status.HTTP_308_PERMANENT_REDIRECT)
+    if _requires_launchpad_login(request) and not _has_valid_browser_session(request):
+        next_path = request.url.path
+        if request.url.query:
+            next_path = f"{next_path}?{request.url.query}"
+        return RedirectResponse(
+            f"/login?next={quote(next_path, safe='/')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return await call_next(request)
+
+
+def _is_direct_tailscale_ip_request(request: Request) -> bool:
+    """Return whether a request uses a direct Tailscale CGNAT address."""
+    host = request.headers.get("host", "").split(":", 1)[0].strip("[]")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address in ipaddress.ip_network("100.64.0.0/10")
+
+
+def _requires_launchpad_login(request: Request) -> bool:
+    """Return whether this browser-facing workspace request needs a session."""
+    if not settings.LAUNCHPAD_AUTH_REQUIRED:
+        return False
+    path = request.url.path
+    protected_prefixes = (
+        "/analytics",
+        "/autonomy",
+        "/benchmarks",
+        "/calendar",
+        "/command",
+        "/devices",
+        "/gmail",
+        "/home",
+        "/integrations",
+        "/mcp/activity",
+        "/monitor",
+        "/schema",
+        "/simulation",
+    )
+    return path in {"/", "/launchpad"} or path.startswith(protected_prefixes)
+
+
+def _has_valid_browser_session(request: Request) -> bool:
+    """Validate the short-lived access cookie used by Launchpad navigation."""
+    token = request.cookies.get(settings.AUTH_SESSION_COOKIE_NAME)
+    payload = decode_token(token) if token else None
+    return payload is not None and payload.get("type") == "access"
+
+
 app.mount(
     "/static",
     StaticFiles(directory=Path(__file__).resolve().parent / "static"),
@@ -125,7 +199,9 @@ app.include_router(command.router)
 app.include_router(demo.router)
 app.include_router(devices.router)
 app.include_router(graph.router)
+app.include_router(gmail.router)
 app.include_router(home.router)
+app.include_router(integrations.router)
 app.include_router(launchpad.router)
 app.include_router(mcp.router)
 app.include_router(mcp_server.router)
@@ -133,6 +209,7 @@ app.include_router(monitor.router)
 app.include_router(ontology.router)
 app.include_router(readings.router)
 app.include_router(schema.router)
+app.include_router(simulation.router)
 app.include_router(users.router)
 
 

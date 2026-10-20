@@ -27,6 +27,7 @@ from orchestrator.core.google_calendar import (
     sync_calendar_context,
     upcoming_calendar_events,
 )
+from orchestrator.core.google_gmail import upcoming_gmail_context_events
 
 router = APIRouter(prefix="/integrations/google-calendar", tags=["integrations"])
 settings = get_settings()
@@ -168,6 +169,28 @@ async def google_calendar_events(
     return {"events": events, "retention": "Displayed on demand only; event titles are not stored or sent to the model."}
 
 
+@router.get("/upcoming-context")
+async def upcoming_household_context(
+    current_user: Annotated[UserProfile | None, Depends(get_optional_current_user)],
+    session: AsyncSession = Depends(get_mysql_session),
+) -> dict[str, Any]:
+    """Return upcoming Calendar and Gmail-derived household context for the UI."""
+    owner_id = _calendar_owner_id(current_user)
+    if owner_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to view household context")
+    calendar_events = await upcoming_calendar_events(session, settings, owner_id)
+    gmail_events = await upcoming_gmail_context_events(session, owner_id)
+    events = [
+        {"source": "calendar", **event}
+        for event in calendar_events
+    ] + gmail_events
+    events.sort(key=lambda event: str(event.get("starts_at") or ""))
+    return {
+        "events": events[:8],
+        "retention": "Calendar titles are displayed on demand only. Gmail entries are derived categories and time windows only.",
+    }
+
+
 @router.post("/context/refresh")
 async def refresh_google_calendar_context(
     current_user: Annotated[UserProfile | None, Depends(get_optional_current_user)],
@@ -225,9 +248,9 @@ async def google_calendar_callback(
     payload = _decode_state(state_token, settings)
     if error is not None:
         await write_audit_event_async("calendar.google.connection.cancelled", {"source": "google_oauth"})
-        return RedirectResponse("/integrations/google-calendar?status=cancelled", status_code=303)
+        return RedirectResponse("/integrations?calendar=cancelled", status_code=303)
     if not code:
-        return RedirectResponse("/integrations/google-calendar?status=failed", status_code=303)
+        return RedirectResponse("/integrations?calendar=failed", status_code=303)
     tokens = await _exchange_code(code, settings)
     refresh_token = tokens.get("refresh_token")
     if not isinstance(refresh_token, str) or not refresh_token:
@@ -247,7 +270,7 @@ async def google_calendar_callback(
         "calendar.google.connected",
         {"source": "google_oauth", "user_id": payload.get("sub"), "success": True},
     )
-    return RedirectResponse("/integrations/google-calendar?status=connected", status_code=303)
+    return RedirectResponse("/integrations?calendar=connected", status_code=303)
 
 
 def _is_configured(config: Settings) -> bool:

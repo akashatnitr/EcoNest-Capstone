@@ -82,6 +82,10 @@ class DeviceAgent(BaseAgent):
         task: Task,
     ) -> Result:
 
+        batch = task.payload.get("device_actions")
+        if isinstance(batch, list) and batch:
+            return await self._run_device_action_batch(task, batch)
+
         request = DeviceActionRequest(
             device_id=task.payload.get(
                 "device_id",
@@ -188,6 +192,58 @@ class DeviceAgent(BaseAgent):
                     "verified": execution.verified,
                 },
             },
+        )
+
+    async def _run_device_action_batch(
+        self, task: Task, actions: list[Any]
+    ) -> Result:
+        """Execute an explicitly confirmed whole-home batch one thermostat at a time."""
+        results: list[Result] = []
+        for raw_action in actions:
+            if not isinstance(raw_action, dict):
+                return Result(
+                    success=False,
+                    confidence=1.0,
+                    data={"actions": [result.data for result in results]},
+                    message="Whole-home request contained an invalid device action.",
+                    agent=self.name,
+                    task_id=task.id,
+                    error="invalid_device_action_batch",
+                )
+            action_payload = {
+                **task.payload,
+                "device_actions": [],
+                "device_id": raw_action.get("device_id", raw_action.get("entity_id", "")),
+                "entity_id": raw_action.get("entity_id"),
+                "domain": raw_action.get("domain"),
+                "action": raw_action.get("action"),
+                "brightness": raw_action.get("brightness"),
+                "temperature": raw_action.get("temperature"),
+            }
+            result = await self.run(task.model_copy(update={"payload": action_payload}))
+            results.append(result)
+            if not result.success:
+                return Result(
+                    success=False,
+                    confidence=0.0,
+                    data={"actions": [item.data for item in results]},
+                    message=(
+                        "Whole-home adjustment stopped because one thermostat could not "
+                        "be verified. Earlier confirmed adjustments may already have run."
+                    ),
+                    agent=self.name,
+                    task_id=task.id,
+                    error="whole_home_adjustment_incomplete",
+                )
+
+        return Result(
+            success=True,
+            confidence=min((result.confidence for result in results), default=1.0),
+            data={"actions": [result.data for result in results]},
+            message=f"Whole-home adjustment completed for {len(results)} thermostats.",
+            agent=self.name,
+            task_id=task.id,
+            metadata={"agent_type": "device", "whole_home": True},
         )
 
     async def _check_capability(

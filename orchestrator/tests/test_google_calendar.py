@@ -33,7 +33,6 @@ def test_calendar_page_is_served(client) -> None:
 
     assert response.status_code == 200
     assert "Google Calendar context" in response.text
-    assert "Calendar text is not treated as an instruction" in response.text
     assert "window.top.location.assign" in response.text
     assert ".setup[hidden] { display: none !important; }" in response.text
     assert "Preview autonomous review" in response.text

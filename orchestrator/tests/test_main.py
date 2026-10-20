@@ -36,6 +36,8 @@ def test_autonomy_page_exposes_the_disabled_execution_stage(client) -> None:
     assert "Autonomous device actions disabled" in response.text
     assert "Execute and verify" in response.text
     assert 'fetch("/autonomy/status")' in response.text
+    assert "econest_autonomy_card_order" in response.text
+    assert "setupAutonomyCardOrder" in response.text
 
 
 def test_autonomy_page_can_hide_and_restore_recommendation_history(client) -> None:

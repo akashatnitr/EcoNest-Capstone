@@ -18,11 +18,56 @@ _arcadedb_client: Optional[httpx.AsyncClient] = None
 
 async def init_databases() -> None:
     """Initialize MySQL engine and ArcadeDB HTTP client."""
-    global _settings, _mysql_engine, _mysql_session_factory, _arcadedb_client
+    global _arcadedb_client
 
+    await init_mysql_database()
+
+    from orchestrator.core.comfort import ensure_comfort_observations_schema
+    from orchestrator.core.behavior_profile import ensure_behavior_profile_schema
+    from orchestrator.core.command_feedback import ensure_command_feedback_schema
+    from orchestrator.core.household_plan_feedback import ensure_household_plan_preferences_schema
+    from orchestrator.core.energy_analytics import ensure_energy_analytics_schema
+    from orchestrator.core.home_events import ensure_home_events_schema
+    from orchestrator.core.irrigation import ensure_irrigation_runs_schema
+    from orchestrator.core.weather import ensure_weather_forecast_schema
+    from orchestrator.core.google_calendar import ensure_google_calendar_schema
+    from orchestrator.core.google_gmail import ensure_google_gmail_schema
+
+    async with mysql_session_context() as session:
+        await ensure_energy_analytics_schema(session)
+        await ensure_home_events_schema(session)
+        await ensure_comfort_observations_schema(session)
+        await ensure_behavior_profile_schema(session)
+        await ensure_command_feedback_schema(session)
+        await ensure_household_plan_preferences_schema(session)
+        await ensure_irrigation_runs_schema(session)
+        await ensure_weather_forecast_schema(session)
+        await ensure_google_calendar_schema(session)
+        await ensure_google_gmail_schema(session)
+
+    # ArcadeDB async HTTP client
+    _arcadedb_client = httpx.AsyncClient(
+        base_url=f"http://{_settings.ARCADEDB_HOST}:{_settings.ARCADEDB_PORT}",
+        auth=(_settings.ARCADEDB_USER, _settings.ARCADEDB_PASSWORD),
+        timeout=httpx.Timeout(30.0),
+        headers={"Content-Type": "application/json"},
+    )
+    from orchestrator.core.audit import ensure_audit_table
+
+    await ensure_audit_table()
+
+
+async def init_mysql_database() -> None:
+    """Initialize only the shared async MySQL session factory.
+
+    Maintenance scripts that seed household rows should not require ArcadeDB to
+    be online because they do not query or mutate the graph database.
+    """
+    global _settings, _mysql_engine, _mysql_session_factory
+
+    if _mysql_session_factory is not None:
+        return
     _settings = get_settings()
-
-    # MySQL async engine via aiomysql driver
     db_url = (
         f"mysql+aiomysql://{_settings.MYSQL_USER}:{_settings.MYSQL_PASSWORD}"
         f"@{_settings.MYSQL_HOST}:{_settings.MYSQL_PORT}/{_settings.MYSQL_DATABASE}"
@@ -39,36 +84,6 @@ async def init_databases() -> None:
         class_=AsyncSession,
         expire_on_commit=False,
     )
-
-    from orchestrator.core.comfort import ensure_comfort_observations_schema
-    from orchestrator.core.behavior_profile import ensure_behavior_profile_schema
-    from orchestrator.core.command_feedback import ensure_command_feedback_schema
-    from orchestrator.core.energy_analytics import ensure_energy_analytics_schema
-    from orchestrator.core.home_events import ensure_home_events_schema
-    from orchestrator.core.irrigation import ensure_irrigation_runs_schema
-    from orchestrator.core.weather import ensure_weather_forecast_schema
-    from orchestrator.core.google_calendar import ensure_google_calendar_schema
-
-    async with mysql_session_context() as session:
-        await ensure_energy_analytics_schema(session)
-        await ensure_home_events_schema(session)
-        await ensure_comfort_observations_schema(session)
-        await ensure_behavior_profile_schema(session)
-        await ensure_command_feedback_schema(session)
-        await ensure_irrigation_runs_schema(session)
-        await ensure_weather_forecast_schema(session)
-        await ensure_google_calendar_schema(session)
-
-    # ArcadeDB async HTTP client
-    _arcadedb_client = httpx.AsyncClient(
-        base_url=f"http://{_settings.ARCADEDB_HOST}:{_settings.ARCADEDB_PORT}",
-        auth=(_settings.ARCADEDB_USER, _settings.ARCADEDB_PASSWORD),
-        timeout=httpx.Timeout(30.0),
-        headers={"Content-Type": "application/json"},
-    )
-    from orchestrator.core.audit import ensure_audit_table
-
-    await ensure_audit_table()
 
 
 async def close_databases() -> None:

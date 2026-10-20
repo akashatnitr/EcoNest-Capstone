@@ -97,6 +97,17 @@ class AgentOrchestrator:
     def stats(self) -> dict[str, int]:
         return dict(self._stats)
 
+    def active_tasks(self) -> list[dict[str, str]]:
+        """Return safe, in-memory summaries for tasks still being processed."""
+        return [
+            {
+                "task_id": task_id,
+                "intent": self._task_context.get(task_id, ("Household task", ""))[0],
+            }
+            for task_id, running_task in self._tasks.items()
+            if not running_task.done()
+        ]
+
     async def submit_http_api(
         self,
         intent: str,
@@ -174,6 +185,7 @@ class AgentOrchestrator:
     async def _run_with_lifecycle(self, task: Task) -> None:
         """Run task with timeout, retry, and result storage."""
         task = await self._attach_calendar_context(task)
+        task = await self._attach_household_context(task)
         policy_result = await self._enforce_global_policy(task)
         if policy_result is not None:
             self._results[task.id] = policy_result
@@ -221,11 +233,31 @@ class AgentOrchestrator:
                 task_id=task.id,
                 agent="orchestrator",
                 source=str(task.metadata.get("source", "agent")),
+                intent=task.intent,
+                payload=task.payload,
             )
         except Exception:
             return task
         return task.model_copy(
             update={"metadata": {**task.metadata, "calendar_context": context}}
+        )
+
+    async def _attach_household_context(self, task: Task) -> Task:
+        """Attach bounded graph and live context before specialist reasoning."""
+        if task.payload.get("use_llm") is not True:
+            return task
+        try:
+            context = await self.tool_executor.read_resource(
+                "home://household-context",
+                user_id=task.user_id,
+                task_id=task.id,
+                agent="orchestrator",
+                source=str(task.metadata.get("source", "agent")),
+            )
+        except Exception:
+            return task
+        return task.model_copy(
+            update={"metadata": {**task.metadata, "household_context": context}}
         )
 
     async def _run_agent_with_retries(self, agent: BaseAgent, task: Task) -> Result:
@@ -643,7 +675,8 @@ class AgentOrchestrator:
             )
 
         return (
-            domain in {"device", "light", "switch", "cover", "climate", "fan"}
+            task.payload.get("type") == "device"
+            or domain in {"device", "light", "switch", "cover", "climate", "fan"}
             or action
             in {
                 "turn_on",
@@ -727,6 +760,9 @@ def _review_technical_details(task: Task, result: Result) -> dict[str, Any]:
     calendar_context = _bounded_calendar_context(task.metadata.get("calendar_context"))
     if calendar_context is not None:
         details["calendar_context"] = calendar_context
+    household_context = _bounded_household_context(task.metadata.get("household_context"))
+    if household_context is not None:
+        details["household_context"] = household_context
     return details
 
 
@@ -743,4 +779,12 @@ def _bounded_calendar_context(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict) or not value.get("available"):
         return None
     allowed_keys = ("current_mode", "active_contexts", "upcoming_contexts", "guidance")
+    return {key: value[key] for key in allowed_keys if key in value}
+
+
+def _bounded_household_context(value: Any) -> dict[str, Any] | None:
+    """Expose the reasoning package without representing it as live authority."""
+    if not isinstance(value, dict):
+        return None
+    allowed_keys = ("live_snapshot", "calendar_context", "graph_context")
     return {key: value[key] for key in allowed_keys if key in value}

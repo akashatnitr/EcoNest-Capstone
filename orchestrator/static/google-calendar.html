@@ -46,7 +46,7 @@
     <main>
       <p class="eyebrow">ECONEST / INTEGRATIONS</p>
       <h1>Google Calendar context</h1>
-      <p class="intro">Connect one household calendar so EcoNest can understand approved home modes such as hosting or away time. Calendar events inform recommendations; they never authorize a device action.</p>
+      <p class="intro">Connect one household calendar so EcoNest can understand approved home modes such as hosting or away time.</p>
       <section class="card" aria-live="polite">
         <div class="connection">
           <div>
@@ -72,12 +72,6 @@
           <p>Shown only to you in this page. Event titles are not retained or sent to the model.</p>
           <ul id="eventList" class="context-list"></ul>
         </section>
-        <div class="details">
-          <article><h3>Access</h3><p>Read-only event access. EcoNest cannot create, edit, or delete calendar events.</p></article>
-          <article><h3>What EcoNest keeps</h3><p>Connection credentials are encrypted. The next phase derives minimal context windows rather than retaining event descriptions or attendees.</p></article>
-          <article><h3>How it will be used</h3><p>Hosting can defer comfort-reducing energy recommendations. Away time can improve advisory energy and security planning.</p></article>
-        </div>
-        <section class="privacy"><h2>Safety boundary</h2><p>Calendar text is not treated as an instruction. EcoNest applies explicit policy rules before a model sees a bounded household-context summary, and calendar context never bypasses confirmation or safety checks.</p></section>
       </section>
     </main>
     <script>
@@ -112,7 +106,7 @@
       }
       function displayContext(data) {
         const current = data.current_mode || "normal", windows = [...(data.active_contexts || []), ...(data.upcoming_contexts || [])];
-        contextSummary.textContent = current === "normal" ? "No active calendar context. EcoNest will use normal household policies." : `Current household context: ${current}. This is advisory evidence, not device-action authority.`;
+        contextSummary.textContent = current === "normal" ? "No active calendar context." : `Current household context: ${current}.`;
         contextList.innerHTML = windows.length ? windows.map(item => `<li><strong>${item.mode}</strong> · ${item.starts_at} to ${item.ends_at}<br>${(item.guidance || []).join(" · ")}</li>`).join("") : "<li>No relevant hosting or away context was found in the synchronized window.</li>";
         previewReview.hidden = !windows.some(item => item.mode === "away" || item.mode === "hosting");
       }

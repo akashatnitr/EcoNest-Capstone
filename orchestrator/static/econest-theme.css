@@ -38,6 +38,13 @@ body > header {
   border-color: var(--econest-line) !important;
 }
 
+/* The Home Snapshot uses ``header.header`` as page content, not a workspace
+   chrome bar. Keep it on the page background so it does not become a box. */
+body > header.header {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
 .nav-link { color: var(--econest-ink) !important; }
 .nav-link span, .brand p:last-child, .sidebar-footer { color: var(--econest-muted) !important; }
 .nav-link:hover, .nav-link:focus-visible { background: #eee5d6 !important; border-color: #c9b79d !important; }

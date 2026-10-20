@@ -64,6 +64,29 @@ async def autonomy_recommendations(
     }
 
 
+@router.get("/autonomy/action-activity")
+async def autonomy_action_activity(
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Return live agent work alongside persisted action outcomes for the dashboard."""
+    bounded_limit = max(1, min(limit, 200))
+    events = await read_recent_audit_events_async(
+        settings.AUTONOMY_RECOMMENDATION_HISTORY_EVENTS
+    )
+    completed_views = list(reversed(_recommendation_views(events)))[:bounded_limit]
+    actions = [
+        _active_task_view(task)
+        for task in _energy_orchestrator.active_tasks()
+    ] + [_action_activity_view(view) for view in completed_views]
+    actions = _deduplicate_action_activity(actions)
+    counts = {"active": 0, "pending": 0, "completed": 0, "failed": 0}
+    for action in actions:
+        state = str(action["status"])
+        if state in counts:
+            counts[state] += 1
+    return {"actions": actions, "counts": counts, "limit": bounded_limit}
+
+
 @router.post("/autonomy/energy-recommendations")
 async def request_energy_recommendations(
     request: EnergyRecommendationRequest,
@@ -279,6 +302,119 @@ def _recommendation_views(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         elif str(event.get("event_type", "")).endswith(".recommendations.generated"):
             views.extend(_advisory_recommendation_views(event))
     return views
+
+
+def _active_task_view(task: dict[str, str]) -> dict[str, Any]:
+    """Present an in-memory task using the same dashboard action shape."""
+    intent = str(task.get("intent") or "Household task")
+    return {
+        "task_id": str(task.get("task_id") or ""),
+        "timestamp": None,
+        "action": "Agent review",
+        "entity_id": "Household",
+        "category": "Agent activity",
+        "risk_level": "In progress",
+        "source": "live agent",
+        "rationale": intent,
+        "status": "active",
+        "execution_progress": {
+            "label": "Running",
+            "detail": "EcoNest is reading context, selecting an agent, and preparing a safe result.",
+        },
+    }
+
+
+def _action_activity_view(view: dict[str, Any]) -> dict[str, Any]:
+    """Map a retained recommendation and outcome to a dashboard lifecycle state."""
+    outcome = view.get("outcome")
+    outcome_data = outcome if isinstance(outcome, dict) else {}
+    outcome_state = str(outcome_data.get("state") or "pending")
+    status = (
+        "failed"
+        if outcome_state == "failed"
+        else "pending"
+        if outcome_state == "pending"
+        else "completed"
+    )
+    return {
+        **view,
+        "rationale": str(view.get("reason") or "No rationale was retained."),
+        "status": status,
+        "execution_progress": {
+            "label": str(outcome_data.get("label") or "Awaiting result"),
+            "detail": str(
+                outcome_data.get("detail")
+                or "EcoNest is waiting for the next execution step."
+            ),
+        },
+    }
+
+
+def _deduplicate_action_activity(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the newest recurring completed advisory for each monitored appliance.
+
+    The audit trail deliberately retains every scheduled review. The action board,
+    however, is a current-work view: showing dozens of slightly reworded dryer
+    monitoring advisories makes it look as though EcoNest took dozens of actions.
+    The caller provides completed recommendations newest first, so retaining the
+    first matching item preserves the latest rationale and execution details.
+    """
+    visible: list[dict[str, Any]] = []
+    seen_recurring_advisories: set[str] = set()
+    for action in actions:
+        signature = _recurring_advisory_signature(action)
+        if signature is not None:
+            if signature in seen_recurring_advisories:
+                continue
+            seen_recurring_advisories.add(signature)
+        visible.append(action)
+    return visible
+
+
+def _recurring_advisory_signature(action: dict[str, Any]) -> str | None:
+    """Identify a repeated completed advisory for the current-work board."""
+    if action.get("status") != "completed":
+        return None
+    progress = action.get("execution_progress")
+    progress_label = progress.get("label") if isinstance(progress, dict) else ""
+    if str(progress_label) != "Recommendation only":
+        return None
+
+    category = str(action.get("category") or "Household").strip().lower()
+    details = action.get("technical_details")
+    entity_id = details.get("entity_id") if isinstance(details, dict) else ""
+    text = " ".join(
+        str(value or "")
+        for value in (action.get("action"), action.get("rationale"), entity_id)
+    ).lower()
+    if category == "energy":
+        subject = _energy_monitoring_subject(text)
+        if subject is not None:
+            return f"energy-monitor:{subject}"
+
+    # Scheduled reviews often retain identical advice many times. The board is
+    # deliberately a summary, so keep its newest instance rather than every
+    # audit event. Preserve different recommendation text as separate work.
+    recommendation = " ".join(str(action.get("action") or "").lower().split())
+    return f"{category}:{recommendation}"
+
+
+def _energy_monitoring_subject(text: str) -> str | None:
+    """Return a stable source key for recurring energy-monitoring language.
+
+    Generated advice is free-form, so the same source may be described as an
+    "anomaly", "high consumption", or "monitor closely".  These labels cover the
+    monitored channels that can currently recur in the real household feed.
+    """
+    subjects = {
+        "balance power minute average": "balance-power-minute-average",
+        "balance_power_minute_average": "balance-power-minute-average",
+        "dryer": "dryer",
+    }
+    for phrase, subject in subjects.items():
+        if phrase in text:
+            return subject
+    return None
 
 
 def _advisory_recommendation_views(event: dict[str, Any]) -> list[dict[str, Any]]:

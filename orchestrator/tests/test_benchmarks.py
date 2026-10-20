@@ -42,6 +42,8 @@ def test_benchmark_page_is_served(client) -> None:
     assert "It does not run a new host benchmark" in response.text
     assert "${weeklyHealthSection(data)}${earlierCpuEvidence(data)}${overview(data,liveHealth)}" in response.text
     assert "Weekly health check" in response.text
+    assert "econest_benchmark_card_order" in response.text
+    assert "setupBenchmarkCardOrder" in response.text
     assert "Device availability" in response.text
 
 

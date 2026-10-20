@@ -38,6 +38,13 @@ def test_command_page_uses_prompt_and_confirmation(client):
 
     assert response.status_code == 200
     assert "Understand command" in response.text
+    assert 'id="voiceInput"' in response.text
+    assert "Record a voice command" in response.text
+    assert "Voice input needs HTTPS" in response.text
+    assert "Voice transcript ready" in response.text
+    assert "Review the transcript before EcoNest interprets it. No device action has been sent." in response.text
+    assert "Microphone permission was denied." in response.text
+    assert "Confirm this voice command" in response.text
     assert "Yes, send command" in response.text
     assert "const AGENT_WAIT_SECONDS = 150" in response.text
     assert "The local model reads your request against the live Home Assistant device inventory." in response.text
@@ -502,6 +509,7 @@ def test_history_plan_recognizes_a_named_year_window():
     [
         ("Turn on the lights.", "specific light"),
         ("Make it warmer.", "room and target temperature"),
+        ("The room is too cold.", "Which room should I adjust"),
         ("Turn on the dryer.", "specific appliance control"),
         ("Turn on every light in the house and unlock the doors.", "one specific device"),
     ],
@@ -933,6 +941,141 @@ def test_unambiguous_fallback_replaces_a_hallucinated_entity():
     assert completed.entity_id == "light.upstairs_media_light_1"
 
 
+async def test_hot_room_statement_prepares_a_cooler_thermostat_target():
+    """A resident's comfort statement should not become an energy-only review."""
+    plan = await command._apply_comfort_adjustment_intent(
+        "It is very hot in the media room",
+        command.CommandInterpretation(
+            request_kind="energy_recommendation",
+            confidence=0.6,
+        ),
+        [
+            {
+                "entity_id": "climate.media_room",
+                "name": "Media Room Thermostat",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 78,
+            }
+        ],
+    )
+
+    assert plan.request_kind == "device_control"
+    assert plan.entity_id == "climate.media_room"
+    assert plan.action == "set_temperature"
+    assert plan.temperature == 76
+
+
+async def test_cold_room_statement_prepares_a_warmer_thermostat_target():
+    """Cold and chilly statements move the live target upward by two degrees."""
+    plan = await command._apply_comfort_adjustment_intent(
+        "It is chilly in the media room",
+        command.CommandInterpretation(confidence=0.6),
+        [
+            {
+                "entity_id": "climate.media_room",
+                "name": "Media Room Thermostat",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 70,
+            }
+        ],
+    )
+
+    assert plan.action == "set_temperature"
+    assert plan.temperature == 72
+
+
+def test_whole_home_comfort_request_prepares_every_thermostat() -> None:
+    """An explicit house-level request applies a confirmed adjustment everywhere."""
+    response = command._whole_home_comfort_response(
+        "The house is too cold",
+        [
+            {
+                "entity_id": "climate.living_room",
+                "name": "Living Room",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 76,
+            },
+            {
+                "entity_id": "climate.media_room",
+                "name": "Media Room",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 78,
+            },
+        ],
+    )
+
+    assert response is not None
+    assert response.status == "confirmation_required"
+    assert [
+        (item.entity_id, item.current_setting, item.temperature)
+        for item in response.device_actions
+    ] == [
+        ("climate.living_room", 76, 78),
+        ("climate.media_room", 78, 80),
+    ]
+    assert "every thermostat" in response.message
+    assert "Living Room 76°F → 78°F" in response.message
+
+
+def test_whole_home_comfort_prefers_rooms_with_inferred_dimmer_activity() -> None:
+    """Temporary dimmer activity limits house comfort changes to active rooms."""
+    response = command._whole_home_comfort_response(
+        "The home is too warm",
+        [
+            {
+                "entity_id": "climate.living_room",
+                "name": "Living Room",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 76,
+            },
+            {
+                "entity_id": "climate.media_room",
+                "name": "Media Room",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 78,
+            },
+        ],
+        [{"name": "Media Room", "entity_id": "light.upstairs_media_light_1"}],
+    )
+
+    assert response is not None
+    assert [(item.entity_id, item.temperature) for item in response.device_actions] == [
+        ("climate.media_room", 76)
+    ]
+    assert "current inferred activity" in response.message
+
+
+def test_temperature_confirmation_includes_the_current_setpoint():
+    """A comfort confirmation should make the before-and-after setting explicit."""
+    response = command._validated_interpretation(
+        command.CommandInterpretation(
+            entity_id="climate.media_room",
+            action="set_temperature",
+            temperature=80,
+            confidence=0.9,
+        ),
+        [
+            {
+                "entity_id": "climate.media_room",
+                "name": "Media Room",
+                "domain": "climate",
+                "actions": ["set_temperature"],
+                "target_temperature": 82,
+            }
+        ],
+    )
+
+    assert response.message == (
+        "The current temperature setting is 82°F. Should I set Media Room to 80°F?"
+    )
+
+
 def test_unambiguous_fallback_prioritizes_the_user_control_verb():
     """A thermostat mention must not override an explicit light turn-on request."""
     completed = command._complete_unambiguous_plan(
@@ -1066,6 +1209,104 @@ def test_command_access_reports_temporary_demo_mode(client):
 
     assert response.status_code == 200
     assert response.json() == {"authentication_required": False}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_command_transcribe_uses_local_ephemeral_audio(client, monkeypatch):
+    """A browser recording is handed to the local transcriber and not persisted."""
+    monkeypatch.setattr(command.settings, "LOCAL_STT_ENABLED", True)
+    monkeypatch.setattr(command, "transcribe_audio", lambda _path, _settings: "Turn off lights")
+
+    response = client.post(
+        "/command/transcribe",
+        files={"audio": ("voice.webm", b"temporary audio", "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"transcript": "Turn off lights"}
+
+
+def test_command_transcribe_returns_final_request_after_spoken_change_of_mind(
+    client, monkeypatch
+):
+    """The browser gets a concise final request plus the original words for review."""
+    monkeypatch.setattr(command.settings, "LOCAL_STT_ENABLED", True)
+    monkeypatch.setattr(
+        command,
+        "transcribe_audio",
+        lambda _path, _settings: "Turn on the light. Never mind. Give me an energy recommendation.",
+    )
+
+    response = client.post(
+        "/command/transcribe",
+        files={"audio": ("voice.webm", b"temporary audio", "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "transcript": "Give me an energy recommendation.",
+        "raw_transcript": "Turn on the light. Never mind. Give me an energy recommendation.",
+    }
+
+
+def test_command_page_renders_command_card_in_temporary_demo_mode(client):
+    """Demo mode must not briefly expose the sign-in card before JavaScript runs."""
+    response = client.get("/command")
+
+    assert response.status_code == 200
+    assert '<section id="loginCard" class="card hide">' in response.text
+    assert '<section id="commandCard" class="card">' in response.text
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_command_page_redirects_a_direct_tailscale_ip_to_https(client, monkeypatch):
+    """The old Tailnet-IP link should lead to the microphone-safe HTTPS page."""
+    monkeypatch.setattr(
+        command.settings,
+        "ECONEST_PUBLIC_HTTPS_URL",
+        "https://mac-mini.example.ts.net",
+    )
+
+    response = client.get(
+        "/command",
+        headers={"host": "100.75.149.121:8001"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 308
+    assert response.headers["location"] == "https://mac-mini.example.ts.net/command"
+
+
+def test_launchpad_redirects_a_direct_tailscale_ip_to_https(client, monkeypatch):
+    """The workspace shell is upgraded before embedded pages initialize."""
+    monkeypatch.setattr(
+        command.settings,
+        "ECONEST_PUBLIC_HTTPS_URL",
+        "https://mac-mini.example.ts.net",
+    )
+
+    response = client.get(
+        "/launchpad?view=command",
+        headers={"host": "100.75.149.121:8001"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 308
+    assert (
+        response.headers["location"]
+        == "https://mac-mini.example.ts.net/launchpad?view=command"
+    )
+
+
+def test_command_page_includes_browser_neutral_local_voice_recording(client):
+    """Voice input records audio in the browser and sends it to local Whisper."""
+    response = client.get("/command")
+
+    assert response.status_code == 200
+    assert "navigator.mediaDevices?.getUserMedia" in response.text
+    assert "new MediaRecorder" in response.text
+    assert 'api("/command/transcribe"' in response.text
+    assert 'fetch("/auth/me"' in response.text
 
 
 def test_command_access_requires_auth_when_demo_mode_is_disabled(client, monkeypatch):

@@ -1,9 +1,9 @@
 """Authentication API routes."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import (
     OAuth2PasswordBearer,
     OAuth2PasswordRequestForm,
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.config import get_settings
 from orchestrator.core.database import get_mysql_session, mysql_session_context
-from orchestrator.core.permissions import Role
+from orchestrator.core.permissions import USER_ADMIN, Role, has_permission
 from orchestrator.core.security import (
     create_access_token,
     create_refresh_token,
@@ -33,12 +33,16 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 settings = get_settings()
+ACTIVE_HOUSEHOLD_COOKIE_NAME = "econest_active_household_id"
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     role: Role = Role.HOMEOWNER
+    household_profile: Literal[
+        "connected_home", "city_apartment", "family_home"
+    ] = "connected_home"
 
 
 class TokenResponse(BaseModel):
@@ -52,7 +56,21 @@ class UserProfile(BaseModel):
     email: str
     role: str
     household_id: Optional[int]
+    household_name: str | None = None
     is_active: bool
+
+
+class HouseholdProfile(BaseModel):
+    """A household an authenticated user may select as workspace context."""
+
+    id: int
+    name: str
+
+
+class ActiveHouseholdRequest(BaseModel):
+    """Requested workspace context for an authenticated user."""
+
+    household_id: int
 
 
 class RefreshRequest(BaseModel):
@@ -64,11 +82,13 @@ class LogoutRequest(BaseModel):
 
 
 async def get_current_user(
+    request: Request,
     token: Annotated[Optional[str], Depends(oauth2_scheme)],
     session: AsyncSession = Depends(get_mysql_session),
 ) -> UserProfile:
     """Validate access token and return current user."""
 
+    token = token or request.cookies.get(settings.AUTH_SESSION_COOKIE_NAME)
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -96,9 +116,11 @@ async def get_current_user(
 
     result = await session.execute(
         text("""
-            SELECT id, email, role, household_id, is_active
-            FROM users
-            WHERE id = :id
+            SELECT u.id, u.email, u.role, u.household_id, h.name AS household_name,
+                   u.is_active
+            FROM users AS u
+            LEFT JOIN households AS h ON h.id = u.household_id
+            WHERE u.id = :id
             """),
         {"id": int(user_id)},
     )
@@ -116,9 +138,11 @@ async def get_current_user(
 
 
 async def get_optional_current_user(
+    request: Request,
     token: Annotated[Optional[str], Depends(oauth2_scheme)],
 ) -> UserProfile | None:
     """Return the authenticated user when supplied, otherwise no user."""
+    token = token or request.cookies.get(settings.AUTH_SESSION_COOKIE_NAME)
     if token is None:
         return None
 
@@ -134,9 +158,11 @@ async def get_optional_current_user(
         result = await session.execute(
             text(
                 """
-                SELECT id, email, role, household_id, is_active
-                FROM users
-                WHERE id = :id
+                SELECT u.id, u.email, u.role, u.household_id, h.name AS household_name,
+                       u.is_active
+                FROM users AS u
+                LEFT JOIN households AS h ON h.id = u.household_id
+                WHERE u.id = :id
                 """
             ),
             {"id": int(payload["sub"])},
@@ -180,6 +206,45 @@ async def register(
             detail="Email already registered",
         )
 
+    household_name = _household_profile_name(req.household_profile)
+    household_id: int | None = None
+
+    # A connected-home account belongs to the household that Home Assistant
+    # already manages.  Reusing that row keeps a registration profile from
+    # creating a second record for the same physical house.
+    if req.household_profile == "connected_home":
+        live_home_result = await session.execute(
+            text(
+                "SELECT id, name FROM households "
+                "WHERE home_assistant_url = :url LIMIT 1"
+            ),
+            {"url": settings.HA_URL},
+        )
+        live_home = live_home_result.mappings().first()
+        if live_home is not None:
+            household_id = int(live_home["id"])
+            household_name = str(live_home["name"])
+
+    if household_id is None:
+        household_result = await session.execute(
+            text(
+                "INSERT INTO households (name, home_assistant_url) "
+                "VALUES (:name, :home_assistant_url)"
+            ),
+            {
+                "name": household_name,
+                "home_assistant_url": (
+                    settings.HA_URL if req.household_profile == "connected_home" else None
+                ),
+            },
+        )
+        household_id = getattr(household_result, "lastrowid", None)
+    if household_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Household was created but no insert id was returned",
+        )
+
     hashed = hash_password(req.password)
 
     result = await session.execute(
@@ -188,12 +253,14 @@ async def register(
                 email,
                 hashed_password,
                 role,
+                household_id,
                 is_active
             )
             VALUES (
                 :email,
                 :hashed_password,
                 :role,
+                :household_id,
                 TRUE
             )
             """),
@@ -201,6 +268,7 @@ async def register(
             "email": req.email,
             "hashed_password": hashed,
             "role": req.role.value,
+            "household_id": household_id,
         },
     )
 
@@ -217,14 +285,25 @@ async def register(
         id=user_id,
         email=req.email,
         role=req.role.value,
-        household_id=None,
+        household_id=int(household_id),
+        household_name=household_name,
         is_active=True,
     )
+
+
+def _household_profile_name(profile: str) -> str:
+    """Return the safe display name associated with a registration choice."""
+    return {
+        "connected_home": "Connected Home",
+        "city_apartment": "City Apartment Simulation",
+        "family_home": "Family Home Simulation",
+    }[profile]
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    response: Response,
     session: AsyncSession = Depends(get_mysql_session),
 ) -> TokenResponse:
     """OAuth2 password flow."""
@@ -301,6 +380,15 @@ async def login(
 
     await session.commit()
 
+    response.set_cookie(
+        key=settings.AUTH_SESSION_COOKIE_NAME,
+        value=access_token,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        samesite="lax",
+        secure=settings.AUTH_COOKIE_SECURE,
+        path="/",
+    )
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -310,6 +398,7 @@ async def login(
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(
     req: RefreshRequest,
+    response: Response,
     session: AsyncSession = Depends(get_mysql_session),
 ) -> TokenResponse:
     """Refresh access token."""
@@ -376,6 +465,15 @@ async def refresh(
         }
     )
 
+    response.set_cookie(
+        key=settings.AUTH_SESSION_COOKIE_NAME,
+        value=new_access,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        samesite="lax",
+        secure=settings.AUTH_COOKIE_SECURE,
+        path="/",
+    )
     return TokenResponse(
         access_token=new_access,
         refresh_token=req.refresh_token,
@@ -385,6 +483,7 @@ async def refresh(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     req: LogoutRequest,
+    response: Response,
     session: AsyncSession = Depends(get_mysql_session),
 ) -> None:
     """Invalidate refresh token."""
@@ -402,7 +501,97 @@ async def logout(
 
         await session.commit()
 
+    response.delete_cookie(
+        key=settings.AUTH_SESSION_COOKIE_NAME,
+        path="/",
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite="lax",
+    )
+    response.delete_cookie(
+        key=ACTIVE_HOUSEHOLD_COOKIE_NAME,
+        path="/",
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite="lax",
+    )
     return None
+
+
+async def _accessible_households(
+    current_user: UserProfile, session: AsyncSession
+) -> list[HouseholdProfile]:
+    """List only the households the signed-in user may select."""
+    if has_permission(current_user.role, USER_ADMIN):
+        result = await session.execute(
+            text("SELECT id, name FROM households ORDER BY name ASC, id ASC")
+        )
+    elif current_user.household_id is not None:
+        result = await session.execute(
+            text("SELECT id, name FROM households WHERE id = :household_id"),
+            {"household_id": current_user.household_id},
+        )
+    else:
+        return []
+    return [HouseholdProfile(**row) for row in result.mappings().all()]
+
+
+@router.get("/households", response_model=list[HouseholdProfile])
+async def accessible_households(
+    current_user: Annotated[UserProfile, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_mysql_session),
+) -> list[HouseholdProfile]:
+    """Return the household contexts available to the signed-in user."""
+    return await _accessible_households(current_user, session)
+
+
+@router.get("/active-household", response_model=HouseholdProfile | None)
+async def active_household(
+    request: Request,
+    current_user: Annotated[UserProfile, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_mysql_session),
+) -> HouseholdProfile | None:
+    """Return the selected workspace household, defaulting to the user's home."""
+    households = await _accessible_households(current_user, session)
+    requested = request.cookies.get(ACTIVE_HOUSEHOLD_COOKIE_NAME)
+    try:
+        requested_id = int(requested) if requested is not None else None
+    except ValueError:
+        requested_id = None
+    return next(
+        (household for household in households if household.id == requested_id),
+        next(
+            (household for household in households if household.id == current_user.household_id),
+            households[0] if households else None,
+        ),
+    )
+
+
+@router.post("/active-household", response_model=HouseholdProfile)
+async def select_active_household(
+    request: ActiveHouseholdRequest,
+    response: Response,
+    current_user: Annotated[UserProfile, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_mysql_session),
+) -> HouseholdProfile:
+    """Save a household selection after enforcing the user's access boundary."""
+    households = await _accessible_households(current_user, session)
+    selected = next(
+        (household for household in households if household.id == request.household_id),
+        None,
+    )
+    if selected is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to that household.",
+        )
+    response.set_cookie(
+        key=ACTIVE_HOUSEHOLD_COOKIE_NAME,
+        value=str(selected.id),
+        httponly=True,
+        samesite="lax",
+        secure=settings.AUTH_COOKIE_SECURE,
+        path="/",
+    )
+    return selected
 
 
 @router.get("/me", response_model=UserProfile)

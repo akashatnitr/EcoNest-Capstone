@@ -12,8 +12,14 @@ validation, state verification, and an audit record.
 
 Use EcoNest in two ways:
 
-- **User action:** Type a request in the Command Center, review EcoNest's
-  interpretation, and confirm it before a device changes.
+- **User action:** Type a request or use **Use voice input** in the Command
+  Center, review the editable transcript and EcoNest's interpretation, and
+  confirm it before a device changes. Voice recording works in Firefox and
+  other modern browsers: EcoNest transcribes the temporary recording locally
+  with the free Whisper `tiny.en` model. Audio is deleted immediately after
+  transcription, and voice input only fills the text box—it never submits or
+  controls a device by itself. Set `LOCAL_STT_ENABLED=true` to enable it; the
+  model downloads once into the local Docker `whisper-models` volume.
 - **Autonomous recommendation:** The scheduled monitor reviews home state and
   records recommendations. It can execute only explicitly allowed low-risk
   actions after every safety check passes.
@@ -96,6 +102,19 @@ which capabilities a device has, and which observations provide context for a
 decision. It helps agents ground their reasoning, but it is not the source of
 truth for live state.
 
+Before a Gemma-backed specialist review, EcoNest builds a bounded household
+context package. It resolves the relevant entity IDs, device names, and room
+names from the request against the current graph, then supplies only the
+matched devices, rooms, related sensors, capabilities, Calendar context, and
+compact live Home Assistant facts. This works across the current graph
+inventory; it is not a room-specific rule or a hard-coded device list.
+
+The graph/brain implementation is the reusable context wrapper. It provides a
+standard `build_context()` operation for one task and a non-sensitive
+`status()` operation for diagnostics. Its MCP resources are
+`home://household-context` and `home://household-context/status`. Calendar,
+weather, and Gmail connectors now feed the same bounded-context pattern.
+
 **The Device Agent is the execution boundary.** It can request a Home
 Assistant service call only after the orchestrator has applied capability,
 permission, allowlist, current-state, and confirmation checks where required.
@@ -107,6 +126,14 @@ See [Architecture and data flow](docs/architecture-and-dataflow.md) for the
 full data-flow and source-of-truth boundaries.
 
 ## External connectors and household context
+
+The **User prompts** page is the primary at-a-glance workspace: the prompt
+composer remains at the top, and its collapsible **Home at a glance** section
+shows the live Home Assistant snapshot immediately below it. It separates
+Home Assistant `person` entities from tracked devices such as phones or
+tablets, while using both as presence evidence. The standalone snapshot route
+remains available as an API/UI endpoint, but is not a separate Launchpad
+navigation item.
 
 Connectors let EcoNest use approved external information without giving an
 external provider direct control over the home. Each connector follows the
@@ -122,12 +149,17 @@ metadata. Agents receive the bounded context rather than credentials or raw
 provider data. Context can influence an explanation or recommendation; it
 never authorizes a device action by itself.
 
+The **Household context** page includes a visual flow of this boundary:
+sources → context wrapper → graph/brain → Gemma, policy, and the MCP/Home
+Assistant execution boundary. It is intended to make the wrapper's role clear
+without suggesting that connector data can directly control a device.
+
 | Connector | Status | What EcoNest uses | What reaches agents | Device authority |
 | --- | --- | --- | --- | --- |
 | Home Assistant | Available | Live devices, sensor readings, and significant home events. | Live device/sensor facts through MCP. | Only after capability, policy, confirmation (when required), state verification, and audit checks. |
 | Google Calendar | Available, optional | Read-only events from one connected household calendar. | Derived `away` or `hosting` time windows and policy guidance. | None. Active context can queue advisory energy and security reviews only. |
 | Weather | Available through Home Assistant weather data | Forecast, precipitation, and outdoor conditions. | Bounded forecast facts used by irrigation and energy recommendations. | None by itself. |
-| Email | Planned | Explicitly user-approved household-relevant notices, such as travel or utility alerts. | A minimal, allowlisted category or time window—not raw email bodies by default. | None. Requires opt-in, sender/label allowlists, and a separate privacy review before implementation. |
+| Gmail | Available, opt-in | Metadata from explicitly allowed sender domains and Gmail labels; an explicit test-only mode may inspect plain-text bodies transiently. | A short-lived `travel` or `utility` category, derived time window, and policy guidance—not raw email bodies, sender addresses, or subject text. | None. Cannot bypass policy, confirmation, or safety checks. |
 
 ### What exists today
 
@@ -139,7 +171,26 @@ never authorizes a device action by itself.
   EcoNest stores only a non-identifying event hash, a derived `away` or
   `hosting` window, and bounded guidance.
 - **Weather** is collected through the Home Assistant weather capability and
-  informs read-only watering and energy recommendations.
+  informs read-only watering and energy recommendations. Watering results use
+  evidence labels such as `Rain expected`, `Recently watered — verify before
+  running`, and `Schedule may be due — verify before running`; these describe
+  the available forecast and run history rather than claiming a soil-moisture
+  reading EcoNest does not have.
+- **Gmail** is an optional connector. Synchronization is blocked until a
+  sender-domain allowlist is configured. Its default `gmail.metadata` scope
+  reduces transient headers to an allowlisted category. An explicit local
+  test mode uses read-only access to inspect a bounded plain-text body and
+  derive dates, but still persists and prompts only the resulting category,
+  time window, and guidance—not raw email text.
+- The **User prompts** and **Autonomous actions** pages combine upcoming
+  Calendar events with scheduled Gmail-derived context. Gmail entries are
+  visibly labeled and expose only their generated category and time window.
+- The **Household context** page includes a refreshable **Household plan**.
+  It combines an upcoming `away` or `hosting` window with current weather and
+  the live Home Assistant snapshot. Gemma proposes practical settings,
+  expected household activity, and conditions to watch; EcoNest uses a local
+  trip/hosting plan if Gemma is unavailable. The card describes a target home
+  state and does not change devices.
 - When an `away` or `hosting` Calendar window becomes active, EcoNest can
   synchronize it on a short interval and queue one advisory Energy review and
   one advisory Security review for that event. Those reviews are visible in
@@ -152,8 +203,8 @@ never authorizes a device action by itself.
    and error state for every provider.
 2. Add user-controlled context rules, for example which calendars or weather
    signals may inform recommendations.
-3. Evaluate an opt-in email connector that reduces allowlisted messages to
-   privacy-preserving categories before any model sees them.
+3. Add user-managed connector rules in the UI (rather than deployment
+   configuration) for Gmail sender domains and labels.
 4. Keep the same safety boundary for every new connector: it may supply
    evidence, but it cannot bypass policy, confirmation, or safety checks.
 
@@ -422,6 +473,57 @@ When `COMMAND_CENTER_AUTH_REQUIRED=false` for a local demo, set a random
 `GOOGLE_CALENDAR_SETUP_PASSPHRASE` too. It is required only to start the
 Calendar OAuth flow, and this demo path closes once a calendar is connected.
 Do not use it as a replacement for normal sign-in in a deployed environment.
+
+### Connect Gmail (metadata-only household notices)
+
+EcoNest also includes `/integrations/gmail`. Its normal mode uses the Gmail
+`gmail.metadata` OAuth scope only, which permits subject/from/date headers for
+selected messages but not message bodies or attachments. EcoNest reads those
+headers transiently, requires an explicit sender-domain allowlist, and stores
+only a hash plus a derived, short-lived `travel` or `utility` category.
+
+For a controlled local demonstration, set `GMAIL_READ_BODY_FOR_CONTEXT=true`
+and grant `https://www.googleapis.com/auth/gmail.readonly` instead. EcoNest
+then requests the selected allowlisted message in `full` format, extracts at
+most 8,000 characters of plain text transiently, and can derive explicit dates
+such as `October 12, 2026 to October 19, 2026`. It still does not retain raw
+bodies, headers, or attachments, and only the derived category, start/end
+window, and guidance reach agents or Gemma. This test mode must be reauthorized
+after adding the stronger scope, and should be disabled afterward.
+
+The Gmail API must be enabled in the same Google Cloud project. Add this
+redirect URI to the existing OAuth Web client:
+
+```text
+http://localhost:8001/integrations/gmail/callback
+```
+
+Then add these values to the ignored local `.env`. The Gmail client ID and
+secret may be omitted when the existing `GOOGLE_CALENDAR_CLIENT_ID` and
+`GOOGLE_CALENDAR_CLIENT_SECRET` refer to the same Google OAuth Web client.
+
+```env
+GMAIL_ENABLED=true
+GMAIL_REDIRECT_URI=http://localhost:8001/integrations/gmail/callback
+# Optional when reusing the Calendar OAuth client:
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+# Use Gmail label IDs, not display names. INBOX is the safe default.
+GMAIL_ALLOWED_LABEL_IDS=INBOX
+# Required before syncing; do not use a broad domain unless you truly intend it.
+GMAIL_ALLOWED_SENDER_DOMAINS=travel.example.com,utility.example.com
+# Optional: otherwise the Calendar token-encryption key is reused.
+GMAIL_TOKEN_ENCRYPTION_KEY=
+GMAIL_CONTEXT_RETENTION_DAYS=14
+# Default false. Test-only: enables plain-text body date extraction and requires
+# the gmail.readonly OAuth scope instead of gmail.metadata.
+GMAIL_READ_BODY_FOR_CONTEXT=true
+```
+
+For the unauthenticated local demo, also set a separate random
+`GMAIL_SETUP_PASSPHRASE`. Open **Gmail** from the Launchpad, connect the
+account, then choose **Refresh context**. If no domain is allowlisted, the
+refresh fails closed and no Gmail metadata is processed.
 
 ### Use the Apple GPU for Gemma on macOS
 

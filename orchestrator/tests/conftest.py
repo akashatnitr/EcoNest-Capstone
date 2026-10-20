@@ -30,6 +30,14 @@ def disable_audit_log(monkeypatch):
     monkeypatch.setattr(audit, "get_settings", lambda: AuditSettings())
 
 
+@pytest.fixture(autouse=True)
+def disable_launchpad_login_for_routine_route_tests(monkeypatch):
+    """Keep focused route tests independent from browser-session setup."""
+    from orchestrator import main
+
+    monkeypatch.setattr(main.settings, "LAUNCHPAD_AUTH_REQUIRED", False)
+
+
 @pytest.fixture
 def client():
     """Return a TestClient for the FastAPI app."""
