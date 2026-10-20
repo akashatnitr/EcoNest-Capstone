@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/econest-theme.css" />
+  <style>
+    body { margin: 0; background: #f7f2e8; color: #292823; font-family: Inter, system-ui, sans-serif; }
+    main { max-width: 1120px; margin: auto; padding: 42px 28px; }
+    .eyebrow { color: #6f5237; font-size: .76rem; font-weight: 800; letter-spacing: .1em; }
+    h1 { margin: 7px 0; font-size: 2.5rem; }
+    .card { margin-top: 22px; padding: 22px; border: 1px solid #ded7c8; border-radius: 16px; background: #fffdfa; box-shadow: 0 12px 32px #58492d1a; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 13px; }
+    .item { padding: 15px; border-left: 4px solid #789171; background: #f2f7ee; line-height: 1.5; }
+    .hint { color: #69655b; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">ECONEST / HOUSEHOLD LEARNING</p>
+    <h1>Insights dashboard</h1>
+    <p id="insightIntro" class="hint">Loading simulated household evidence…</p>
+    <section class="card">
+      <h2>What EcoNest has learned about this household</h2>
+      <div id="insights" class="grid"></div>
+    </section>
+    <section class="card">
+      <h2>Current evidence</h2>
+      <ul id="events" class="hint"></ul>
+    </section>
+  </main>
+  <script>
+    function escapeHtml(value) {
+      return String(value).replace(/[&<'"]/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+      }[character]));
+    }
+
+    async function load() {
+      const active = await fetch("/auth/active-household", { cache: "no-store" });
+      const household = await active.json();
+      const response = await fetch(`/simulation/state?household_id=${household.id}`, { cache: "no-store" });
+      const data = await response.json();
+      const overview = data.dataset_overview || {};
+      const live = data.live_simulation || {};
+      const isCnObee = data.name === "CN-OBEE Beijing Apartment";
+      document.querySelector("#insightIntro").textContent = isCnObee
+        ? "Source-backed CN-OBEE room evidence, paired with EcoNest’s live-paced household context."
+        : `Learned patterns are derived from the ${data.name} sensor inventory and current simulated-live state.`;
+
+      const occupancy = isCnObee
+        ? `EcoNest time-of-day context: ${live.activity || "—"}. The recorded source currently shows occupancy in ${data.summary.active_rooms} room(s).`
+        : `${live.activity || "—"} is currently inferred from active ambient sensors. ${data.summary.active_rooms} room(s) are active in the simulation.`;
+      const activityVocabulary = isCnObee
+        ? "CN-OBEE records room occupancy presence (0/1); it does not provide manually annotated activity labels."
+        : (overview.activities || "No activity vocabulary is available.");
+      const energy = isCnObee
+        ? "CN-OBEE includes appliance-power channels. EcoNest keeps virtual controls explicitly separate from recorded appliance readings."
+        : "Energy recommendations use EcoNest virtual loads, visibly labeled as simulated.";
+
+      document.querySelector("#insights").innerHTML = `
+        <div class="item"><strong>Occupancy evidence</strong><br>${escapeHtml(occupancy)}</div>
+        <div class="item"><strong>Sensor coverage</strong><br>${escapeHtml(overview.sensors || "—")}. Room-to-sensor relationships are available in the digital twin.</div>
+        <div class="item"><strong>Available activity signal</strong><br>${escapeHtml(activityVocabulary)}</div>
+        <div class="item"><strong>Energy evidence</strong><br>${escapeHtml(energy)}</div>`;
+      document.querySelector("#events").innerHTML = (data.events || [])
+        .map(event => `<li>${escapeHtml(event)}</li>`).join("");
+    }
+
+    load();
+  </script>
+</body>
+</html>

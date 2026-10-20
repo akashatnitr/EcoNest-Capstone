@@ -17,9 +17,19 @@ def test_build_home_snapshot_summarizes_home_state():
             "attributes": {"friendly_name": "Alice"},
         },
         {
+            "entity_id": "device_tracker.ipad",
+            "state": "home",
+            "attributes": {"friendly_name": "iPad"},
+        },
+        {
             "entity_id": "light.living_room",
             "state": "on",
             "attributes": {"friendly_name": "Living Room Light"},
+        },
+        {
+            "entity_id": "light.upstairs_media_light_1",
+            "state": "on",
+            "attributes": {"friendly_name": "Media Room Lights Light 1"},
         },
         {
             "entity_id": "switch.coffee_machine",
@@ -37,6 +47,16 @@ def test_build_home_snapshot_summarizes_home_state():
             "attributes": {"friendly_name": "Front Motion"},
         },
         {
+            "entity_id": "climate.living_room",
+            "state": "cool",
+            "attributes": {"friendly_name": "Living Room", "current_temperature": 76},
+        },
+        {
+            "entity_id": "climate.media_room",
+            "state": "cool",
+            "attributes": {"friendly_name": "Media Room", "current_temperature": 78},
+        },
+        {
             "entity_id": "sensor.kitchen_power_minute_average",
             "state": "125.5",
             "attributes": {"friendly_name": "Kitchen Power"},
@@ -52,10 +72,25 @@ def test_build_home_snapshot_summarizes_home_state():
 
     assert snapshot["occupancy_status"] == "home"
     assert snapshot["people"][0]["name"] == "Alice"
+    assert snapshot["tracked_devices"][0]["name"] == "iPad"
     assert snapshot["lights_on"][0]["name"] == "Living Room Light"
     assert snapshot["switches_on"][0]["name"] == "Coffee Machine"
     assert snapshot["covers_open"][0]["name"] == "Garage Door"
     assert snapshot["active_motion"][0]["name"] == "Front Motion"
+    assert snapshot["inferred_room_activity"] == [
+        {
+            "entity_id": "light.upstairs_media_light_1",
+            "name": "Media Room",
+            "state": "active now · inferred from dimmer light (10-minute timeout)",
+            "source": "dimmer_light",
+        }
+    ]
+    assert snapshot["inferred_activity_timeout_minutes"] == 10
+    assert snapshot["current_indoor_temperature_f"] == 77.0
+    assert snapshot["temperature_readings"] == [
+        {"entity_id": "climate.living_room", "name": "Living Room", "state": 76.0},
+        {"entity_id": "climate.media_room", "name": "Media Room", "state": 78.0},
+    ]
     assert snapshot["top_power_now_w"][0]["value"] == 125.5
     assert snapshot["top_energy_today_kwh"][0]["value"] == 4.2
 
@@ -83,46 +118,23 @@ def test_build_home_snapshot_reports_unknown_without_people():
     snapshot = build_home_snapshot([])
 
     assert snapshot["occupancy_status"] == "unknown"
+    assert snapshot["current_indoor_temperature_f"] is None
+    assert snapshot["temperature_readings"] == []
     assert snapshot["people"] == []
+    assert snapshot["tracked_devices"] == []
     assert snapshot["lights_on"] == []
     assert snapshot["switches_on"] == []
 
 
 @pytest.mark.asyncio
 async def test_home_snapshot_api_returns_canonical_snapshot(monkeypatch):
-    states = [
-        {
-            "entity_id": "person.alice",
-            "state": "home",
-            "attributes": {"friendly_name": "Alice"},
-        },
-        {
-            "entity_id": "light.living_room",
-            "state": "on",
-            "attributes": {"friendly_name": "Living Room Light"},
-        },
-    ]
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return states
-
-    class FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def get(self, *args, **kwargs):
-            return FakeResponse()
-
-    monkeypatch.setattr(home.settings, "HA_TOKEN", "test-token")
-    monkeypatch.setattr(home.settings, "HA_URL", "http://homeassistant")
-    monkeypatch.setattr(home.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    snapshot = {
+        "type": "snapshot",
+        "available": True,
+        "occupancy_status": "home",
+        "lights_on": [{"name": "Living Room Light"}],
+    }
+    monkeypatch.setattr(home, "fetch_home_snapshot", AsyncMock(return_value=snapshot))
 
     result = await home.home_snapshot()
 

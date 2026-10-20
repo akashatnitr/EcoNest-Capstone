@@ -10,6 +10,10 @@ services:
     environment:
       ARCADEDB_USER: ${ARCADEDB_USER:-root}
       ARCADEDB_PASSWORD: ${ARCADEDB_PASSWORD:-playwithdata}
+      # The current ArcadeDB image enables remote JMX by default.  It needs a
+      # resolvable container hostname and prevents startup on Docker Desktop;
+      # EcoNest does not use JMX, so leave it disabled.
+      ARCADEDB_JMX: ""
       ARCADEDB_SETTINGS: >-
         -Darcadedb.server.rootPassword=${ARCADEDB_PASSWORD:-playwithdata}
         -Darcadedb.server.defaultDatabases=${ARCADEDB_DATABASE:-econest}[${ARCADEDB_USER:-root}:${ARCADEDB_PASSWORD:-playwithdata}:admin]
@@ -85,6 +89,7 @@ services:
       HA_URL: http://host.docker.internal:8123
       HA_TOKEN: ${HA_TOKEN:-}
       HA_REGISTRY_SOURCE: ${HA_REGISTRY_SOURCE:-live}
+      LOCAL_STT_MODEL_DIR: /models
     depends_on:
       arcadedb:
         condition: service_healthy
@@ -94,6 +99,7 @@ services:
         condition: service_started
     volumes:
       - .:/app
+      - whisper-models:/models
     command: >
       sh -c 'poetry install --no-interaction && poetry run poe dev'
 
@@ -101,3 +107,4 @@ volumes:
   arcadedb-data:
   mysql-data:
   ollama-data:
+  whisper-models:

@@ -1111,18 +1111,20 @@ def _fallback_periodic_feedback(snapshot: dict[str, Any]) -> PeriodicFeedback:
                 ),
             )
         )
-    for top in snapshot["top_power_now_w"][:3]:
-        suggestions.append(
-            FeedbackSuggestion(
-                category="energy",
-                priority="MEDIUM",
-                title=f"Review current load: {top['name']}",
-                detail=(
-                    f"{top['name']} is reading about {top['value']:.1f} W. "
-                    "If this is unexpected, it may be worth reviewing."
-                ),
+    if snapshot["occupancy_status"] == "away":
+        for top in snapshot["top_power_now_w"][:3]:
+            suggestions.append(
+                FeedbackSuggestion(
+                    category="energy",
+                    priority="MEDIUM",
+                    title=f"Appliance load while away: {top['name']}",
+                    detail=(
+                        f"{top['name']} is currently reading about {top['value']:.1f} W "
+                        "while the home appears away. This is a current-load observation, "
+                        "not an abnormal-use finding."
+                    ),
+                )
             )
-        )
     for light in snapshot["lights_on"][:3]:
         suggestions.append(
             FeedbackSuggestion(

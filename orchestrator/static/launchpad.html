@@ -7,10 +7,11 @@
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0d1323; color: #f6f7ff; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; background: #0d1323; }
-      .shell { display: grid; grid-template-columns: 290px minmax(0, 1fr); min-height: 100vh; transition: grid-template-columns .22s ease; }
+      html, body { height: 100%; overflow: hidden; }
+      body { margin: 0; background: #0d1323; }
+      .shell { display: grid; grid-template-columns: 290px minmax(0, 1fr); height: 100vh; min-height: 0; transition: grid-template-columns .22s ease; }
       .shell.sidebar-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
-      .sidebar { display: flex; flex-direction: column; gap: 26px; padding: 29px 18px; border-right: 1px solid #2d3d60; background: #10182b; overflow: hidden; transition: opacity .16s ease, padding .22s ease; }
+      .sidebar { display: flex; flex-direction: column; gap: 26px; min-height: 0; padding: 29px 18px; border-right: 1px solid #2d3d60; background: #10182b; overflow: hidden; transition: opacity .16s ease, padding .22s ease; }
       .sidebar-collapsed .sidebar { opacity: 0; padding-left: 0; padding-right: 0; pointer-events: none; }
       .nav-collapse { position: fixed; z-index: 5; top: 17px; left: 246px; width: 30px; height: 30px; border: 1px solid #d2c4ac; border-radius: 8px; background: #fffdfa; color: #493b2b; cursor: pointer; font: inherit; font-size: 1rem; transition: left .22s ease, background .15s ease; }
       .nav-collapse:hover, .nav-collapse:focus-visible { background: #eadfc9; outline: 3px solid rgba(111, 82, 55, .18); outline-offset: 2px; }
@@ -19,22 +20,26 @@
       .eyebrow { color: #ae9bff; font-size: .75rem; font-weight: 800; letter-spacing: .1em; margin: 0 0 7px; }
       h1 { font-size: 1.55rem; letter-spacing: -.04em; margin: 0; }
       .brand p:last-child { color: #aebbd9; font-size: .88rem; line-height: 1.45; margin: 7px 0 0; }
-      nav { display: grid; gap: 20px; overflow-y: auto; }
-      .nav-group { display: grid; gap: 6px; }
+      nav { display: grid; flex: 1 1 auto; min-height: 0; gap: 20px; align-content: start; overflow-y: auto; overscroll-behavior: contain; }
+      .nav-group { display: grid; gap: 6px; align-content: start; }
       .nav-group h2 { color: #9eadd0; font-size: .7rem; letter-spacing: .1em; margin: 0 10px 4px; text-transform: uppercase; }
       .nav-link { width: 100%; display: grid; gap: 3px; padding: 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #eaf0ff; cursor: pointer; font: inherit; text-align: left; }
+      .nav-link[hidden], .nav-group[hidden] { display: none; }
       .nav-link:hover, .nav-link:focus-visible { background: #182640; border-color: #42557c; outline: none; }
       .nav-link[aria-current="page"] { background: #242051; border-color: #7564bd; box-shadow: inset 3px 0 #b49cff; }
       .nav-link strong { font-size: .93rem; }
       .nav-link span { color: #aab8d6; font-size: .76rem; line-height: 1.35; }
       .sidebar-footer { margin: auto 10px 0; color: #8495bb; font-size: .73rem; line-height: 1.45; }
-      .workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 100vh; }
+      .workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; }
       .workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 19px 28px; border-bottom: 1px solid #2d3d60; background: #111a2f; }
       .workspace-title { min-width: 0; }
       .workspace-title p { color: #9dadcf; font-size: .76rem; font-weight: 750; letter-spacing: .08em; margin: 0 0 4px; text-transform: uppercase; }
       .workspace-title h2 { font-size: 1.22rem; letter-spacing: -.025em; margin: 0; }
-      .open-page { flex: 0 0 auto; border: 1px solid #52678f; border-radius: 8px; color: #e5eaff; padding: 8px 11px; font-size: .82rem; text-decoration: none; }
-      .open-page:hover, .open-page:focus-visible { background: #263656; outline: none; }
+      .workspace-title .household-identity { color: #6d685f; font-size: .76rem; font-weight: 650; letter-spacing: 0; margin: 5px 0 0; text-transform: none; }
+      .header-actions { display:flex; align-items:center; gap:9px; } .household-switcher { display:grid; gap:3px; color:#6d685f; font-size:.7rem; font-weight:750; letter-spacing:.05em; text-transform:uppercase; } .household-switcher select { max-width:220px; border:1px solid #cdbf9f; border-radius:8px; background:#fffdfa; color:#493b2b; padding:7px 28px 7px 9px; font:inherit; font-size:.82rem; letter-spacing:0; text-transform:none; }
+      .open-page, .sign-out { flex: 0 0 auto; border: 1px solid #52678f; border-radius: 8px; color: #e5eaff; padding: 8px 11px; font: inherit; font-size: .82rem; text-decoration: none; }
+      .sign-out { cursor:pointer; background:transparent; }
+      .open-page:hover, .open-page:focus-visible, .sign-out:hover, .sign-out:focus-visible { background: #263656; outline: none; }
       .content-frame { width: 100%; height: 100%; min-height: 0; border: 0; background: #0d1323; }
       @media (max-width: 850px) {
         .shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
@@ -43,7 +48,7 @@
         .nav-group { display: flex; gap: 7px; }
         .nav-group h2, .nav-link span, .sidebar-footer { display: none; }
         .nav-link { display: block; width: max-content; padding: 8px 10px; white-space: nowrap; }
-        .workspace { min-height: calc(100vh - 179px); }
+        .workspace { min-height: 0; }
         .workspace-header { padding: 14px 18px; }
         .nav-collapse { top: 15px; left: auto; right: 16px; }
         .sidebar-collapsed .nav-collapse { left: auto; right: 16px; }
@@ -65,20 +70,20 @@
         <nav id="launchpadNav" aria-label="EcoNest pages">
           <section class="nav-group" aria-label="Use EcoNest">
             <h2>Use EcoNest</h2>
-            <button class="nav-link" type="button" data-page="/home/snapshot/view" data-title="Home Snapshot" data-description="At-a-glance view of the current smart-home state."><strong>Home Snapshot</strong><span>Current home status</span></button>
-          <button class="nav-link" type="button" data-page="/command" data-title="User prompts" data-description="Ask questions, request recommendations, or prepare a device action."><strong>User prompts</strong><span>Questions and device actions</span></button>
-            <button class="nav-link" type="button" data-page="/autonomy" data-title="Autonomous actions" data-description="Review scheduled energy, security, and watering recommendations."><strong>Autonomous actions</strong><span>Scheduled recommendations</span></button>
-            <button class="nav-link" type="button" data-page="/benchmarks" data-title="Benchmark report" data-description="Review resource use, response times, and health measurements."><strong>Benchmark report</strong><span>Performance and health</span></button>
-            <button class="nav-link" type="button" data-page="/analytics" data-title="Insights" data-description="Explore learned household patterns and analytics."><strong>Insights</strong><span>Household learning</span></button>
-            <button class="nav-link" type="button" data-page="/mcp/activity" data-title="MCP activity" data-description="See audited capability calls behind EcoNest tasks."><strong>MCP activity</strong><span>Capability audit log</span></button>
+          <button class="nav-link" type="button" data-live-only="true" data-simulation-keep="true" data-page="/command" data-title="User prompts" data-description="Ask questions, request recommendations, or prepare a device action."><strong>User prompts</strong><span>Questions and device actions</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-simulation-keep="true" data-page="/autonomy" data-title="Autonomous actions" data-description="Review scheduled energy, security, and watering recommendations."><strong>Autonomous actions</strong><span>Scheduled recommendations</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-page="/benchmarks" data-title="Benchmark report" data-description="Review resource use, response times, and health measurements."><strong>Benchmark report</strong><span>Performance and health</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-simulation-keep="true" data-page="/analytics" data-title="Insights" data-description="Explore learned household patterns and analytics."><strong>Insights</strong><span>Household learning</span></button>
+            <button class="nav-link" type="button" data-simulation-keep="true" data-simulation-only="true" data-page="/simulation" data-title="Digital twin" data-description="Explore a visual, safe simulated household."><strong>Digital twin</strong><span>Simulated rooms and devices</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-page="/mcp/activity" data-title="MCP activity" data-description="See audited capability calls behind EcoNest tasks."><strong>MCP activity</strong><span>Capability audit log</span></button>
           </section>
           <section class="nav-group" aria-label="Data and integrations">
             <h2>Data and integrations</h2>
-            <button class="nav-link" type="button" data-page="/monitor" data-title="MySQL Explorer" data-description="Browse retained sensor records and important household events."><strong>MySQL Explorer</strong><span>Retained household data</span></button>
-            <button class="nav-link" type="button" data-page="/schema" data-title="MySQL relationship map" data-description="Visualize the live database schema and table relationships."><strong>MySQL relationship map</strong><span>Database relationships</span></button>
-            <button class="nav-link" type="button" data-external="home-assistant" data-title="Home Assistant" data-description="Open the live smart-home dashboard and device state."><strong>Home Assistant</strong><span>Live smart-home dashboard</span></button>
-            <button class="nav-link" type="button" data-external="arcadedb" data-title="ArcadeDB" data-description="Inspect EcoNest’s room, device, sensor, and capability graph."><strong>ArcadeDB</strong><span>Home graph database</span></button>
-            <button class="nav-link" type="button" data-page="/integrations/google-calendar" data-title="Google Calendar" data-description="Connect read-only household calendar context."><strong>Google Calendar</strong><span>Household context</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-page="/monitor" data-title="MySQL Explorer" data-description="Browse retained sensor records and important household events."><strong>MySQL Explorer</strong><span>Retained household data</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-page="/schema" data-title="Dataset relationships" data-description="Visualize sensor, room, and activity relationships for the selected household."><strong>Dataset relationships</strong><span>Sensor and activity relationships</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-external="home-assistant" data-title="Home Assistant" data-description="Open the live smart-home dashboard and device state."><strong>Home Assistant</strong><span>Live smart-home dashboard</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-external="arcadedb" data-title="ArcadeDB" data-description="Inspect EcoNest’s room, device, sensor, and capability graph."><strong>ArcadeDB</strong><span>Home graph database</span></button>
+            <button class="nav-link" type="button" data-live-only="true" data-page="/integrations" data-title="Household context" data-description="Manage Calendar, Gmail, Weather, and active advisory context."><strong>Household context</strong><span>Calendar, Gmail, and Weather</span></button>
           </section>
           <section class="nav-group" aria-label="Developer tools">
             <h2>Developer tools</h2>
@@ -86,21 +91,23 @@
             <button class="nav-link" type="button" data-page="/health" data-title="System health" data-description="Current MySQL and ArcadeDB health status."><strong>System health</strong><span>Service availability</span></button>
           </section>
         </nav>
-        <p class="sidebar-footer">Pages remain in this workspace. Use “Open separately” only when a service requires its own tab.</p>
       </aside>
       <main class="workspace">
         <header class="workspace-header">
-          <div class="workspace-title"><p id="pageDescription">At-a-glance view of the current smart-home state.</p><h2 id="pageTitle">Home Snapshot</h2></div>
-          <a id="openPage" class="open-page" href="/command" target="_blank" rel="noopener">Open separately ↗</a>
+          <div class="workspace-title"><p id="pageDescription">Ask questions, request recommendations, or prepare a device action.</p><h2 id="pageTitle">User prompts</h2><p id="householdIdentity" class="household-identity"></p></div>
+          <div class="header-actions"><label id="householdSwitcher" class="household-switcher" hidden>Household<select id="activeHousehold" aria-label="Select household"></select></label><a id="openPage" class="open-page" href="/command" target="_blank" rel="noopener">Open separately ↗</a><button id="signOut" class="sign-out" type="button">Sign out</button></div>
         </header>
-        <iframe id="contentFrame" class="content-frame" title="EcoNest Home Snapshot" src="/home/snapshot/view"></iframe>
+        <iframe id="contentFrame" class="content-frame" title="EcoNest workspace" src="about:blank" allow="microphone"></iframe>
       </main>
     </div>
     <script>
       const host = window.location.hostname;
+      const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
       const externalPages = {
-        "home-assistant": `http://${host}:8123/home/overview`,
-        arcadedb: `http://${host}:2480/`,
+        "home-assistant": isLocalHost
+          ? `http://${host}:8123/home/overview`
+          : `https://${host}:8443/home/overview`,
+        arcadedb: isLocalHost ? `http://${host}:2480/` : `https://${host}/arcadedb/`,
       };
       const links = Array.from(document.querySelectorAll(".nav-link"));
       const frame = document.querySelector("#contentFrame");
@@ -109,7 +116,57 @@
       const openPage = document.querySelector("#openPage");
       const shell = document.querySelector(".shell");
       const navCollapse = document.querySelector("#navCollapse");
+      const signOut = document.querySelector("#signOut");
       const NAVIGATION_STATE_KEY = "econest_launchpad_navigation_collapsed";
+      let simulationSelected = false;
+      const SIMULATED_HOUSEHOLD_NAMES = new Set([
+        "City Apartment Simulation",
+        "CASAS Aruba Replay",
+        "CN-OBEE Beijing Apartment",
+      ]);
+
+      function applyHouseholdWorkspace(selected) {
+        simulationSelected = SIMULATED_HOUSEHOLD_NAMES.has(selected?.name);
+        links.filter(link => link.dataset.liveOnly === "true").forEach(link => {
+          link.title = simulationSelected
+            ? "Open the dataset-backed simulation workspace for this feature."
+            : "";
+        });
+        links.forEach(link => {
+          link.hidden = simulationSelected
+            ? link.dataset.simulationKeep !== "true"
+            : link.dataset.simulationOnly === "true";
+        });
+        document.querySelectorAll(".nav-group").forEach(group => {
+          const buttons = Array.from(group.querySelectorAll(".nav-link"));
+          group.hidden = simulationSelected && buttons.length > 0 && buttons.every(button => button.hidden);
+        });
+      }
+
+      async function loadHouseholdIdentity() {
+        const identity = document.querySelector("#householdIdentity");
+        try {
+          const response = await fetch("/auth/me", { cache: "no-store" });
+          if (!response.ok) return;
+          const user = await response.json();
+          const [householdsResponse, activeResponse] = await Promise.all([
+            fetch("/auth/households", { cache: "no-store" }),
+            fetch("/auth/active-household", { cache: "no-store" }),
+          ]);
+          const households = householdsResponse.ok ? await householdsResponse.json() : [];
+          const active = activeResponse.ok ? await activeResponse.json() : null;
+          const selected = active || { id: user.household_id, name: user.household_name };
+          identity.textContent = selected?.name ? `${selected.name} · ${user.email}` : user.email;
+          applyHouseholdWorkspace(selected);
+          const switcher = document.querySelector("#householdSwitcher");
+          const selector = document.querySelector("#activeHousehold");
+          if (Array.isArray(households) && households.length > 1) {
+            selector.replaceChildren(...households.map(household => { const option = document.createElement("option"); option.value = String(household.id); option.textContent = household.name; return option; }));
+            selector.value = String(selected?.id || households[0].id);
+            switcher.hidden = false;
+          }
+        } catch { identity.textContent = ""; }
+      }
 
       function setNavigationCollapsed(collapsed) {
         shell.classList.toggle("sidebar-collapsed", collapsed);
@@ -119,12 +176,34 @@
         localStorage.setItem(NAVIGATION_STATE_KEY, String(collapsed));
       }
 
-      function showEmbeddingNotice(page) {
+      function showEmbeddingNotice(page, service = "Home Assistant") {
         frame.removeAttribute("src");
-        frame.srcdoc = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>:root{color-scheme:light;font-family:Inter,system-ui,sans-serif;background:#f7f2e8;color:#292823}body{display:grid;min-height:100vh;margin:0;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#eadfc9,transparent 30rem),#f7f2e8}.notice{max-width:560px;border:1px solid #ded7c8;border-radius:16px;background:#fffdfa;padding:28px;box-shadow:0 12px 32px #58492d1a}.eyebrow{color:#6f5237;font-size:.78rem;font-weight:800;letter-spacing:.09em}h1{font-size:1.7rem;margin:10px 0}p{color:#69655b;line-height:1.55}a{display:inline-block;margin-top:8px;border:1px solid #8fa687;border-radius:9px;background:#b6c7ad;color:#263327;font-weight:800;padding:10px 14px;text-decoration:none}</style></head><body><section class="notice"><p class="eyebrow">EMBEDDING BLOCKED BY HOME ASSISTANT</p><h1>This dashboard must open separately.</h1><p>Home Assistant prevents other pages from embedding its interface to protect against clickjacking. EcoNest cannot override that browser security policy.</p><a href="${page}" target="_blank" rel="noopener">Open Home Assistant ↗</a></section></body></html>`;
+        frame.srcdoc = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>:root{color-scheme:light;font-family:Inter,system-ui,sans-serif;background:#f7f2e8;color:#292823}body{display:grid;min-height:100vh;margin:0;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#eadfc9,transparent 30rem),#f7f2e8}.notice{max-width:560px;border:1px solid #ded7c8;border-radius:16px;background:#fffdfa;padding:28px;box-shadow:0 12px 32px #58492d1a}.eyebrow{color:#6f5237;font-size:.78rem;font-weight:800;letter-spacing:.09em}h1{font-size:1.7rem;margin:10px 0}p{color:#69655b;line-height:1.55}a{display:inline-block;margin-top:8px;border:1px solid #8fa687;border-radius:9px;background:#b6c7ad;color:#263327;font-weight:800;padding:10px 14px;text-decoration:none}</style></head><body><section class="notice"><p class="eyebrow">OPEN SEPARATELY</p><h1>This dashboard must open in its own tab.</h1><p>${service} cannot be embedded safely in the HTTPS Launchpad. Open it separately to continue.</p><a href="${page}" target="_blank" rel="noopener">Open ${service} ↗</a></section></body></html>`;
+      }
+
+      function showSimulationNotice(feature) {
+        frame.removeAttribute("src");
+        frame.srcdoc = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>:root{color-scheme:light;font-family:Inter,system-ui,sans-serif;background:#f7f2e8;color:#292823}body{display:grid;min-height:100vh;margin:0;place-items:center;padding:24px;background:radial-gradient(circle at 10% 10%,#eadfc9,transparent 30rem),#f7f2e8}.notice{max-width:560px;border:1px solid #ded7c8;border-radius:16px;background:#fffdfa;padding:28px;box-shadow:0 12px 32px #58492d1a}.eyebrow{color:#6f5237;font-size:.78rem;font-weight:800;letter-spacing:.09em}h1{font-size:1.7rem;margin:10px 0}p{color:#69655b;line-height:1.55}</style></head><body><section class="notice"><p class="eyebrow">SIMULATION WORKSPACE</p><h1>${feature} is not connected yet.</h1><p>EcoNest is intentionally not showing Connected Home data while City Apartment Simulation is selected. This feature will receive its own simulator-backed data and actions in Phase 2.</p></section></body></html>`;
       }
 
       function selectPage(link, updateHash = true) {
+        if (simulationSelected && link.dataset.liveOnly === "true") {
+          links.forEach((item) => item.removeAttribute("aria-current"));
+          link.setAttribute("aria-current", "page");
+          title.textContent = link.dataset.title || "EcoNest";
+          description.textContent = "This feature is showing safe, dataset-backed simulation data.";
+          frame.title = `EcoNest ${link.dataset.title || "page"}`;
+          const simulationPage = ({
+            "/command": "/simulation/command",
+            "/autonomy": "/simulation/autonomy",
+            "/analytics": "/simulation/insights",
+          })[link.dataset.page] || "/simulation";
+          frame.removeAttribute("srcdoc");
+          frame.src = simulationPage;
+          openPage.href = simulationPage;
+          if (updateHash) window.location.hash = encodeURIComponent(link.dataset.page || link.dataset.external || "simulation");
+          return;
+        }
         const page = link.dataset.page || externalPages[link.dataset.external];
         if (!page) return;
         links.forEach((item) => item.removeAttribute("aria-current"));
@@ -132,12 +211,8 @@
         title.textContent = link.dataset.title || "EcoNest";
         description.textContent = link.dataset.description || "";
         frame.title = `EcoNest ${link.dataset.title || "page"}`;
-        if (link.dataset.external === "home-assistant") {
-          showEmbeddingNotice(page);
-        } else {
-          frame.removeAttribute("srcdoc");
-          if (frame.src !== page) frame.src = page;
-        }
+        frame.removeAttribute("srcdoc");
+        if (frame.src !== page) frame.src = page;
         openPage.href = page;
         if (updateHash) window.location.hash = encodeURIComponent(link.dataset.page || link.dataset.external || "command");
       }
@@ -150,10 +225,12 @@
       }
 
       links.forEach((link) => link.addEventListener("click", () => selectPage(link)));
+      document.querySelector("#activeHousehold").addEventListener("change", async event => { const householdId = Number(event.currentTarget.value); if (!Number.isInteger(householdId)) return; const response = await fetch("/auth/active-household", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ household_id: householdId }) }); if (!response.ok) { await loadHouseholdIdentity(); return; } window.location.reload(); });
       navCollapse.addEventListener("click", () => setNavigationCollapsed(!shell.classList.contains("sidebar-collapsed")));
+      signOut.addEventListener("click", async () => { await fetch("/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }); sessionStorage.removeItem("econest_access_token"); window.location.assign("/login"); });
       window.addEventListener("hashchange", selectFromHash);
       setNavigationCollapsed(localStorage.getItem(NAVIGATION_STATE_KEY) === "true");
-      selectFromHash();
+      loadHouseholdIdentity().finally(selectFromHash);
     </script>
   </body>
 </html>

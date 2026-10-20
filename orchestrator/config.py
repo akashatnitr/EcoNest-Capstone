@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     GRAPH_SYNC_INTERVAL_SECONDS: int = 300
     GRAPH_SYNC_INITIAL_LOOKBACK_SECONDS: int = 0
     DEVICE_CAPABILITY_FAIL_CLOSED: bool = False
+    INFERRED_ACTIVITY_DIMMER_ENTITY_IDS: str = (
+        "light.bedroom_2_light_1,light.hallway_kids_light_1,"
+        "light.master_bedroom_light_1,light.upstairs_media_light_1,"
+        "light.dimmer_switch_light_1,light.dimmer_switch_2_light_1"
+    )
+    INFERRED_ACTIVITY_DIMMER_TIMEOUT_MINUTES: int = 10
 
     # Security
     SECRET_KEY: str = "change-me-in-production"
@@ -68,6 +74,19 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
     COMMAND_CENTER_AUTH_REQUIRED: bool = True
+    LAUNCHPAD_AUTH_REQUIRED: bool = True
+    AUTH_SESSION_COOKIE_NAME: str = "econest_session"
+    AUTH_COOKIE_SECURE: bool = False
+    ECONEST_PUBLIC_HTTPS_URL: str = ""
+
+    # Local speech-to-text (optional, free Firefox-compatible voice input)
+    LOCAL_STT_ENABLED: bool = False
+    LOCAL_STT_MODEL: str = "tiny.en"
+    LOCAL_STT_MODEL_DIR: str = "/tmp/econest-whisper"
+    LOCAL_STT_LANGUAGE: str = "en"
+    LOCAL_STT_MAX_AUDIO_BYTES: int = 15_000_000
+    LOCAL_STT_BEAM_SIZE: int = 1
+    LOCAL_STT_VAD_FILTER: bool = False
 
     # Google Calendar (read-only household context)
     GOOGLE_CALENDAR_ENABLED: bool = False
@@ -79,6 +98,18 @@ class Settings(BaseSettings):
     GOOGLE_CALENDAR_SETUP_PASSPHRASE: str = ""
     GOOGLE_CALENDAR_AUTONOMOUS_REVIEWS_ENABLED: bool = True
     GOOGLE_CALENDAR_SYNC_INTERVAL_SECONDS: int = 60
+
+    # Gmail (read-only, metadata-only household notices)
+    GMAIL_ENABLED: bool = False
+    GMAIL_CLIENT_ID: str = ""
+    GMAIL_CLIENT_SECRET: str = ""
+    GMAIL_REDIRECT_URI: str = ""
+    GMAIL_TOKEN_ENCRYPTION_KEY: str = ""
+    GMAIL_ALLOWED_LABEL_IDS: str = "INBOX"
+    GMAIL_ALLOWED_SENDER_DOMAINS: str = ""
+    GMAIL_CONTEXT_RETENTION_DAYS: int = 14
+    GMAIL_READ_BODY_FOR_CONTEXT: bool = False
+    GMAIL_SETUP_PASSPHRASE: str = ""
 
     # Orchestrator
     ORCHESTRATOR_URL: str = ""

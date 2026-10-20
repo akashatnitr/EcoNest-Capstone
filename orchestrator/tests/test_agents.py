@@ -13,6 +13,8 @@ from orchestrator.agents.base import BaseAgent, Result, Task
 from orchestrator.agents.device_agent import DeviceAgent
 from orchestrator.agents.energy_agent import (
     EnergyAgent,
+    EnergyHistorySample,
+    EnergyObservation,
     GemmaEnergyRecommendation,
     PricingSnapshot,
     _uses_unavailable_price_claim,
@@ -247,6 +249,32 @@ async def test_energy_agent_run():
         "off_peak",
         "unknown",
     }
+
+
+def test_energy_agent_uses_active_cycle_history_for_dryer_baseline() -> None:
+    """A normal dryer heating load must not be treated as an anomaly by itself."""
+    agent = EnergyAgent()
+    observations = [
+        EnergyObservation(
+            entity_id="sensor.dryer_power",
+            name="Dryer",
+            current_power_w=1803.3,
+        )
+    ]
+    history = [
+        EnergyHistorySample(
+            entity_id="sensor.breaker_10_power_minute_average",
+            name="Dryer Breaker Power Minute Average",
+            current_power_w=watts,
+            hour=18,
+        )
+        for watts in (1900.0, 2100.0, 2300.0, 2200.0)
+    ]
+
+    updated = agent._apply_historical_baselines(observations, history)
+
+    assert updated[0].baseline_w == 2150.0
+    assert agent._detect_anomalies(updated) == []
 
 
 @pytest.mark.anyio
@@ -1439,6 +1467,67 @@ async def test_device_agent_sets_home_assistant_temperature():
     assert service_arguments["service"] == "set_temperature"
     assert service_arguments["entity_id"] == "climate.media_room"
     assert service_arguments["service_data"] == {"temperature": 78.0}
+
+
+@pytest.mark.anyio
+async def test_device_agent_executes_a_confirmed_whole_home_temperature_batch():
+    """Each thermostat in a whole-home request receives its own verified call."""
+    agent = DeviceAgent()
+    agent.tool_executor.execute = AsyncMock(
+        side_effect=[
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "TemperatureControl"}]
+            ),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(
+                capability="ha_get_state", result={"attributes": {"temperature": 78.0}}
+            ),
+            ToolExecutionResult(
+                capability="query_arcadedb", result=[{"result": "TemperatureControl"}]
+            ),
+            ToolExecutionResult(capability="ha_call_service", result={"status": "ok"}),
+            ToolExecutionResult(
+                capability="ha_get_state", result={"attributes": {"temperature": 80.0}}
+            ),
+        ]
+    )
+
+    result = await agent.run(
+        Task(
+            id="whole-home-temp",
+            intent="The house is too cold",
+            payload={
+                "type": "device",
+                "device_actions": [
+                    {
+                        "entity_id": "climate.living_room",
+                        "domain": "climate",
+                        "action": "set_temperature",
+                        "temperature": 78.0,
+                    },
+                    {
+                        "entity_id": "climate.media_room",
+                        "domain": "climate",
+                        "action": "set_temperature",
+                        "temperature": 80.0,
+                    },
+                ],
+            },
+        )
+    )
+
+    assert result.success
+    assert result.message == "Whole-home adjustment completed for 2 thermostats."
+    assert len(result.data["actions"]) == 2
+    service_calls = [
+        call.args[1]
+        for call in agent.tool_executor.execute.await_args_list
+        if call.args[0] == "ha_call_service"
+    ]
+    assert [call["entity_id"] for call in service_calls] == [
+        "climate.living_room",
+        "climate.media_room",
+    ]
 
 
 @pytest.mark.anyio

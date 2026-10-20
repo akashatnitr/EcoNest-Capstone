@@ -1,14 +1,16 @@
 """Browser command-console routes and model-assisted command interpretation."""
 
+import asyncio
 import re
+import tempfile
 from datetime import UTC, datetime, time
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +31,12 @@ from orchestrator.core.execution_trace import (
     reset_execution_trace_context,
     set_execution_trace_context,
     task_execution_trace,
+)
+from orchestrator.core.home_snapshot import fetch_home_snapshot
+from orchestrator.core.local_transcription import (
+    LocalTranscriptionError,
+    meaningful_command_transcript,
+    transcribe_audio,
 )
 from orchestrator.core.permissions import AGENT_RUN, USER_ADMIN, Role, has_permission
 from orchestrator.llm.client import LLMClient
@@ -167,6 +175,18 @@ class CommandInterpretation(BaseModel):
     room_comfort_query: RoomComfortQueryPlan | None = None
 
 
+class DeviceActionProposal(BaseModel):
+    """One confirmed device action in a whole-home command."""
+
+    entity_id: str
+    entity_name: str
+    action: Literal[
+        "turn_on", "turn_off", "set_brightness", "set_temperature", "open", "close"
+    ]
+    temperature: float | None = None
+    current_setting: float | None = None
+
+
 class InterpretCommandResponse(BaseModel):
     """UI-safe result for a device proposal or an advisory review request."""
 
@@ -196,6 +216,7 @@ class InterpretCommandResponse(BaseModel):
     action: str | None = None
     brightness: int | None = None
     temperature: float | None = None
+    device_actions: list[DeviceActionProposal] = Field(default_factory=list)
     confidence: float | None = None
     conditions: list[ConditionSpec] = Field(default_factory=list)
     history_analysis: HistoryAnalysisPlan | None = None
@@ -228,6 +249,13 @@ class CommandFeedbackRequest(BaseModel):
     correction: str | None = Field(default=None, max_length=2_000)
 
 
+class TranscriptionResponse(BaseModel):
+    """Plain-text transcript produced from one temporary voice recording."""
+
+    transcript: str
+    raw_transcript: str | None = None
+
+
 class CorrectionReviewRequest(BaseModel):
     """A human decision supported by a written check of home evidence."""
 
@@ -239,15 +267,83 @@ class CorrectionReviewRequest(BaseModel):
 
 @router.get("/command", response_class=HTMLResponse)
 async def command_page() -> HTMLResponse:
-    """Serve the authenticated natural-language command console."""
+    """Serve the natural-language command console in its configured access mode."""
     page = Path(__file__).resolve().parents[1] / "static" / "command.html"
-    return HTMLResponse(page.read_text(encoding="utf-8"))
-
-
+    document = page.read_text(encoding="utf-8")
+    if not settings.COMMAND_CENTER_AUTH_REQUIRED:
+        # Render demo mode directly instead of relying only on JavaScript to
+        # switch the initially visible card after the page loads.
+        document = document.replace(
+            '<section id="loginCard" class="card">',
+            '<section id="loginCard" class="card hide">',
+            1,
+        ).replace(
+            '<section id="commandCard" class="card hide">',
+            '<section id="commandCard" class="card">',
+            1,
+        )
+    return HTMLResponse(document, headers={"Cache-Control": "no-store"})
 @router.get("/command/access")
-async def command_access() -> dict[str, bool]:
+async def command_access() -> JSONResponse:
     """Expose whether this Command Center instance requires a sign-in."""
-    return {"authentication_required": settings.COMMAND_CENTER_AUTH_REQUIRED}
+    return JSONResponse(
+        {"authentication_required": settings.COMMAND_CENTER_AUTH_REQUIRED},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post(
+    "/command/transcribe",
+    response_model=TranscriptionResponse,
+    response_model_exclude_none=True,
+)
+async def transcribe_command_audio(
+    audio: UploadFile = File(...),
+    current_user: Annotated[UserProfile | None, Depends(get_optional_current_user)] = None,
+) -> TranscriptionResponse:
+    """Transcribe one browser recording locally without retaining the audio file."""
+    _command_actor(current_user)
+    if not (audio.content_type or "").startswith("audio/") and not (
+        audio.content_type or ""
+    ).startswith("video/"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Upload a browser audio recording.",
+        )
+    contents = await audio.read(settings.LOCAL_STT_MAX_AUDIO_BYTES + 1)
+    if len(contents) > settings.LOCAL_STT_MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Voice recording is too large. Please keep it under one minute.",
+        )
+    if not contents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Recording is empty.")
+    content_type = (audio.content_type or "").lower()
+    suffix = (
+        ".webm"
+        if "webm" in content_type
+        else ".ogg"
+        if "ogg" in content_type
+        else ".mp4"
+        if "mp4" in content_type or "mpeg" in content_type
+        else ".wav"
+    )
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary_file:
+            temporary_file.write(contents)
+            temporary_path = Path(temporary_file.name)
+        raw_transcript = await asyncio.to_thread(transcribe_audio, temporary_path, settings)
+    except LocalTranscriptionError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+    transcript = meaningful_command_transcript(raw_transcript)
+    return TranscriptionResponse(
+        transcript=transcript,
+        raw_transcript=raw_transcript if raw_transcript != transcript else None,
+    )
 
 
 @router.post("/command/interpret", response_model=InterpretCommandResponse)
@@ -278,6 +374,12 @@ async def interpret_command(
             status="needs_clarification",
             message=action_safety_message,
         )
+    comfort_room_message = _generic_comfort_room_clarification(request.intent)
+    if comfort_room_message is not None:
+        return InterpretCommandResponse(
+            status="needs_clarification",
+            message=comfort_room_message,
+        )
     try:
         inventory = await MCPToolExecutor().read_resource(
             "home://devices",
@@ -300,10 +402,24 @@ async def interpret_command(
             "domain": item.get("domain"),
             "state": item.get("state"),
             "actions": item.get("actions"),
+            "target_temperature": item.get("target_temperature"),
         }
         for item in devices
         if isinstance(item, dict)
     ]
+    inferred_room_activity: list[dict[str, Any]] = []
+    if _is_whole_home_comfort_request(request.intent):
+        snapshot = await fetch_home_snapshot(settings)
+        snapshot_activity = snapshot.get("inferred_room_activity")
+        if isinstance(snapshot_activity, list):
+            inferred_room_activity = [
+                item for item in snapshot_activity if isinstance(item, dict)
+            ]
+    whole_home_response = _whole_home_comfort_response(
+        request.intent, compact_devices, inferred_room_activity
+    )
+    if whole_home_response is not None:
+        return whole_home_response
     try:
         condition_catalog = await MCPToolExecutor().read_resource(
             "home://conditions",
@@ -333,6 +449,14 @@ async def interpret_command(
         interpretation,
         compact_devices,
         _relevant_condition_capabilities(request.intent, catalog_conditions),
+    )
+    interpretation = await _apply_comfort_adjustment_intent(
+        request.intent,
+        interpretation,
+        compact_devices,
+        catalog_conditions,
+        actor.role,
+        task_id,
     )
     interpretation = _validate_history_analysis_intent(request.intent, interpretation)
     interpretation = _validate_room_comfort_intent(request.intent, interpretation)
@@ -913,6 +1037,10 @@ async def _interpret_with_model(
         "device_control only when they request a concrete device action. Energy, "
         "Energy, security, and watering recommendation requests are advisory: return their request_kind "
         "with null entity_id and action.\n\n"
+        "A statement that a named room is hot or warm means the resident wants it cooler; "
+        "a named room that is cold or chilly means they want it warmer. Use the matching "
+        "climate device and adjust its current target by a small amount when that live target "
+        "is supplied in the inventory.\n\n"
         "For device_control, select an entity_id and action ONLY from the supplied "
         "device inventory. Do not invent an entity, action, or value. Never ask the "
         "user for an entity ID or other technical identifier. Treat singular and plural "
@@ -1126,6 +1254,97 @@ def _complete_unambiguous_plan(
     )
 
 
+async def _apply_comfort_adjustment_intent(
+    intent: str,
+    interpretation: CommandInterpretation,
+    devices: list[dict[str, Any]],
+    conditions: list[dict[str, Any]] | None = None,
+    role: str = "",
+    task_id: str = "",
+) -> CommandInterpretation:
+    """Translate an uncomfortable room statement into a bounded HVAC adjustment."""
+    lowered = " ".join(intent.lower().split())
+    if "?" in lowered or any(phrase in lowered for phrase in _DEVICE_ACTION_PHRASES):
+        return interpretation
+    direction = (
+        -1
+        if re.search(r"\b(?:too |very )?(?:hot|warm)\b", lowered)
+        else 1
+        if re.search(r"\b(?:too |very )?(?:cold|chilly)\b", lowered)
+        else 0
+    )
+    if direction == 0:
+        return interpretation
+    room_match = re.search(
+        r"\bin\s+(?:the\s+)?([a-z0-9][a-z0-9 _-]{0,60}?)[.!]?$", lowered
+    )
+    if room_match is None:
+        return interpretation
+    room_terms = _meaningful_terms(room_match.group(1))
+    candidates = [
+        device
+        for device in devices
+        if device.get("domain") == "climate"
+        and "set_temperature" in (device.get("actions") or [])
+        and room_terms.issubset(
+            _meaningful_terms(
+                f"{device.get('name') or ''} {device.get('entity_id') or ''}"
+            )
+        )
+    ]
+    if len(candidates) > 1:
+        return interpretation
+    entity_id = str(candidates[0].get("entity_id") or "") if candidates else ""
+    target_value = candidates[0].get("target_temperature") if candidates else None
+    if not entity_id:
+        condition_candidates = [
+            item
+            for item in conditions or []
+            if item.get("domain") == "climate"
+            and room_terms.issubset(
+                _meaningful_terms(
+                    f"{item.get('name') or ''} {item.get('entity_id') or ''}"
+                )
+            )
+        ]
+        if len(condition_candidates) != 1:
+            return interpretation
+        entity_id = str(condition_candidates[0].get("entity_id") or "")
+    if not entity_id:
+        return interpretation
+    try:
+        target = float(target_value)
+    except (TypeError, ValueError):
+        try:
+            state_result = await MCPToolExecutor().execute(
+                "ha_get_state",
+                {"entity_id": entity_id},
+                role=role,
+                task_id=task_id,
+                agent="command_comfort_interpreter",
+                source="command_center",
+            )
+            state = state_result.result if state_result.success else {}
+            attributes = state.get("attributes") if isinstance(state, dict) else {}
+            target = float(attributes.get("temperature")) if isinstance(attributes, dict) else None
+        except (Exception, TypeError, ValueError):
+            return interpretation
+        if target is None:
+            return interpretation
+    adjusted = max(60.0, min(85.0, target + (2.0 * direction)))
+    return interpretation.model_copy(
+        update={
+            "request_kind": "device_control",
+            "entity_id": entity_id,
+            "action": "set_temperature",
+            "temperature": adjusted,
+            "conditions": [],
+            "clarification": None,
+            "confidence": max(interpretation.confidence, 0.9),
+        }
+    )
+
+
 def _action_safety_clarification(intent: str) -> str | None:
     """Reject broad or multi-device control before an inventory/model plan."""
     lowered = " ".join(intent.lower().split())
@@ -1154,6 +1373,142 @@ def _action_safety_clarification(intent: str) -> str | None:
             "a feature switch represents the whole appliance."
         )
     return None
+
+
+def _generic_comfort_room_clarification(intent: str) -> str | None:
+    """Require a named room before planning a comfort adjustment."""
+    lowered = " ".join(intent.lower().split()).rstrip(".!?")
+    if any(phrase in lowered for phrase in _DEVICE_ACTION_PHRASES):
+        return None
+    generic_comfort_statement = re.fullmatch(
+        r"(?:(?:the )?room|it|this)\s+(?:is\s+)?(?:too\s+|very\s+)?"
+        r"(?:hot|warm|cold|chilly)",
+        lowered,
+    )
+    if generic_comfort_statement is None:
+        return None
+    return (
+        "Which room should I adjust? Please name the room, for example: "
+        "‘The media room is too cold.’"
+    )
+
+
+def _is_whole_home_comfort_request(intent: str) -> bool:
+    """Return whether a house-level comfort statement needs activity-aware targeting."""
+    lowered = " ".join(intent.lower().split())
+    return bool(
+        re.search(r"\b(?:house|home)\b", lowered)
+        and re.search(r"\b(?:too |very )?(?:hot|warm|cold|chilly)\b", lowered)
+        and "?" not in lowered
+    )
+
+
+def _whole_home_comfort_response(
+    intent: str,
+    devices: list[dict[str, Any]],
+    inferred_room_activity: list[dict[str, Any]] | None = None,
+) -> InterpretCommandResponse | None:
+    """Prepare one confirmed adjustment for every thermostat in a house-level request.
+
+    Until room-level occupancy is available, an explicit ``house`` or ``home``
+    request intentionally applies to every inventory-backed thermostat. Future
+    motion-aware selection can narrow this same batch before confirmation.
+    """
+    lowered = " ".join(intent.lower().split())
+    if "?" in lowered or any(phrase in lowered for phrase in _DEVICE_ACTION_PHRASES):
+        return None
+    if not re.search(r"\b(?:house|home)\b", lowered):
+        return None
+    direction = (
+        -1
+        if re.search(r"\b(?:too |very )?(?:hot|warm)\b", lowered)
+        else 1
+        if re.search(r"\b(?:too |very )?(?:cold|chilly)\b", lowered)
+        else 0
+    )
+    if direction == 0:
+        return None
+
+    climate_devices = [
+        device
+        for device in devices
+        if device.get("domain") == "climate"
+        and "set_temperature" in (device.get("actions") or [])
+    ]
+    active_room_names = {
+        str(item.get("name") or "")
+        for item in inferred_room_activity or []
+        if str(item.get("name") or "")
+    }
+    active_room_terms = [
+        _meaningful_terms(room_name) for room_name in active_room_names
+    ]
+    activity_matched_devices = [
+        device
+        for device in climate_devices
+        if any(
+            room_terms
+            and room_terms.issubset(
+                _meaningful_terms(
+                    f"{device.get('name') or ''} {device.get('entity_id') or ''}"
+                )
+            )
+            for room_terms in active_room_terms
+        )
+    ]
+    target_devices = activity_matched_devices or climate_devices
+
+    proposals: list[DeviceActionProposal] = []
+    for device in target_devices:
+        try:
+            current_target = float(device.get("target_temperature"))
+        except (TypeError, ValueError):
+            continue
+        entity_id = str(device.get("entity_id") or "")
+        if not entity_id:
+            continue
+        proposals.append(
+            DeviceActionProposal(
+                entity_id=entity_id,
+                entity_name=str(device.get("name") or entity_id),
+                action="set_temperature",
+                temperature=max(60.0, min(85.0, current_target + (2.0 * direction))),
+                current_setting=current_target,
+            )
+        )
+    if not proposals:
+        return InterpretCommandResponse(
+            status="needs_clarification",
+            request_kind="device_control",
+            message=(
+                "EcoNest could not find a thermostat with a current target to adjust. "
+                "Please name a room or refresh Home Assistant state."
+            ),
+        )
+
+    verb = "lower" if direction < 0 else "raise"
+    details = "; ".join(
+        f"{proposal.entity_name} {proposal.current_setting:g}°F → "
+        f"{proposal.temperature:g}°F"
+        for proposal in proposals
+    )
+    activity_message = (
+        " Based on the motion-enabled dimmer lights, EcoNest selected the rooms with "
+        "current inferred activity."
+        if activity_matched_devices
+        else ""
+    )
+    return InterpretCommandResponse(
+        status="confirmation_required",
+        request_kind="device_control",
+        action="set_temperature",
+        device_actions=proposals,
+        confidence=0.9,
+        message=(
+            f"I understood: {verb} every thermostat by 2°F for the whole home. "
+            f"This will adjust {details}.{activity_message} Is that correct?"
+        ),
+    )
 
 
 def _action_target_terms(intent: str) -> set[str]:
@@ -1276,10 +1631,32 @@ def _validated_interpretation(
     name = str(device.get("name") or interpretation.entity_id)
     target = f"{name} ({interpretation.entity_id})"
     value = ""
+    message = (
+        f"I understood: {action.replace('_', ' ')}{value} → {target}. "
+        "Is that correct?"
+    )
     if action == "set_brightness":
         value = f" to {interpretation.brightness}%"
+        message = (
+            f"I understood: {action.replace('_', ' ')}{value} → {target}. "
+            "Is that correct?"
+        )
     elif action == "set_temperature":
         value = f" to {interpretation.temperature:g}°"
+        try:
+            current_setpoint = float(device.get("target_temperature"))
+        except (TypeError, ValueError):
+            current_setpoint = None
+        if current_setpoint is not None:
+            message = (
+                f"The current temperature setting is {current_setpoint:g}°F. "
+                f"Should I set {name} to {interpretation.temperature:g}°F?"
+            )
+        else:
+            message = (
+                f"I understood: {action.replace('_', ' ')}{value} → {target}. "
+                "Is that correct?"
+            )
     return InterpretCommandResponse(
         status="confirmation_required",
         request_kind="device_control",
@@ -1290,10 +1667,7 @@ def _validated_interpretation(
         temperature=interpretation.temperature,
         conditions=interpretation.conditions,
         confidence=interpretation.confidence,
-        message=(
-            f"I understood: {action.replace('_', ' ')}{value} → {target}. "
-            "Is that correct?"
-        ),
+        message=message,
     )
 
 

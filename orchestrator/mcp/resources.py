@@ -6,8 +6,15 @@ import httpx
 
 from orchestrator.config import get_settings
 from orchestrator.core.database import mysql_session_context
-from orchestrator.core.home_snapshot import build_home_snapshot
+from orchestrator.core.home_snapshot import (
+    build_home_snapshot,
+    configured_dimmer_activity_entity_ids,
+)
 from orchestrator.core.google_calendar import current_calendar_context
+from orchestrator.core.google_gmail import current_gmail_context
+from orchestrator.core.household_context import (
+    GraphBrainContextWrapper,
+)
 
 from orchestrator.llm.memory import (
     get_memory_summaries,
@@ -58,7 +65,9 @@ async def home_snapshot_resource() -> dict[str, Any]:
         }
 
     snapshot = build_home_snapshot(
-        [state for state in states if isinstance(state, dict)]
+        [state for state in states if isinstance(state, dict)],
+        inferred_activity_entity_ids=configured_dimmer_activity_entity_ids(settings),
+        inferred_activity_timeout_minutes=settings.INFERRED_ACTIVITY_DIMMER_TIMEOUT_MINUTES,
     )
 
     return {
@@ -113,6 +122,9 @@ async def home_devices_resource() -> dict[str, Any]:
                 "domain": domain,
                 "state": str(state.get("state") or "unknown"),
                 "actions": _CONTROLLABLE_ACTIONS[domain],
+                "target_temperature": (
+                    attributes.get("temperature") if domain == "climate" else None
+                ),
             }
         )
     return {
@@ -195,6 +207,40 @@ async def home_calendar_context_resource() -> dict[str, Any]:
             "upcoming_contexts": [],
             "guidance": ["Calendar context is unavailable; use normal household policies"],
         }
+
+
+async def home_gmail_context_resource() -> dict[str, Any]:
+    """Return Gmail-derived notices for the local demo household only."""
+    try:
+        async with mysql_session_context() as session:
+            return await current_gmail_context(session, 0)
+    except Exception:
+        return {
+            "available": False,
+            "notices": [],
+            "guidance": ["Gmail context is unavailable; do not infer email context"],
+        }
+
+
+async def home_household_context_resource(
+    intent: str = "", payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Return bounded live, calendar, and graph evidence for agent reasoning."""
+    return await _graph_brain_wrapper().build_context(intent, payload)
+
+
+async def home_household_context_status_resource() -> dict[str, Any]:
+    """Return non-sensitive graph/brain wrapper status for diagnostics."""
+    return await _graph_brain_wrapper().status()
+
+
+def _graph_brain_wrapper() -> GraphBrainContextWrapper:
+    """Build the wrapper around current source providers without circular imports."""
+    return GraphBrainContextWrapper(
+        snapshot_provider=home_snapshot_resource,
+        calendar_provider=home_calendar_context_resource,
+        email_provider=home_gmail_context_resource,
+    )
 
 
 async def ontology_resource() -> dict[str, Any]:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -57,6 +59,7 @@ class EnergyHistorySample(BaseModel):
     """One historical measurement used to learn demand and routines."""
 
     name: str
+    entity_id: str | None = None
     current_power_w: float = Field(ge=0)
     hour: int = Field(ge=0, le=23)
     flexible: bool = False
@@ -156,6 +159,7 @@ class EnergyAgent(BaseAgent):
         observations.extend(await self._observations_from_graph(task))
         history = self._history_from_payload(task.payload)
         history.extend(await self._history_from_mysql(task))
+        observations = self._apply_historical_baselines(observations, history)
         routines = self._learn_household_routines(history)
         forecast = self._forecast_demand(history)
         pricing = self._pricing_from_forecast(
@@ -404,11 +408,13 @@ class EnergyAgent(BaseAgent):
                 "query_mysql",
                 {
                     "sql": (
-                        "SELECT d.name, sr.timestamp, sr.data "
+                        "SELECT d.name, d.ha_entity_id, sr.timestamp, sr.data "
                         "FROM sensor_readings sr "
                         "JOIN devices d ON d.id = sr.device_id "
                         "WHERE sr.timestamp >= NOW() - "
                         "INTERVAL :lookback_days DAY "
+                        "AND JSON_UNQUOTE(JSON_EXTRACT(sr.data, '$.attributes.device_class')) = 'power' "
+                        "AND JSON_UNQUOTE(JSON_EXTRACT(sr.data, '$.attributes.unit_of_measurement')) IN ('W', 'w') "
                         "ORDER BY sr.timestamp DESC LIMIT :sample_limit"
                     ),
                     "params": {
@@ -427,7 +433,10 @@ class EnergyAgent(BaseAgent):
         for row in rows:
             data = _json_mapping(row.get("data"))
             power = (
-                data.get("current_power_w") or data.get("power_w") or data.get("power")
+                data.get("current_power_w")
+                or data.get("power_w")
+                or data.get("power")
+                or data.get("state")
             )
             timestamp = row.get("timestamp")
             if power is None or not isinstance(timestamp, datetime):
@@ -436,6 +445,7 @@ class EnergyAgent(BaseAgent):
                 history.append(
                     EnergyHistorySample(
                         name=str(row.get("name") or "Energy device"),
+                        entity_id=_optional_str(row.get("ha_entity_id")),
                         current_power_w=_float(power),
                         hour=timestamp.hour,
                         flexible=_optional_bool(data.get("flexible")) is True,
@@ -444,6 +454,38 @@ class EnergyAgent(BaseAgent):
             except ValueError:
                 continue
         return history
+
+    def _apply_historical_baselines(
+        self,
+        observations: list[EnergyObservation],
+        history: list[EnergyHistorySample],
+    ) -> list[EnergyObservation]:
+        """Attach a device's active-cycle baseline when enough retained data exists.
+
+        A high-watt appliance is not anomalous merely because it is currently
+        active. Baselines use non-idle readings for the same named appliance
+        (or the same Home Assistant entity when available).
+        """
+        updated: list[EnergyObservation] = []
+        for observation in observations:
+            if observation.baseline_w is not None:
+                updated.append(observation)
+                continue
+            candidates = [
+                sample.current_power_w
+                for sample in history
+                if sample.current_power_w >= MEANINGFUL_POWER_WATTS
+                and _same_energy_appliance(observation, sample)
+            ]
+            if len(candidates) >= 3:
+                updated.append(
+                    observation.model_copy(
+                        update={"baseline_w": float(median(candidates))}
+                    )
+                )
+            else:
+                updated.append(observation)
+        return updated
 
     def _detect_anomalies(
         self,
@@ -616,7 +658,7 @@ class EnergyAgent(BaseAgent):
                 "demand_forecast": [item.model_dump() for item in forecast],
             },
         )
-        prompt += self.calendar_context_guidance(task)
+        prompt += self.household_context_guidance(task)
         prompt += await self.reviewed_feedback_guidance(task)
         try:
             generated = await self.llm.generate_structured(
@@ -737,6 +779,32 @@ def _render_prompt(template: str, values: dict[str, Any]) -> str:
         rendered = rendered.replace("{{ " + key + " }}", json.dumps(value, default=str))
         rendered = rendered.replace("{{" + key + "}}", json.dumps(value, default=str))
     return rendered
+
+
+def _same_energy_appliance(
+    observation: EnergyObservation, sample: EnergyHistorySample
+) -> bool:
+    """Match a current observation to its retained power channel conservatively."""
+    if (
+        observation.entity_id
+        and sample.entity_id
+        and observation.entity_id == sample.entity_id
+    ):
+        return True
+    ignored = {
+        "average", "breaker", "energy", "minute", "power", "sensor", "this", "watt"
+    }
+    observation_terms = {
+        term
+        for term in re.findall(r"[a-z0-9]+", observation.name.lower())
+        if term not in ignored
+    }
+    sample_terms = {
+        term
+        for term in re.findall(r"[a-z0-9]+", sample.name.lower())
+        if term not in ignored
+    }
+    return bool(observation_terms and observation_terms.intersection(sample_terms))
 
 
 def _hour_in_window(hour: int, window: TariffForecastWindow) -> bool:

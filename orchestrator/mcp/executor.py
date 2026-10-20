@@ -118,6 +118,8 @@ class MCPToolExecutor:
         task_id: str = "",
         agent: str = "",
         source: str = "internal",
+        intent: str = "",
+        payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Read a registered MCP resource through the shared catalog."""
         started_at = monotonic()
@@ -129,6 +131,8 @@ class MCPToolExecutor:
                 raise MCPResourceNotFoundError(f"Resource '{uri}' not found")
             if uri == "home://memory/recent":
                 result = await resource["handler"](user_id)
+            elif uri == "home://household-context":
+                result = await resource["handler"](intent, payload)
             else:
                 result = await resource["handler"]()
         except Exception as exc:

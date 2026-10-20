@@ -1,5 +1,6 @@
 """Tests for conservative, advisory-only irrigation reasoning."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from orchestrator.agents.base import Task
@@ -48,6 +49,8 @@ async def test_irrigation_agent_recommends_skipping_watering_for_rain() -> None:
 
     assert result.success is True
     assert result.data["recommendations"][0]["action"] == "Skip scheduled watering"
+    assert result.data["recommendations"][0]["priority"] == "ADVISORY"
+    assert result.data["recommendations"][0]["status"] == "Rain expected"
     assert "turn_on" not in str(result.data)
 
 
@@ -103,6 +106,30 @@ async def test_irrigation_agent_includes_recent_watering_history() -> None:
     assert "earliest material rain: Oct 1 at 3 PM CT" in result.data["recommendations"][0]["reasoning"]
     assert "Back Lawn for 15 minutes" in result.data["watering_history_summary"]
     assert result.data["recent_irrigation_runs"][0]["zone_name"] == "Back Lawn"
+
+
+async def test_irrigation_agent_marks_a_run_within_two_days_as_recent() -> None:
+    """Recent run history should clarify uncertainty instead of assigning a low risk."""
+    recent_start = (datetime.now(UTC) - timedelta(hours=34)).isoformat()
+    agent = _IrrigationAgent(
+        [{"condition_name": "clear", "precipitation_in": 0}],
+        [
+            {
+                "zone_name": "Vegetable Raised Beds",
+                "started_at": recent_start,
+                "duration_seconds": 1500,
+            }
+        ],
+    )
+
+    result = await agent.execute(
+        Task(intent="Should I water the garden now?", payload={"type": "irrigation"})
+    )
+
+    recommendation = result.data["recommendations"][0]
+    assert recommendation["priority"] == "ADVISORY"
+    assert recommendation["status"] == "Recently watered — verify before running"
+    assert "about 34 hours ago" in recommendation["reasoning"]
 
 
 async def test_irrigation_agent_answers_when_the_latest_run_completed() -> None:

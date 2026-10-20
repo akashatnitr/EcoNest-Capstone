@@ -56,6 +56,13 @@ def _mock_result(row: dict | None):
     return result
 
 
+def _mock_rows(rows: list[dict]):
+    """Build a mock result for a query returning several rows."""
+    result = MagicMock()
+    result.mappings.return_value.all.return_value = rows
+    return result
+
+
 # ------------------------------------------------------------------
 # Registration
 # ------------------------------------------------------------------
@@ -71,6 +78,7 @@ async def test_register_success(client, mock_session):
         json={
             "email": "test@example.com",
             "password": "secret",
+            "household_profile": "city_apartment",
         },
     )
 
@@ -80,6 +88,29 @@ async def test_register_success(client, mock_session):
 
     assert data["email"] == "test@example.com"
     assert data["role"] == "homeowner"
+    assert data["household_id"] == 1
+    assert data["household_name"] == "City Apartment Simulation"
+
+
+@pytest.mark.anyio
+async def test_connected_home_registration_reuses_live_household(client, mock_session):
+    """A connected-home registration must not duplicate the HA household."""
+
+    mock_session.execute.side_effect = [
+        _mock_result(None),
+        _mock_result({"id": 9, "name": "Connected Home"}),
+        _mock_result({"id": 12}),
+    ]
+
+    resp = client.post(
+        "/auth/register",
+        json={"email": "live@example.com", "password": "secret"},
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["household_id"] == 9
+    sql_statements = [str(call.args[0]) for call in mock_session.execute.call_args_list]
+    assert not any("INSERT INTO households" in statement for statement in sql_statements)
 
 
 @pytest.mark.anyio
@@ -413,3 +444,60 @@ async def test_grant_room_access_writes_access_table(
         allowed_start_hour=None,
         allowed_end_hour=None,
     )
+
+
+def test_superadmin_can_list_all_household_contexts(client, mock_session):
+    """The household switcher exposes every household only to an administrator."""
+    token = create_access_token({"sub": "1", "role": "superadmin"})
+    mock_session.execute.side_effect = [
+        _mock_result(
+            {
+                "id": 1,
+                "email": "admin@example.com",
+                "role": "superadmin",
+                "household_id": None,
+                "is_active": True,
+            }
+        ),
+        _mock_rows(
+            [
+                {"id": 2, "name": "City Apartment Simulation"},
+                {"id": 3, "name": "Family Home Simulation"},
+            ]
+        ),
+    ]
+
+    response = client.get("/auth/households", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": 2, "name": "City Apartment Simulation"},
+        {"id": 3, "name": "Family Home Simulation"},
+    ]
+
+
+def test_homeowner_cannot_select_another_household(client, mock_session):
+    """The selection API enforces the homeowner household boundary."""
+    token = create_access_token({"sub": "2", "role": "homeowner"})
+    mock_session.execute.side_effect = [
+        _mock_result(
+            {
+                "id": 2,
+                "email": "owner@example.com",
+                "role": "homeowner",
+                "household_id": 4,
+                "household_name": "Connected Home",
+                "is_active": True,
+            }
+        ),
+        _mock_rows([{"id": 4, "name": "Connected Home"}]),
+    ]
+
+    response = client.post(
+        "/auth/active-household",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"household_id": 5},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "You do not have access to that household."

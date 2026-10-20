@@ -34,8 +34,16 @@ async def ensure_weather_forecast_schema(session: AsyncSession) -> None:
 
 async def fetch_hourly_forecast(settings: Settings) -> tuple[str, list[dict[str, Any]]]:
     """Read Home Assistant's hourly forecast service without altering any device."""
+    entity_id, _, forecasts = await fetch_weather_snapshot(settings)
+    return entity_id, forecasts
+
+
+async def fetch_weather_snapshot(
+    settings: Settings,
+) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+    """Read current Home Assistant weather state and a bounded hourly forecast."""
     if not settings.HA_TOKEN:
-        return "", []
+        return "", {}, []
     headers = {"Authorization": f"Bearer {settings.HA_TOKEN}"}
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -46,8 +54,10 @@ async def fetch_hourly_forecast(settings: Settings) -> tuple[str, list[dict[str,
                 None,
             )
             if not isinstance(weather, dict):
-                return "", []
+                return "", {}, []
             entity_id = str(weather["entity_id"])
+            attributes = weather.get("attributes")
+            attributes = attributes if isinstance(attributes, dict) else {}
             response = await client.post(
                 f"{settings.HA_URL.rstrip('/')}/api/services/weather/get_forecasts?return_response",
                 headers={**headers, "Content-Type": "application/json"},
@@ -55,14 +65,22 @@ async def fetch_hourly_forecast(settings: Settings) -> tuple[str, list[dict[str,
             )
             response.raise_for_status()
     except httpx.HTTPError:
-        return "", []
+        return "", {}, []
     payload = response.json()
     forecasts = (
         payload.get("service_response", {}).get(entity_id, {}).get("forecast", [])
         if isinstance(payload, dict)
         else []
     )
-    return entity_id, [item for item in forecasts if isinstance(item, dict)]
+    current = {
+        "condition": str(weather.get("state") or "unknown"),
+        "temperature": _number(attributes.get("temperature")),
+        "temperature_unit": str(attributes.get("temperature_unit") or "°F"),
+        "humidity": _number(attributes.get("humidity")),
+        "wind_speed": _number(attributes.get("wind_speed")),
+        "wind_speed_unit": str(attributes.get("wind_speed_unit") or "mph"),
+    }
+    return entity_id, current, [item for item in forecasts if isinstance(item, dict)]
 
 
 async def fetch_historical_hourly_weather(
