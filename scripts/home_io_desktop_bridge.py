@@ -8,6 +8,7 @@ house's actual addresses.
 
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import os
@@ -120,9 +121,13 @@ class HomeIOWindowCapture:
         try:
             bitmap.CreateCompatibleBitmap(source_dc, width, height)
             memory_dc.SelectObject(bitmap)
-            # PrintWindow captures the target application instead of whichever
-            # application happens to overlap the same desktop rectangle.
-            captured = win32gui.PrintWindow(handle, memory_dc.GetSafeHdc(), 3)
+            # Some pywin32 builds omit ``win32gui.PrintWindow``. Call the
+            # native User32 API directly so the target window is captured,
+            # rather than the desktop behind/overlapping it.
+            print_window = ctypes.WinDLL("user32", use_last_error=True).PrintWindow
+            print_window.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+            print_window.restype = ctypes.c_bool
+            captured = print_window(handle, memory_dc.GetSafeHdc(), 3)
             if captured != 1:
                 raise RuntimeError("Windows could not capture the Home I/O window")
             image = Image.frombuffer(

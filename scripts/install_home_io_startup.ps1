@@ -12,7 +12,7 @@ needs an active, unlocked desktop session.
 param(
     [string]$BridgeDirectory = (Join-Path $env:USERPROFILE "EcoNestHomeIO"),
     [string]$PythonPath = (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311-32\python.exe"),
-    [string]$HomeIOPath = "C:\Program Files (x86)\Real Games\Home IO\Home I/O.exe",
+    [string]$HomeIOPath = "",
     [string]$TailscaleAddress = "100.79.150.85",
     [int]$Port = 8877
 )
@@ -25,8 +25,20 @@ if (-not (Test-Path $BridgeDirectory)) {
 if (-not (Test-Path $PythonPath)) {
     throw "32-bit Python was not found: $PythonPath"
 }
-if (-not (Test-Path $HomeIOPath)) {
-    throw "Home I/O executable was not found: $HomeIOPath"
+$homeIORoot = "C:\Program Files (x86)\Real Games\Home IO"
+if ([string]::IsNullOrWhiteSpace($HomeIOPath)) {
+    $preferredExecutables = @("Home I/O.exe", "HomeIO.exe")
+    $HomeIOPath = $preferredExecutables |
+        ForEach-Object { Join-Path $homeIORoot $_ } |
+        Where-Object { Test-Path $_ } |
+        Select-Object -First 1
+    if (-not $HomeIOPath) {
+        $HomeIOPath = Get-ChildItem -Path $homeIORoot -Filter "*.exe" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
+}
+if (-not $HomeIOPath -or -not (Test-Path $HomeIOPath)) {
+    throw "Home I/O executable was not found. Set -HomeIOPath to its .exe file."
 }
 if (-not (Test-Path (Join-Path $BridgeDirectory "home_io_desktop_bridge.py"))) {
     throw "home_io_desktop_bridge.py was not found in $BridgeDirectory"

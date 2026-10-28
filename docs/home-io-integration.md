@@ -110,3 +110,7 @@ per-user bridge configuration, and installs a shortcut in the Windows Startup
 folder. At each sign-in it opens Home I/O and starts the bridge on the Tailnet
 address. No daily PowerShell commands are needed; the bridge command window is
 hidden and its local diagnostics go to `home-io-bridge.log`.
+
+The installer discovers the Home I/O executable automatically. If it is
+installed somewhere non-standard, supply its exact executable path, for example
+`-HomeIOPath 'D:\Apps\Home I-O\HomeIO.exe'`.
