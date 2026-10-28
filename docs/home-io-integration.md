@@ -53,7 +53,7 @@ switcher and open **Digital twin**.
 
 The Windows-side implementation is at `scripts/home_io_desktop_bridge.py`.
 On the Windows Home I/O machine, install 32-bit Python (to match Home I/O),
-`pythonnet`, `fastapi`, and `uvicorn`. Use the EngineIO assembly bundled with
+`pythonnet`, `fastapi`, `uvicorn`, `pillow`, and `pywin32`. Use the EngineIO assembly bundled with
 Connect I/O, then set an explicit, minimal map discovered with Connect I/O's
 **Tags** panel:
 
@@ -78,3 +78,15 @@ Next, configure EcoNest with `HOME_IO_BRIDGE_ENABLED=true`,
 be reachable only over the private Tailnet; it should never be port-forwarded to
 the public internet. The Digital Twin will report bridge health, and its
 Living-room light control will dispatch to `virtual_living_light` when live.
+
+## Optional private desktop preview
+
+The bridge can expose a current JPEG frame of the visible `Home I/O` window at
+`/frame`. EcoNest proxies that endpoint to authenticated users, so the bridge
+token is never placed in browser code. The simulator must remain restored and
+visible on the Windows desktop; this is intentionally a window capture, not a
+full-screen capture, so unrelated desktop contents are not shared.
+
+```powershell
+py -3.11-32 -m pip install pillow pywin32
+```

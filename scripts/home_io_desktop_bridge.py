@@ -12,11 +12,12 @@ import json
 import logging
 import os
 import threading
+from io import BytesIO
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
@@ -79,6 +80,42 @@ class HomeIOEngine:
             return bool(bit.Value)
 
 
+class HomeIOWindowCapture:
+    """Capture the visible Home I/O window without exposing the desktop."""
+
+    def __init__(self, window_title: str) -> None:
+        self._window_title = window_title
+
+    def frame(self) -> bytes:
+        """Return a JPEG screenshot of the matching, non-minimized window."""
+        try:
+            from PIL import ImageGrab  # type: ignore[import-not-found]
+            import win32gui  # type: ignore[import-not-found]
+        except ImportError as error:  # pragma: no cover - requires Windows extras
+            raise RuntimeError("Install pillow and pywin32 to enable Home I/O preview") from error
+
+        matches: list[int] = []
+
+        def collect(handle: int, _: object) -> bool:
+            title = win32gui.GetWindowText(handle)
+            if win32gui.IsWindowVisible(handle) and title.startswith(self._window_title):
+                matches.append(handle)
+            return True
+
+        win32gui.EnumWindows(collect, None)
+        if not matches:
+            raise RuntimeError(f"Home I/O window '{self._window_title}' was not found")
+        handle = matches[0]
+        if win32gui.IsIconic(handle):
+            raise RuntimeError("Home I/O is minimized; restore its window to show a preview")
+        left, top, right, bottom = win32gui.GetWindowRect(handle)
+        image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
+        image.thumbnail((1280, 720))
+        encoded = BytesIO()
+        image.save(encoded, format="JPEG", quality=78, optimize=True)
+        return encoded.getvalue()
+
+
 def _load_points() -> dict[str, BitPoint]:
     """Load the explicit address allow-list supplied by the bridge operator."""
     raw_map = os.environ.get("HOME_IO_BRIDGE_MAP", "{}")
@@ -103,6 +140,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not sdk_path:
         raise RuntimeError("Set HOME_IO_SDK_PATH to the directory containing EngineIO.dll")
     app.state.engine = HomeIOEngine(sdk_path, _load_points())
+    app.state.capture = HomeIOWindowCapture(os.environ.get("HOME_IO_WINDOW_TITLE", "Home I/O"))
     logger.info("Home I/O bridge started with %d allow-listed I/O points", len(app.state.engine._points))
     yield
 
@@ -120,6 +158,20 @@ async def health(_: None = Depends(_require_token)) -> dict[str, bool]:
 async def state(_: None = Depends(_require_token)) -> dict[str, dict[str, bool]]:
     """Read the explicit Home I/O I/O allow-list."""
     return {"points": app.state.engine.read()}
+
+
+@app.get("/frame")
+async def frame(_: None = Depends(_require_token)) -> Response:
+    """Return a protected current frame of the Home I/O application window."""
+    try:
+        image = app.state.capture.frame()
+    except RuntimeError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    return Response(
+        content=image,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.post("/devices/{device_id}/state")
