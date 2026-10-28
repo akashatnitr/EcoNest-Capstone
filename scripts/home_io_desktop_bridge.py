@@ -89,8 +89,9 @@ class HomeIOWindowCapture:
     def frame(self) -> bytes:
         """Return a JPEG screenshot of the matching, non-minimized window."""
         try:
-            from PIL import ImageGrab  # type: ignore[import-not-found]
+            from PIL import Image  # type: ignore[import-not-found]
             import win32gui  # type: ignore[import-not-found]
+            import win32ui  # type: ignore[import-not-found]
         except ImportError as error:  # pragma: no cover - requires Windows extras
             raise RuntimeError("Install pillow and pywin32 to enable Home I/O preview") from error
 
@@ -108,8 +109,30 @@ class HomeIOWindowCapture:
         handle = matches[0]
         if win32gui.IsIconic(handle):
             raise RuntimeError("Home I/O is minimized; restore its window to show a preview")
-        left, top, right, bottom = win32gui.GetWindowRect(handle)
-        image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
+        left, top, right, bottom = win32gui.GetClientRect(handle)
+        width, height = right - left, bottom - top
+        if width < 1 or height < 1:
+            raise RuntimeError("Home I/O window has no visible client area")
+        window_dc = win32gui.GetWindowDC(handle)
+        source_dc = win32ui.CreateDCFromHandle(window_dc)
+        memory_dc = source_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        try:
+            bitmap.CreateCompatibleBitmap(source_dc, width, height)
+            memory_dc.SelectObject(bitmap)
+            # PrintWindow captures the target application instead of whichever
+            # application happens to overlap the same desktop rectangle.
+            captured = win32gui.PrintWindow(handle, memory_dc.GetSafeHdc(), 3)
+            if captured != 1:
+                raise RuntimeError("Windows could not capture the Home I/O window")
+            image = Image.frombuffer(
+                "RGB", (width, height), bitmap.GetBitmapBits(True), "raw", "BGRX", 0, 1
+            )
+        finally:
+            win32gui.DeleteObject(bitmap.GetHandle())
+            memory_dc.DeleteDC()
+            source_dc.DeleteDC()
+            win32gui.ReleaseDC(handle, window_dc)
         image.thumbnail((1280, 720))
         encoded = BytesIO()
         image.save(encoded, format="JPEG", quality=78, optimize=True)
