@@ -90,3 +90,23 @@ full-screen capture, so unrelated desktop contents are not shared.
 ```powershell
 py -3.11-32 -m pip install pillow pywin32
 ```
+
+## Start automatically after Windows sign-in
+
+Home I/O is a desktop application, so it cannot run while the Windows PC is
+shut down and the preview needs an unlocked user session. Run the one-time
+installer from a PowerShell window after downloading it beside the bridge:
+
+```powershell
+Invoke-WebRequest `
+  -Uri 'https://raw.githubusercontent.com/akashatnitr/EcoNest-Capstone/docs/graph-execution-boundary/scripts/install_home_io_startup.ps1' `
+  -OutFile "$env:USERPROFILE\EcoNestHomeIO\install_home_io_startup.ps1"
+Set-Location "$env:USERPROFILE\EcoNestHomeIO"
+powershell -ExecutionPolicy Bypass -File .\install_home_io_startup.ps1
+```
+
+It prompts for the existing bridge token without echoing it, writes a local
+per-user bridge configuration, and installs a shortcut in the Windows Startup
+folder. At each sign-in it opens Home I/O and starts the bridge on the Tailnet
+address. No daily PowerShell commands are needed; the bridge command window is
+hidden and its local diagnostics go to `home-io-bridge.log`.
