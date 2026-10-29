@@ -4,15 +4,17 @@ services:
   arcadedb:
     image: arcadedata/arcadedb:latest
     container_name: econest-arcadedb
+    # ArcadeDB's current image starts a JMX endpoint.  Docker Desktop needs a
+    # resolvable container hostname for that endpoint during JVM startup.
+    hostname: econest-arcadedb
     ports:
       - "2480:2480"
       - "2424:2424"
     environment:
       ARCADEDB_USER: ${ARCADEDB_USER:-root}
       ARCADEDB_PASSWORD: ${ARCADEDB_PASSWORD:-playwithdata}
-      # The current ArcadeDB image enables remote JMX by default.  It needs a
-      # resolvable container hostname and prevents startup on Docker Desktop;
-      # EcoNest does not use JMX, so leave it disabled.
+      # Keep this explicit for image compatibility. The hostname above is still
+      # required by current images when their JMX startup path is present.
       ARCADEDB_JMX: ""
       ARCADEDB_SETTINGS: >-
         -Darcadedb.server.rootPassword=${ARCADEDB_PASSWORD:-playwithdata}
@@ -22,13 +24,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "wget",
-          "-q",
-          "--spider",
-          "--header",
-          "Authorization: Basic $$(printf '%s:%s' \"$$ARCADEDB_USER\" \"$$ARCADEDB_PASSWORD\" | base64)",
-          "http://localhost:2480/api/v1/server",
+          "CMD-SHELL",
+          "wget -q --spider --header \"Authorization: Basic $$(printf '%s:%s' \"$$ARCADEDB_USER\" \"$$ARCADEDB_PASSWORD\" | base64)\" http://localhost:2480/api/v1/server",
         ]
       interval: 10s
       timeout: 5s

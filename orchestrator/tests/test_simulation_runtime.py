@@ -2,12 +2,13 @@
 
 import pytest
 
-from orchestrator.core.simulated_households import CASAS_ARUBA_NAME, CN_OBEE_NAME
+from orchestrator.core.simulated_households import CASAS_ARUBA_NAME, CN_OBEE_NAME, HOME_IO_NAME
 from orchestrator.core.simulation_runtime import (
     _cn_obee_time_context,
     apply_cn_obee_manual_override,
     apply_casas_manual_override,
     apply_city_apartment_action,
+    apply_home_io_manual_override,
     apply_simulation_action,
 )
 
@@ -166,3 +167,12 @@ def test_cn_obee_time_context_is_not_presented_as_a_dataset_activity() -> None:
     assert _cn_obee_time_context(8) == "Morning at home"
     assert _cn_obee_time_context(17) == "Evening at home"
     assert _cn_obee_time_context(22) == "Night-time at home"
+
+
+@pytest.mark.anyio
+async def test_home_io_demo_controls_remain_inside_the_test_home() -> None:
+    """Configured live output does not silently fall back when its bridge is down."""
+    with pytest.raises(ValueError, match="bridge is unavailable"):
+        await apply_home_io_manual_override(
+            511, device_id="homeio_a_lights", device_state="on"
+        )

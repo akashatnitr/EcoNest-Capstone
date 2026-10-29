@@ -43,6 +43,12 @@ if (-not $HomeIOPath -or -not (Test-Path $HomeIOPath)) {
 if (-not (Test-Path (Join-Path $BridgeDirectory "home_io_desktop_bridge.py"))) {
     throw "home_io_desktop_bridge.py was not found in $BridgeDirectory"
 }
+$catalogSource = Join-Path $PSScriptRoot "home_io_standard_map.json"
+$catalogDestination = Join-Path $BridgeDirectory "home_io_standard_map.json"
+if (-not (Test-Path $catalogSource)) {
+    throw "home_io_standard_map.json was not found next to this installer. Download it before running the installer."
+}
+Copy-Item -Path $catalogSource -Destination $catalogDestination -Force
 
 $secureToken = Read-Host "Paste the Home I/O bridge token" -AsSecureString
 $tokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
@@ -60,7 +66,7 @@ $environmentFile = Join-Path $BridgeDirectory "home-io-bridge.env"
 @"
 PYTHONNET_RUNTIME=netfx
 HOME_IO_SDK_PATH=C:\Program Files (x86)\Real Games\Connect IO
-HOME_IO_BRIDGE_MAP={"virtual_living_light":{"address":0,"memory_type":"Output","writable":true}}
+HOME_IO_BRIDGE_MAP=standard
 HOME_IO_BRIDGE_TOKEN=$bridgeToken
 HOME_IO_WINDOW_TITLE=Home I/O
 "@ | Set-Content -Path $environmentFile -Encoding ascii

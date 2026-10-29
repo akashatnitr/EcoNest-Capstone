@@ -8,10 +8,17 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from orchestrator.config import get_settings
+from orchestrator.core.home_io_bridge import (
+    home_io_bridge_points,
+    pulse_home_io_bridge_point,
+    set_home_io_bridge_point,
+)
 from orchestrator.core.simulated_households import (
     CASAS_ARUBA_NAME,
     CITY_APARTMENT_NAME,
     CN_OBEE_NAME,
+    HOME_IO_NAME,
     casas_aruba_state,
     city_apartment_state,
     simulated_household_state,
@@ -84,7 +91,7 @@ async def city_apartment_runtime_state(household_id: int) -> dict[str, Any]:
 
 
 async def simulated_runtime_state(household_id: int, household_name: str) -> dict[str, Any]:
-    """Return one simulated household's state without accessing live services."""
+    """Return one simulated household's state, including allow-listed Home I/O points."""
     initial = simulated_household_state(household_name)
     if initial is None:
         raise ValueError(f"Unsupported simulated household: {household_name}")
@@ -93,7 +100,19 @@ async def simulated_runtime_state(household_id: int, household_name: str) -> dic
             _states[household_id] = _new_simulated_state(household_name, initial)
         if household_name == CN_OBEE_NAME:
             _synchronize_cn_obee_clock(_states[household_id])
-        return deepcopy(_states[household_id])
+        if household_name == HOME_IO_NAME:
+            _synchronize_home_io_clock(_states[household_id])
+        snapshot = deepcopy(_states[household_id])
+    if household_name != HOME_IO_NAME:
+        return snapshot
+
+    points = await home_io_bridge_points()
+    if points is None:
+        return snapshot
+    async with _lock:
+        state = _states[household_id]
+        _apply_live_home_io_points(state, points)
+        return deepcopy(state)
 
 
 async def apply_city_apartment_action(
@@ -367,7 +386,81 @@ async def apply_dataset_manual_override(
             device_state=device_state,
             resident_room=resident_room,
         )
+    if household_name == HOME_IO_NAME:
+        return await apply_home_io_manual_override(
+            household_id,
+            device_id=device_id,
+            device_state=device_state,
+            resident_room=resident_room,
+        )
     raise ValueError("Manual overrides are unavailable for this simulated household")
+
+
+async def apply_home_io_manual_override(
+    household_id: int,
+    *,
+    device_id: str | None = None,
+    device_state: str | None = None,
+    resident_room: str | None = None,
+) -> dict[str, Any]:
+    """Apply a Home I/O demo control, using the live bridge when configured."""
+    settings = get_settings()
+    async with _lock:
+        state = _states.setdefault(
+            household_id, simulated_household_state(HOME_IO_NAME) or {}
+        )
+        _synchronize_home_io_clock(state)
+        rooms = {str(room["id"]): room for room in state["rooms"]}
+        devices = {str(device["id"]): device for device in state["devices"]}
+        if device_id is not None:
+            if device_id not in devices or device_state not in {"normal", "active", "idle", "on", "off", "trigger"}:
+                raise ValueError("Unsupported Home I/O control")
+            device = devices[device_id]
+            if device.get("momentary"):
+                if device_state != "trigger":
+                    raise ValueError("This Home I/O action must be triggered, not left on")
+                applied = await pulse_home_io_bridge_point(device_id)
+                if not applied:
+                    raise ValueError("Home I/O did not accept the requested action")
+                device["state"] = "active"
+                device["detail"] = "Triggered · Live Home I/O action"
+                _record(state, f"Home I/O: {device['label']} triggered in zone {device['room'].upper()}.")
+            elif device.get("live_writable") and device_state in {"on", "off"}:
+                applied = await set_home_io_bridge_point(device_id, device_state == "on")
+                if applied is None:
+                    if settings.HOME_IO_BRIDGE_ENABLED:
+                        raise ValueError("Home I/O bridge is unavailable; the live simulator was not changed")
+                elif applied != (device_state == "on"):
+                    raise ValueError("Home I/O did not accept the requested light state")
+                device["state"] = device_state
+                device["detail"] = f"{device_state.title()} · Live Home I/O actuator"
+                _record(state, f"Home I/O: {device['label']} set to {device_state} in zone {device['room'].upper()}.")
+            elif not device.get("live_writable"):
+                raise ValueError("This is a read-only Home I/O sensor")
+            else:
+                raise ValueError("Choose on or off for this Home I/O actuator")
+            if device["kind"] == "motion" and device_state == "active":
+                resident_room = str(device["room"])
+        if resident_room is not None:
+            if resident_room == "away":
+                for room in rooms.values():
+                    room["occupied"] = False
+                for device in devices.values():
+                    if device["kind"] == "motion":
+                        device["state"] = "idle"
+                state["summary"].update({"occupancy": "Away", "active_rooms": 0})
+                _record(state, "Home I/O demo: resident set away.")
+            else:
+                if resident_room not in rooms:
+                    raise ValueError("Unsupported Home I/O room")
+                for room in rooms.values():
+                    room["occupied"] = room["id"] == resident_room
+                for device in devices.values():
+                    if device["kind"] == "motion":
+                        device["state"] = "active" if device["room"] == resident_room else "idle"
+                state["summary"].update({"occupancy": "Home", "active_rooms": 1})
+                _record(state, f"Home I/O demo: resident placed in {rooms[resident_room]['name']}.")
+        return deepcopy(state)
 
 
 async def apply_cn_obee_action(
@@ -453,6 +546,60 @@ def _synchronize_cn_obee_clock(state: dict[str, Any]) -> None:
     live["activity"] = _cn_obee_time_context(now.hour)
 
 
+def _synchronize_home_io_clock(state: dict[str, Any]) -> None:
+    """Keep the demo household visibly tied to the local evaluation clock."""
+    now = datetime.now(_SIMULATION_TIMEZONE).replace(second=0, microsecond=0)
+    live = state.setdefault("live_simulation", {})
+    live["clock"] = now.strftime("%b %-d, %Y · %-I:%M %p %Z")
+    live["simulated_at"] = now.isoformat()
+    live["mode"] = "EcoNest demo mode · Home I/O bridge disconnected"
+
+
+def _apply_live_home_io_points(state: dict[str, Any], points: dict[str, bool]) -> None:
+    """Merge only allow-listed desktop-simulator points into the visual twin."""
+    devices = {str(device["id"]): device for device in state["devices"]}
+    changed: list[str] = []
+    for device_id, value in points.items():
+        device = devices.get(device_id)
+        if device is None:
+            continue
+        if device.get("live_writable"):
+            next_state = "on" if value else "off"
+            if not device.get("momentary") and device.get("state") != next_state:
+                changed.append(f"{device['label']} is now {next_state} in live Home I/O.")
+            if not device.get("momentary"):
+                device["state"] = next_state
+                device["detail"] = f"{next_state.title()} · Live Home I/O actuator"
+        else:
+            if device["kind"] == "motion":
+                device["state"] = "active" if value else "idle"
+                device["detail"] = ("Motion detected" if value else "No motion") + " · Live Home I/O sensor"
+            elif device["kind"] == "smoke":
+                device["state"] = "active" if value else "normal"
+                device["detail"] = ("Smoke detected" if value else "Normal") + " · Live Home I/O sensor"
+            else:
+                device["state"] = "active" if value else "idle"
+                device["detail"] = ("Active" if value else "Idle") + " · Live Home I/O sensor"
+    live = state.setdefault("live_simulation", {})
+    rooms = {str(room["id"]): room for room in state["rooms"]}
+    active_motion_rooms = {
+        str(device["room"])
+        for device in devices.values()
+        if device.get("kind") == "motion" and device.get("state") == "active"
+    }
+    for room_id, room in rooms.items():
+        room["occupied"] = room_id in active_motion_rooms
+    state["summary"].update({
+        "occupancy": "Home" if active_motion_rooms else "No motion detected",
+        "active_rooms": len(active_motion_rooms),
+    })
+    live["mode"] = "Live Home I/O desktop bridge"
+    state["updated_label"] = "Live Home I/O state · synced from the Windows simulator"
+    if changed:
+        for event in changed:
+            _record(state, event)
+
+
 def _cn_obee_time_context(hour: int) -> str:
     """Provide an explicit EcoNest time-of-day context for an unlabeled dataset."""
     if hour < 6 or hour >= 22:
@@ -474,6 +621,8 @@ def _new_simulated_state(household_name: str, initial: dict[str, Any]) -> dict[s
             state,
             "Synthetic 2026 continuation initialized from CASAS activity and sensor patterns.",
         )
+    elif household_name == HOME_IO_NAME:
+        _synchronize_home_io_clock(state)
     return state
 
 

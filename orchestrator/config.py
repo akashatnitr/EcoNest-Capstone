@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     )
     INFERRED_ACTIVITY_DIMMER_TIMEOUT_MINUTES: int = 10
 
+    # Optional Home I/O desktop bridge. This is a separate, local process on
+    # the Windows machine that runs the licensed Home I/O application.
+    HOME_IO_BRIDGE_ENABLED: bool = False
+    HOME_IO_BRIDGE_URL: str = ""
+    HOME_IO_BRIDGE_TOKEN: str = ""
+    HOME_IO_BRIDGE_TIMEOUT_SECONDS: int = 5
+
     # Security
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15

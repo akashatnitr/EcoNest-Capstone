@@ -1,9 +1,9 @@
 """Run beside a licensed Home I/O desktop install on Windows.
 
 This process keeps EngineIO.dll local to the simulator machine and exposes a
-minimal authenticated API to EcoNest.  It supports bit I/O in phase 1; use the
-SDK's Engine I/O Explorer to populate HOME_IO_BRIDGE_MAP with the installed
-house's actual addresses.
+minimal authenticated API to EcoNest. Set ``HOME_IO_BRIDGE_MAP=standard`` to
+use EcoNest's verified catalog for Home I/O's built-in teaching house. Custom
+installations must supply their own explicit JSON allow-list.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import threading
+import time
 from io import BytesIO
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,7 @@ class BitPoint(BaseModel):
     address: int = Field(ge=0)
     memory_type: str = Field(pattern="^(Input|Output|Memory)$")
     writable: bool = False
+    momentary: bool = False
 
 
 class DeviceStateRequest(BaseModel):
@@ -79,6 +81,19 @@ class HomeIOEngine:
             bit.Value = value
             self._memory_map.Update()
             return bool(bit.Value)
+
+    def pulse(self, name: str, seconds: float = 0.45) -> None:
+        """Send a bounded rising-edge command to a momentary output."""
+        point = self._points[name]
+        with self._lock:
+            bit = self._memory_map.GetBit(
+                point.address, getattr(self._memory_type, point.memory_type)
+            )
+            bit.Value = True
+            self._memory_map.Update()
+            time.sleep(seconds)
+            bit.Value = False
+            self._memory_map.Update()
 
 
 class HomeIOWindowCapture:
@@ -147,6 +162,14 @@ class HomeIOWindowCapture:
 def _load_points() -> dict[str, BitPoint]:
     """Load the explicit address allow-list supplied by the bridge operator."""
     raw_map = os.environ.get("HOME_IO_BRIDGE_MAP", "{}")
+    if raw_map.strip().lower() == "standard":
+        catalog = Path(__file__).with_name("home_io_standard_map.json")
+        try:
+            raw_map = catalog.read_text(encoding="utf-8")
+        except OSError as error:
+            raise RuntimeError(
+                "HOME_IO_BRIDGE_MAP=standard requires home_io_standard_map.json beside the bridge"
+            ) from error
     try:
         return {name: BitPoint.model_validate(value) for name, value in json.loads(raw_map).items()}
     except (json.JSONDecodeError, ValueError) as error:
@@ -212,3 +235,15 @@ async def set_state(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is not writable")
     applied = app.state.engine.write(device_id, payload.value)
     return {"device_id": device_id, "value": applied}
+
+
+@app.post("/devices/{device_id}/pulse")
+async def pulse_state(
+    device_id: str, _: None = Depends(_require_token)
+) -> dict[str, bool | str]:
+    """Trigger a safe short pulse for a configured motor/security output."""
+    point = app.state.engine._points.get(device_id)
+    if point is None or not point.writable or not point.momentary:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is not pulse-writable")
+    app.state.engine.pulse(device_id)
+    return {"device_id": device_id, "accepted": True}

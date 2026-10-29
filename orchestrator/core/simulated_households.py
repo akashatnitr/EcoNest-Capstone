@@ -5,9 +5,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from orchestrator.core.home_io_catalog import STANDARD_HOME_IO_POINTS
+
 CITY_APARTMENT_NAME = "City Apartment Simulation"
 CASAS_ARUBA_NAME = "CASAS Aruba Replay"
 CN_OBEE_NAME = "CN-OBEE Beijing Apartment"
+HOME_IO_NAME = "Home I/O Interactive Test Home"
 
 _CITY_APARTMENT_STATE: dict[str, Any] = {
     "scenario": "city_apartment", "name": "City Apartment",
@@ -36,6 +39,43 @@ _CITY_APARTMENT_STATE: dict[str, Any] = {
 def city_apartment_state() -> dict[str, Any]:
     """Return an isolated copy of the initial City Apartment scenario state."""
     return deepcopy(_CITY_APARTMENT_STATE)
+
+
+def home_io_state() -> dict[str, Any]:
+    """Return the standard Home I/O house using its verified A--M catalog."""
+    zones = tuple("ABCDEFGHIJKLM")
+    devices: list[dict[str, Any]] = []
+    for point in STANDARD_HOME_IO_POINTS:
+        initial_state = "off" if point.writable else "idle"
+        if point.kind == "smoke":
+            initial_state = "normal"
+        devices.append({
+            "id": point.identifier,
+            "room": point.zone.lower(),
+            "kind": point.kind,
+            "label": point.label,
+            "detail": ("Off · Home I/O output" if point.writable else "Idle · Home I/O sensor"),
+            "state": initial_state,
+            "live_writable": point.writable,
+            "momentary": point.momentary,
+            "address": point.address,
+        })
+    return {
+        "scenario": "home_io",
+        "name": HOME_IO_NAME,
+        "subtitle": "Live Home I/O teaching house · verified A–M device catalog",
+        "updated_label": "Home I/O standard-house inventory",
+        "source": {"name": "Home I/O 3D smart-home simulator", "url": "https://teachathomeio.com/", "license": "Commercial software · local licensed simulator", "kind": "simulator"},
+        "summary": {"occupancy": "Home", "indoor_temperature_f": 71, "power_w": 0, "active_rooms": 0},
+        "rooms": [
+            {"id": zone.lower(), "name": zone, "x": 0, "y": 0, "width": 0, "height": 0, "temperature_f": 71, "occupied": False}
+            for zone in zones
+        ],
+        "devices": devices,
+        "events": ["Home I/O standard A–M catalog is ready; only blue External-Mode devices accept live commands."],
+        "dataset_overview": {"coverage": "Built-in Home I/O teaching house · zones A–M", "source_range": "Live licensed desktop simulator", "signals": "Verified bit outputs and presence/safety sensor inputs", "replay_note": "EcoNest controls only allow-listed simulator outputs. Nothing here controls a physical home."},
+        "live_simulation": {"clock": "EcoNest local time", "activity": "Live Home I/O state", "mode": "EcoNest demo mode · Home I/O bridge disconnected"},
+    }
 
 
 # A compact, replayable extract of CASAS Aruba's labelled event stream.  The
@@ -386,4 +426,6 @@ def simulated_household_state(name: str) -> dict[str, Any] | None:
         return casas_aruba_state()
     if name == CN_OBEE_NAME:
         return cn_obee_state()
+    if name == HOME_IO_NAME:
+        return home_io_state()
     return None

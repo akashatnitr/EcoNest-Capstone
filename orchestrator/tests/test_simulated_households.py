@@ -3,9 +3,11 @@
 from orchestrator.core.simulated_households import (
     CASAS_ARUBA_NAME,
     CN_OBEE_NAME,
+    HOME_IO_NAME,
     casas_aruba_state,
     cn_obee_state,
     city_apartment_state,
+    home_io_state,
     simulated_household_state,
 )
 
@@ -61,3 +63,13 @@ def test_cn_obee_replay_exposes_its_actual_room_and_power_schema() -> None:
     assert any(device["id"] == "fridge" for device in state["devices"])
     assert any(device["id"] == "living_room_occupancy" for device in state["devices"])
     assert simulated_household_state(CN_OBEE_NAME) == state
+
+
+def test_home_io_test_home_is_explicitly_isolated_demo_state() -> None:
+    """Home I/O is present before a licensed desktop bridge is attached."""
+    state = home_io_state()
+    assert state["source"]["kind"] == "simulator"
+    assert "bridge disconnected" in state["live_simulation"]["mode"]
+    assert {room["name"] for room in state["rooms"]} >= {"A", "F", "M"}
+    assert any(device["id"] == "homeio_a_lights" for device in state["devices"])
+    assert simulated_household_state(HOME_IO_NAME) == state

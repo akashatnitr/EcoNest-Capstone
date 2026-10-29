@@ -6,18 +6,20 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orchestrator.api.auth import ACTIVE_HOUSEHOLD_COOKIE_NAME, UserProfile, get_current_user
 from orchestrator.core.database import get_mysql_session
+from orchestrator.core.home_io_bridge import home_io_bridge_frame, home_io_bridge_status
 from orchestrator.core.permissions import USER_ADMIN, has_permission
 from orchestrator.core.simulated_households import (
     CASAS_ARUBA_NAME,
     CITY_APARTMENT_NAME,
     CN_OBEE_NAME,
+    HOME_IO_NAME,
 )
 from orchestrator.core.simulation_runtime import (
     SimulationAction,
@@ -101,7 +103,33 @@ async def simulation_state(
     if resolved is None:
         return _unavailable_state()
     household_id, household_name = resolved
-    return {"available": True, "household_id": household_id, **await simulated_runtime_state(household_id, household_name)}
+    state = await simulated_runtime_state(household_id, household_name)
+    if household_name == HOME_IO_NAME:
+        state["bridge"] = await home_io_bridge_status()
+    return {"available": True, "household_id": household_id, **state}
+
+
+@router.get("/home-io-preview")
+async def home_io_preview(
+    request: Request,
+    current_user: Annotated[UserProfile, Depends(get_current_user)],
+    session: AsyncSession = Depends(get_mysql_session),
+    household_id: int | None = Query(default=None, ge=1),
+) -> Response:
+    """Proxy a current private Home I/O desktop frame to the authenticated UI."""
+    resolved = await _simulated_household(
+        request, current_user, session, requested_household_id=household_id
+    )
+    if resolved is None or resolved[1] != HOME_IO_NAME:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Select the Home I/O household.")
+    image = await home_io_bridge_frame()
+    if image is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Home I/O preview unavailable")
+    return Response(
+        content=image,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @router.post("/events")
@@ -142,10 +170,10 @@ async def override_simulation_state(
     resolved = await _simulated_household(
         request, current_user, session, requested_household_id=payload.household_id
     )
-    if resolved is None or resolved[1] not in {CASAS_ARUBA_NAME, CN_OBEE_NAME}:
+    if resolved is None or resolved[1] not in {CASAS_ARUBA_NAME, CN_OBEE_NAME, HOME_IO_NAME}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Select CASAS Aruba Replay or CN-OBEE Beijing Apartment.",
+            detail="Select CASAS Aruba Replay, CN-OBEE Beijing Apartment, or Home I/O Interactive Test Home.",
         )
     if payload.device_id is None and payload.resident_room is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose a device or resident location.")
@@ -237,7 +265,14 @@ async def simulation_household_plan(
     else:
         next_context = f"The next 10-minute simulation update will continue or transition from {activity}."
         lighting = "Keep virtual lights aligned with activity in occupied rooms; turn them off when the room becomes inactive."
-    if household_name == CN_OBEE_NAME:
+    if household_name == HOME_IO_NAME:
+        plan_title = "Home I/O interactive test plan"
+        plan_summary = (
+            "A controllable EcoNest demo model of Home I/O. Until a licensed desktop "
+            "bridge is connected, changes affect only this isolated test state."
+        )
+        expected_pattern = "Home I/O sensor and actuator test sequence."
+    elif household_name == CN_OBEE_NAME:
         plan_title = "CN-OBEE away plan" if occupancy == "Away" else "CN-OBEE current at-home plan"
         plan_summary = (
             "A source-backed CN-OBEE replay using recorded room occupancy, environment, "
@@ -380,6 +415,7 @@ async def _simulated_household(
         CITY_APARTMENT_NAME,
         CASAS_ARUBA_NAME,
         CN_OBEE_NAME,
+        HOME_IO_NAME,
     }:
         return None
     return int(household["id"]), str(household["name"])

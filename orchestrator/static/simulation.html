@@ -20,6 +20,12 @@
     .live-chip { display: grid; gap: 2px; min-width: 132px; padding: 10px 12px; border: 1px solid #dfd6c5; border-radius: 11px; background: #f7f3eb; }
     .live-chip span { color: #746f64; font-size: .69rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
     .live-chip strong { font-size: .9rem; }
+    .live-homeio { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; border: 1px solid #9bbd93; border-radius: 12px; background: #edf5e9; color: #294a2a; }
+    .live-homeio strong { font-size: .9rem; }
+    .live-homeio span { color: #496449; font-size: .82rem; }
+    .homeio-preview { margin-top: 14px; overflow: hidden; border: 1px solid #9bbd93; border-radius: 14px; background: #18201a; }
+    .homeio-preview img { display: block; width: 100%; max-height: 440px; object-fit: contain; background: #18201a; }
+    .homeio-preview figcaption { padding: 8px 12px; color: #dceada; font-size: .78rem; }
     details.inventory { margin-top: 18px; padding: 0 18px; }
     details.inventory summary { padding: 15px 0; cursor: pointer; font-weight: 800; }
     .inventory-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 0 17px; }
@@ -103,6 +109,58 @@
     .standard-plan .room-tag { padding: 0; border: 0; background: transparent; box-shadow: none; }
     .standard-plan .room-name { max-width: 175px; font-size: .95rem; }
     .standard-plan .room-readings { margin-top: auto; }
+    /* A faithful HTML reconstruction of the Home I/O mini-map geometry that
+       was supplied for this test house. Interactive room overlays sit on the
+       map's actual lettered zones rather than inventing a new floor plan. */
+    .homeio-plan { aspect-ratio: 4 / 3; min-height: 470px; background: #090a0a; border-color: #302f2a; }
+    .homeio-plan::after { z-index: 4; content: "Home I/O · interactive map"; color: rgba(245, 242, 226, .72); }
+    .homeio-floor-tabs { position: absolute; z-index: 7; top: 15px; left: 17px; display: flex; gap: 6px; padding: 4px; border: 1px solid rgba(232, 226, 206, .25); border-radius: 10px; background: rgba(15, 18, 16, .8); }
+    .homeio-floor-tabs button { padding: 7px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; box-shadow: none; color: #d8d6cb; font-size: .72rem; font-weight: 800; }
+    .homeio-floor-tabs button:hover { background: rgba(230, 223, 196, .14); }
+    .homeio-floor-tabs button.active { border-color: #d8cf9e; background: #d8cf9e; color: #22261f; }
+    .homeio-map-caption { position: absolute; z-index: 6; left: 17px; bottom: 15px; color: rgba(234, 230, 215, .78); font-size: .66rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .homeio-map-caption::before { margin-right: 8px; color: #d3dcbd; content: "⌖"; font-size: 1.2em; }
+    .homeio-map { position: absolute; z-index: 1; left: 50%; top: 52%; width: min(76%, 590px); aspect-ratio: 1 / .86; transform: translate(-50%, -50%); }
+    .homeio-static-zone { position: absolute; display: grid; place-items: center; border: 2px solid #fffdf2; background: #d5b917; color: #fffdf2; font-size: clamp(.55rem, 1.2vw, .83rem); font-weight: 800; text-shadow: 0 1px 1px rgba(0,0,0,.35); }
+    .homeio-static-zone.quiet { background: #222321; border-color: #6e706a; color: #888b83; }
+    .homeio-static-zone.zone-a { left: 2%; top: 35%; width: 47%; height: 35%; }
+    .homeio-static-zone.zone-b { left: 18%; top: 44%; width: 10%; height: 16%; }
+    .homeio-static-zone.zone-c { left: 18%; top: 60%; width: 10%; height: 11%; }
+    .homeio-static-zone.zone-d { left: 28%; top: 35%; width: 14%; height: 35%; }
+    .homeio-static-zone.zone-e { left: 42%; top: 35%; width: 13%; height: 35%; }
+    .homeio-static-zone.zone-f { left: 45%; top: 7%; width: 21%; height: 22%; }
+    .homeio-static-zone.zone-g { left: 55%; top: 35%; width: 9%; height: 26%; }
+    .homeio-static-zone.zone-h { left: 64%; top: 35%; width: 20%; height: 13%; }
+    .homeio-static-zone.zone-i { left: 64%; top: 48%; width: 20%; height: 13%; }
+    .homeio-static-zone.zone-j { left: 64%; top: 61%; width: 20%; height: 11%; }
+    .homeio-static-zone.zone-k { left: 64%; top: 72%; width: 14%; height: 12%; }
+    .homeio-static-zone.zone-l { left: 78%; top: 72%; width: 14%; height: 12%; }
+    .homeio-static-zone.zone-m { left: 55%; top: 72%; width: 9%; height: 20%; }
+    .homeio-floor-first .homeio-ground-zones, .homeio-floor-ground .homeio-first-zones { display: none; }
+    .homeio-first-zones .zone-a { top: 37%; height: 35%; }
+    .homeio-first-zones .zone-e { left: 49%; top: 30%; width: 11%; height: 43%; }
+    .homeio-first-zones .zone-f { left: 49%; top: 7%; width: 20%; height: 23%; }
+    .homeio-first-zones .zone-g { left: 60%; top: 37%; width: 9%; height: 25%; }
+    .homeio-first-zones .zone-h { left: 69%; top: 37%; width: 20%; height: 13%; }
+    .homeio-first-zones .zone-i { left: 69%; top: 50%; width: 20%; height: 13%; }
+    .homeio-first-zones .zone-j { left: 69%; top: 63%; width: 20%; height: 11%; }
+    .homeio-first-zones .zone-k { left: 69%; top: 74%; width: 14%; height: 12%; }
+    .homeio-first-zones .zone-l { left: 83%; top: 74%; width: 12%; height: 12%; }
+    .homeio-first-zones .zone-m { left: 60%; top: 74%; width: 9%; height: 20%; }
+    .homeio-plan .room { z-index: 3; display: none; padding: 8px; border: 2px solid transparent; border-radius: 0; background: transparent; box-shadow: none; color: #fffdf2; }
+    .homeio-plan .room:hover { border-color: #d9ed9f; background: rgba(203, 231, 139, .18); transform: none; }
+    .homeio-plan .room.active { border-color: #b9d78c; background: rgba(166, 202, 112, .22); }
+    .homeio-plan .room.selected { border-color: #fff3a5; background: rgba(255, 233, 100, .14); box-shadow: 0 0 0 3px rgba(243, 223, 127, .2); }
+    /* The floor plan intentionally shows Home I/O's zone letters only. Names,
+       readings, and controls are available after selecting a zone. */
+    .homeio-plan .room-tag, .homeio-plan .room-readings { display: none; }
+    .homeio-floor-ground .homeio-ground, .homeio-floor-first .homeio-first { display: flex; }
+    .homeio-map .room-living-room { left: 2%; top: 35%; width: 47%; height: 35%; }
+    .homeio-map .room-entry { left: 45%; top: 7%; width: 21%; height: 22%; }
+    .homeio-map .room-kitchen { left: 64%; top: 35%; width: 20%; height: 37%; }
+    .homeio-map .room-garage { left: 64%; top: 72%; width: 28%; height: 12%; }
+    .homeio-map .room-bedroom { left: 2%; top: 37%; width: 47%; height: 35%; }
+    .homeio-map .room-bathroom { left: 49%; top: 30%; width: 11%; height: 43%; }
     .room-flyout { position: absolute; z-index: 3; right: 18px; bottom: 18px; width: min(330px, calc(100% - 36px)); max-height: calc(100% - 36px); overflow: auto; padding: 16px; border: 1px solid rgba(186, 172, 147, .9); border-radius: 15px; background: rgba(255, 253, 250, .97); box-shadow: 0 18px 45px rgba(53, 43, 29, .24); opacity: 0; transform: translateY(14px) scale(.97); transition: opacity .2s ease, transform .2s ease; }
     .room-flyout.open { opacity: 1; transform: translateY(0) scale(1); }
     .flyout-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -151,16 +209,17 @@
     .empty p { color: #69655b; line-height: 1.5; }
     .scenario-note { color: #69655b; font-size: .83rem; line-height: 1.45; }
     @media (max-width: 980px) { .twin-grid { grid-template-columns: 1fr; } .side { grid-template-columns: repeat(2, minmax(0, 1fr)); } .side > :first-child { grid-column: 1 / -1; } }
-    @media (max-width: 680px) { main { padding: 22px 16px; } .plan { min-height: 390px; } .room { padding: 4px; } .room-tag { padding: 3px 4px; } .room-name { max-width: 90px; font-size: .6rem; } .reading { padding: 3px 4px; font-size: .57rem; } .room-flyout { right: 10px; bottom: 10px; width: calc(100% - 20px); max-height: calc(100% - 20px); } .inventory-body, .side { grid-template-columns: 1fr; } .panel-heading { display: grid; } .status-key { justify-content: start; } }
+    @media (max-width: 680px) { main { padding: 22px 16px; } .plan { min-height: 390px; } .homeio-plan { min-height: 390px; } .room { padding: 4px; } .room-tag { padding: 3px 4px; } .room-name { max-width: 90px; font-size: .6rem; } .reading { padding: 3px 4px; font-size: .57rem; } .homeio-plan .room { padding: 7px; border-width: 2px; } .homeio-plan .room-name { font-size: .7rem; } .homeio-floor-tabs { top: 9px; left: 9px; } .homeio-floor-tabs button { padding: 5px 7px; font-size: .62rem; } .room-flyout { right: 10px; bottom: 10px; width: calc(100% - 20px); max-height: calc(100% - 20px); } .inventory-body, .side { grid-template-columns: 1fr; } .panel-heading { display: grid; } .status-key { justify-content: start; } }
   </style>
 </head>
 <body>
   <main id="app"><section class="card empty"><h1>Loading digital twin…</h1></section></main>
   <script>
-    const icons = { thermostat: "🌡", light: "💡", motion: "◉", door: "▯", power: "⚡" };
+    const icons = { thermostat: "🌡", light: "💡", motion: "◉", door: "▯", power: "⚡", heater: "♨", shade: "▤", smoke: "◉", sensor: "◌", security: "⚿", siren: "⚠" };
     const app = document.querySelector("#app");
     let selectedRoomId = null;
     let flyoutOpen = false;
+    let homeIoFloor = "ground";
 
     function escapeHtml(value) {
       return String(value).replace(/[&<>'"]/g, character => ({
@@ -184,18 +243,29 @@
     }
 
     function supportsManualControls(data) {
-      return data.name === "CASAS Aruba Replay" || data.name === "CN-OBEE Beijing Apartment";
+      return data.name === "CASAS Aruba Replay" || data.name === "CN-OBEE Beijing Apartment" || data.name === "Home I/O Interactive Test Home";
     }
 
     function manualControlPanel(data) {
       const isSupported = supportsManualControls(data);
       if (!isSupported) return "";
-      const datasetName = data.name === "CASAS Aruba Replay" ? "CASAS" : "CN-OBEE";
+      const datasetName = data.name === "CASAS Aruba Replay" ? "CASAS" : data.name === "CN-OBEE Beijing Apartment" ? "CN-OBEE" : "Home I/O demo";
       const rooms = data.rooms.map(room => {
         const devices = data.devices.filter(device => device.room === room.id);
-        return `<details class="manual-room"><summary><span>${escapeHtml(room.name)}</span><small>${devices.length} control${devices.length === 1 ? "" : "s"}</small></summary><div class="manual-room-body"><button class="manual-room-action" type="button" data-place-resident="${escapeHtml(room.id)}">Move resident here</button><div class="manual-device-list">${devices.map(device => `<label class="manual-device"><span>${icons[device.kind] || "•"} ${escapeHtml(device.label)}</span><select data-device-state="${escapeHtml(device.id)}"><option value="normal" ${device.state === "normal" ? "selected" : ""}>Normal</option><option value="active" ${device.state === "active" ? "selected" : ""}>Active</option><option value="idle" ${device.state === "idle" ? "selected" : ""}>Idle</option><option value="on" ${device.state === "on" ? "selected" : ""}>On</option><option value="off" ${device.state === "off" ? "selected" : ""}>Off</option></select></label>`).join("")}</div></div></details>`;
+        const isHomeIO = data.name === "Home I/O Interactive Test Home";
+        const controllable = isHomeIO ? devices.filter(device => device.live_writable) : devices;
+        const controls = controllable.map(device => {
+          if (isHomeIO && device.momentary) return `<div class="manual-device"><span>${icons[device.kind] || "•"} ${escapeHtml(device.label)}</span><button type="button" data-device-pulse="${escapeHtml(device.id)}">Trigger</button></div>`;
+          if (isHomeIO) return `<label class="manual-device"><span>${icons[device.kind] || "•"} ${escapeHtml(device.label)}</span><select data-device-state="${escapeHtml(device.id)}"><option value="on" ${device.state === "on" ? "selected" : ""}>On</option><option value="off" ${device.state !== "on" ? "selected" : ""}>Off</option></select></label>`;
+          return `<label class="manual-device"><span>${icons[device.kind] || "•"} ${escapeHtml(device.label)}</span><select data-device-state="${escapeHtml(device.id)}"><option value="normal" ${device.state === "normal" ? "selected" : ""}>Normal</option><option value="active" ${device.state === "active" ? "selected" : ""}>Active</option><option value="idle" ${device.state === "idle" ? "selected" : ""}>Idle</option><option value="on" ${device.state === "on" ? "selected" : ""}>On</option><option value="off" ${device.state === "off" ? "selected" : ""}>Off</option></select></label>`;
+        }).join("");
+        const residentControl = data.name === "Home I/O Interactive Test Home" ? "" : `<button class="manual-room-action" type="button" data-place-resident="${escapeHtml(room.id)}">Move resident here</button>`;
+        return `<details class="manual-room"><summary><span>${escapeHtml(room.name)}</span><small>${controllable.length} control${controllable.length === 1 ? "" : "s"}</small></summary><div class="manual-room-body">${residentControl}<div class="manual-device-list">${controls || '<p class="device-detail">No controllable outputs in this zone.</p>'}</div></div></details>`;
       }).join("");
-      return `<details id="manualSimulationPanel" class="manual-simulation-panel"><summary>Manual simulation controls</summary><div class="manual-simulation-body"><p>These controls change only this ${datasetName} simulation. Recorded source data is unchanged.</p><div class="manual-toolbar"><button type="button" data-place-resident="away">Set resident away</button></div><div class="manual-room-list">${rooms}</div></div></details>`;
+      const boundary = data.name === "Home I/O Interactive Test Home"
+        ? (data.bridge?.connected ? "Live bridge connected: controls here send only to the blue External-Mode Home I/O devices. Shade, garage, and security actions are short pulses." : "The live Home I/O desktop bridge is unavailable; no simulator action can be sent.")
+        : `These controls change only this ${datasetName} simulation. Recorded source data is unchanged.`;
+      return `<details id="manualSimulationPanel" class="manual-simulation-panel"><summary>Manual simulation controls</summary><div class="manual-simulation-body"><p>${boundary}</p><div class="manual-toolbar"><button type="button" data-place-resident="away">Set resident away</button></div><div class="manual-room-list">${rooms}</div></div></details>`;
     }
 
     async function applyManualOverride(data, body) {
@@ -253,6 +323,11 @@
           applyManualOverride(data, { device_id: event.target.dataset.deviceState, device_state: event.target.value }).catch(() => {});
         });
       });
+      document.querySelectorAll("[data-device-pulse]").forEach(control => {
+        control.addEventListener("click", event => {
+          applyManualOverride(data, { device_id: event.currentTarget.dataset.devicePulse, device_state: "trigger" }).catch(() => {});
+        });
+      });
     }
 
     function bindDeviceDetails(data) {
@@ -278,7 +353,19 @@
       selectedRoomId = data.rooms.some(room => room.id === selectedRoomId) ? selectedRoomId : defaultRoom;
       const isCnObee = data.name === "CN-OBEE Beijing Apartment";
       const isCasasAruba = data.name === "CASAS Aruba Replay";
+      const isHomeIO = data.name === "Home I/O Interactive Test Home";
       const usesCutaway = isCnObee || isCasasAruba;
+      const usesFloorplan = usesCutaway;
+      const liveLightSummary = data.devices
+        .filter(device => device.kind === "light")
+        .map(device => `${device.label}: ${device.state === "on" ? "ON" : "OFF"}`)
+        .join(" · ");
+      const liveHomeIO = data.name === "Home I/O Interactive Test Home" && data.bridge?.connected
+        ? `<section class="live-homeio" aria-live="polite"><strong>● Live Home I/O connected</strong><span>${escapeHtml(liveLightSummary)}. Synced from the Windows simulator every 5 seconds.</span></section>`
+        : "";
+      const homeIOPreview = data.name === "Home I/O Interactive Test Home" && data.bridge?.connected
+        ? `<figure class="homeio-preview"><img id="homeIOPreview" src="/simulation/home-io-preview?household_id=${encodeURIComponent(data.household_id)}&t=${Date.now()}" alt="Current private preview of the Home I/O simulator" /><figcaption>Live Home I/O desktop preview · refreshes every 5 seconds</figcaption></figure>`
+        : "";
       flyoutOpen = false;
       const visualOverlays = data.visual_overlays || {};
       const casasAway = isCasasAruba && visualOverlays.car_present === false;
@@ -286,12 +373,16 @@
       const residentOverlay = (isCasasAruba || isCnObee) && visualOverlays.resident_visible
         ? `<img class="resident-overlay resident-in-${escapeHtml(residentRoom)}" src="/static/assets/casas-resident-arriving.png" alt="Resident represented in ${escapeHtml(String(visualOverlays.resident_room || "front entry").replaceAll("_", " "))}, based on the active motion-sensor room" />`
         : "";
+      const homeIoRoomFloor = { living_room: "ground", entry: "ground", kitchen: "ground", garage: "ground", bedroom: "first", bathroom: "first" };
       const rooms = data.rooms.map(room => `
-        <button class="room room-${escapeHtml(room.id).replaceAll("_", "-")} ${room.occupied ? "active" : ""}" type="button" data-room="${escapeHtml(room.id)}" aria-label="Inspect ${escapeHtml(room.name)}. ${room.occupied ? "Activity recorded" : "Quiet"}. ${room.temperature_f} degrees Fahrenheit.">
+        <button class="room room-${escapeHtml(room.id).replaceAll("_", "-")} ${isHomeIO ? `homeio-${homeIoRoomFloor[room.id] || "ground"}` : ""} ${room.occupied ? "active" : ""}" type="button" data-room="${escapeHtml(room.id)}" aria-label="Inspect ${escapeHtml(room.name)}. ${room.occupied ? "Activity recorded" : "Quiet"}. ${room.temperature_f} degrees Fahrenheit.">
           <span class="room-tag"><span class="occupancy-dot" aria-hidden="true"></span><span class="room-name">${escapeHtml(room.name)}</span></span>
           <span class="room-readings"><span class="reading">${room.temperature_f}°F</span><span class="reading">${room.occupied ? "Activity" : "Quiet"}</span></span>
         </button>`).join("");
-      const inventory = data.dataset_overview ? `<details class="inventory card"><summary>Dataset inventory</summary><div class="inventory-body">
+      const inventoryTitle = data.source?.kind === "simulator" ? "Simulator inventory" : "Dataset inventory";
+      const homeIoFloorControls = "";
+      const homeIoMap = rooms;
+      const inventory = data.dataset_overview ? `<details class="inventory card"><summary>${inventoryTitle}</summary><div class="inventory-body">
         <div class="inventory-item"><strong>Coverage</strong>${escapeHtml(overview.coverage || "—")}</div>
         <div class="inventory-item"><strong>Source range</strong>${escapeHtml(overview.source_range || "—")}</div>
         <div class="inventory-item"><strong>Signals</strong>${escapeHtml(overview.signals || overview.sensors || "—")}</div>
@@ -302,9 +393,11 @@
         <h1>${escapeHtml(data.name)}</h1>
         <p class="intro">${escapeHtml(data.subtitle)}. Explore a room to see its recorded readings and modeled devices. Controls apply only to this safe simulation.</p>
         ${data.source ? `<p class="source-line">Dataset: <a href="${escapeHtml(data.source.url)}" target="_blank" rel="noreferrer">${escapeHtml(data.source.name)}</a> · ${escapeHtml(data.source.license)}</p>` : ""}
-        <div class="live-strip"><div class="live-chip"><span>Simulated now</span><strong id="liveClock">${escapeHtml(live.clock || "—")}</strong></div><div class="live-chip"><span>Current state</span><strong>${escapeHtml(live.activity || data.summary.occupancy)}</strong></div><div class="live-chip"><span>Mode</span><strong>${escapeHtml(live.mode || "Simulation")}</strong></div></div>
+        <div class="live-strip"><div class="live-chip"><span>Simulated now</span><strong id="liveClock">${escapeHtml(live.clock || "—")}</strong></div><div class="live-chip"><span>Current state</span><strong>${escapeHtml(live.activity || data.summary.occupancy)}</strong></div><div class="live-chip"><span>Mode</span><strong>${escapeHtml(data.bridge?.mode || live.mode || "Simulation")}</strong></div></div>
+        ${liveHomeIO}
+        ${homeIOPreview}
         ${inventory}
-        <div class="twin-grid"><section class="card home-panel"><div class="panel-heading"><div><h2>${usesCutaway ? "Interactive home" : "Room overview"}</h2><p>${escapeHtml(data.updated_label)}</p></div><div class="status-key"><span>● Activity recorded</span><span>○ Quiet</span><span>Click any room</span></div></div>${usesCutaway ? `<p class="plan-note">This is an illustrative cutaway based on ${isCnObee ? "CN-OBEE’s documented rooms" : "CASAS Aruba’s documented sensor zones"}. Select a room to inspect its source-backed replay readings and modeled devices.</p>` : ""}<div class="plan ${isCnObee ? "cn-obee-plan" : isCasasAruba ? "casas-aruba-plan" : "standard-plan"} ${casasAway ? "resident-away" : ""}" role="group" aria-label="${usesCutaway ? `Interactive ${escapeHtml(data.name)} home layout` : "Interactive room overview"}">${residentOverlay}${rooms}${usesCutaway ? '<section id="roomFlyout" class="room-flyout" hidden aria-live="polite"><div class="flyout-heading"><h3 id="detailTitle">Room details</h3><button id="flyoutClose" class="flyout-close" type="button" aria-label="Close room details">×</button></div><p id="detailText" class="detail-subtitle">Select a room to inspect its readings and devices.</p><div id="deviceList"></div></section>' : ""}</div>${manualControlPanel(data)}</section>
+        <div class="twin-grid"><section class="card home-panel"><div class="panel-heading"><div><h2>${usesCutaway ? "Interactive home" : "Room overview"}</h2><p>${escapeHtml(data.updated_label)}</p></div><div class="status-key"><span>● Activity recorded</span><span>○ Quiet</span><span>Click any room</span></div></div>${usesFloorplan ? `<p class="plan-note">This is an illustrative cutaway based on ${isCnObee ? "CN-OBEE’s documented rooms" : "CASAS Aruba’s documented sensor zones"}. Select a room to inspect its source-backed replay readings and modeled devices.</p>` : ""}<div class="plan ${isCnObee ? "cn-obee-plan" : isCasasAruba ? "casas-aruba-plan" : "standard-plan"} ${casasAway ? "resident-away" : ""}" role="group" aria-label="${usesFloorplan ? `Interactive ${escapeHtml(data.name)} home layout` : "Interactive room overview"}">${residentOverlay}${homeIoMap}${usesCutaway ? '<section id="roomFlyout" class="room-flyout" hidden aria-live="polite"><div class="flyout-heading"><h3 id="detailTitle">Room details</h3><button id="flyoutClose" class="flyout-close" type="button" aria-label="Close room details">×</button></div><p id="detailText" class="detail-subtitle">Select a room to inspect its readings and devices.</p><div id="deviceList"></div></section>' : ""}</div>${manualControlPanel(data)}</section>
         <aside class="side"><section class="card metrics"><h3>At a glance</h3><div class="metric"><span>Occupancy</span><strong>${escapeHtml(data.summary.occupancy)}</strong></div><div class="metric"><span>Indoor temperature</span><strong>${data.summary.indoor_temperature_f}°F</strong></div><div class="metric"><span>Power now</span><strong>${data.summary.power_w} W</strong></div><div class="metric"><span>Active rooms</span><strong>${data.summary.active_rooms}</strong></div></section>${usesCutaway ? "" : '<section class="card detail"><h3 id="detailTitle">Room details</h3><p id="detailText" class="detail-subtitle">Select a room to inspect its readings and devices.</p><div id="deviceList"></div></section>'}<section class="card events"><h3>Recent replay events</h3><ul>${data.events.map(event => `<li>${escapeHtml(event)}</li>`).join("")}</ul></section></aside></div>`;
       document.querySelectorAll("[data-room]").forEach(button => button.addEventListener("click", () => selectRoom(data, button.dataset.room, usesCutaway)));
       document.querySelector("#flyoutClose")?.addEventListener("click", () => setFlyoutVisible(false));
@@ -327,10 +420,9 @@
       if (flyoutOpen) return;
       try {
         const state = await loadTwin();
-        const clock = document.querySelector("#liveClock");
-        if (clock && state.live_simulation?.clock) clock.textContent = state.live_simulation.clock;
+        render(state);
       } catch { /* Keep the last known simulated time until the next refresh. */ }
-    }, 60_000);
+    }, 5_000);
   </script>
   <script src="/static/simulation-controls.js?v=4"></script>
 </body>
