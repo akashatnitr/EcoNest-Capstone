@@ -60,7 +60,7 @@ $environmentFile = Join-Path $BridgeDirectory "home-io-bridge.env"
 @"
 PYTHONNET_RUNTIME=netfx
 HOME_IO_SDK_PATH=C:\Program Files (x86)\Real Games\Connect IO
-HOME_IO_BRIDGE_MAP={""virtual_living_light"":{""address"":0,""memory_type"":""Output"",""writable"":true}}
+HOME_IO_BRIDGE_MAP={"virtual_living_light":{"address":0,"memory_type":"Output","writable":true}}
 HOME_IO_BRIDGE_TOKEN=$bridgeToken
 HOME_IO_WINDOW_TITLE=Home I/O
 "@ | Set-Content -Path $environmentFile -Encoding ascii
