@@ -70,10 +70,14 @@ $logPath = Join-Path $BridgeDirectory "home-io-bridge.log"
 @"
 @echo off
 setlocal EnableExtensions
+cd /d "$BridgeDirectory"
 for /f "usebackq tokens=1,* delims==" %%A in ("$environmentFile") do (
   if not "%%A"=="" set "%%A=%%B"
 )
-tasklist /FI "IMAGENAME eq Home I/O.exe" /NH | find /I "Home I/O.exe" >nul || start "" "$HomeIOPath"
+set "HOMEIO_RUNNING="
+tasklist /FI "IMAGENAME eq Player.exe" /NH | find /I "Player.exe" >nul && set "HOMEIO_RUNNING=1"
+tasklist /FI "IMAGENAME eq HomeIO.exe" /NH | find /I "HomeIO.exe" >nul && set "HOMEIO_RUNNING=1"
+if not defined HOMEIO_RUNNING start "" "$HomeIOPath"
 timeout /t 8 /nobreak >nul
 "$PythonPath" -m uvicorn home_io_desktop_bridge:app --host $TailscaleAddress --port $Port >> "$logPath" 2>&1
 "@ | Set-Content -Path $launcherPath -Encoding ascii
