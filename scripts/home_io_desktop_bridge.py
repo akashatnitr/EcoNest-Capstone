@@ -14,10 +14,10 @@ import logging
 import os
 import threading
 import time
-from io import BytesIO
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
-from typing import Any, AsyncIterator, Literal
+from typing import AsyncIterator, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -90,18 +90,62 @@ class HomeIOEngine:
             self._memory_map.Update()
             return self._read_point(point)
 
-    def pulse(self, name: str, seconds: float = 0.45) -> None:
-        """Send a bounded rising-edge command to a momentary output."""
+    def pulse(self, name: str, seconds: float | None = None) -> None:
+        """Send a bounded command to a momentary Home I/O output.
+        """
         point = self._points[name]
+        duration = seconds if seconds is not None else 0.45
         with self._lock:
             bit = self._memory_map.GetBit(
                 point.address, getattr(self._memory_type, point.memory_type)
             )
             bit.Value = True
             self._memory_map.Update()
-            time.sleep(seconds)
+            time.sleep(duration)
             bit.Value = False
             self._memory_map.Update()
+
+    def drive_shade(self, name: str, timeout_seconds: float = 15.0) -> dict[str, bool | float]:
+        """Drive an allow-listed roller shade until its openness reaches an endpoint."""
+        if name.endswith("_open"):
+            feedback_name = f"{name[:-5]}_openness"
+            target_openness = 9.8
+            opening = True
+        elif name.endswith("_close"):
+            feedback_name = f"{name[:-6]}_openness"
+            target_openness = 0.2
+            opening = False
+        else:
+            raise ValueError("Only roller-shade open and close controls can be driven")
+
+        point = self._points[name]
+        feedback = self._points.get(feedback_name)
+        if feedback is None or feedback.data_type != "Float":
+            raise KeyError(f"Missing openness feedback point: {feedback_name}")
+
+        with self._lock:
+            bit = self._memory_map.GetBit(
+                point.address, getattr(self._memory_type, point.memory_type)
+            )
+            deadline = time.monotonic() + timeout_seconds
+            openness = float(self._read_point(feedback))
+            bit.Value = True
+            self._memory_map.Update()
+            try:
+                while (
+                    (openness < target_openness if opening else openness > target_openness)
+                    and time.monotonic() < deadline
+                ):
+                    time.sleep(0.15)
+                    self._memory_map.Update()
+                    openness = float(self._read_point(feedback))
+            finally:
+                bit.Value = False
+                self._memory_map.Update()
+                openness = float(self._read_point(feedback))
+
+        confirmed = openness >= target_openness if opening else openness <= target_openness
+        return {"confirmed": confirmed, "openness": openness}
 
 
 class HomeIOWindowCapture:
@@ -113,9 +157,9 @@ class HomeIOWindowCapture:
     def frame(self) -> bytes:
         """Return a JPEG screenshot of the matching, non-minimized window."""
         try:
-            from PIL import Image  # type: ignore[import-not-found]
             import win32gui  # type: ignore[import-not-found]
             import win32ui  # type: ignore[import-not-found]
+            from PIL import Image  # type: ignore[import-not-found]
         except ImportError as error:  # pragma: no cover - requires Windows extras
             raise RuntimeError("Install pillow and pywin32 to enable Home I/O preview") from error
 
@@ -259,3 +303,18 @@ async def pulse_state(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is not pulse-writable")
     app.state.engine.pulse(device_id)
     return {"device_id": device_id, "accepted": True}
+
+
+@app.post("/devices/{device_id}/drive")
+async def drive_shade(
+    device_id: str, _: None = Depends(_require_token)
+) -> dict[str, bool | float | str]:
+    """Drive one mapped roller shade and verify its final openness sensor value."""
+    point = app.state.engine._points.get(device_id)
+    if point is None or not point.writable or not point.momentary:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is not drive-writable")
+    try:
+        result = app.state.engine.drive_shade(device_id)
+    except (KeyError, ValueError) as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return {"device_id": device_id, **result}

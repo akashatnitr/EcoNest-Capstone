@@ -48,6 +48,13 @@
     "momentary": true,
     "writable": true
   },
+  "homeio_a_shade_1_openness": {
+    "address": 3,
+    "data_type": "Float",
+    "memory_type": "Input",
+    "momentary": false,
+    "writable": false
+  },
   "homeio_a_shade_2_close": {
     "address": 4,
     "data_type": "Bit",
@@ -61,6 +68,13 @@
     "memory_type": "Output",
     "momentary": true,
     "writable": true
+  },
+  "homeio_a_shade_2_openness": {
+    "address": 4,
+    "data_type": "Float",
+    "memory_type": "Input",
+    "momentary": false,
+    "writable": false
   },
   "homeio_a_shade_3_close": {
     "address": 6,
@@ -76,6 +90,13 @@
     "momentary": true,
     "writable": true
   },
+  "homeio_a_shade_3_openness": {
+    "address": 5,
+    "data_type": "Float",
+    "memory_type": "Input",
+    "momentary": false,
+    "writable": false
+  },
   "homeio_a_shade_4_close": {
     "address": 8,
     "data_type": "Bit",
@@ -89,6 +110,13 @@
     "memory_type": "Output",
     "momentary": true,
     "writable": true
+  },
+  "homeio_a_shade_4_openness": {
+    "address": 6,
+    "data_type": "Float",
+    "memory_type": "Input",
+    "momentary": false,
+    "writable": false
   },
   "homeio_a_smoke": {
     "address": 17,
@@ -761,5 +789,12 @@
     "memory_type": "Input",
     "momentary": false,
     "writable": true
+  },
+  "homeio_system_instant_power": {
+    "address": 141,
+    "data_type": "Float",
+    "memory_type": "Memory",
+    "momentary": false,
+    "writable": false
   }
 }
