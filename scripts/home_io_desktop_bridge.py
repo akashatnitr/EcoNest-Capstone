@@ -17,7 +17,7 @@ import time
 from io import BytesIO
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -26,25 +26,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class BitPoint(BaseModel):
-    """One allow-listed Home I/O bit input or output."""
+class IOPoint(BaseModel):
+    """One allow-listed Home I/O bit or float input, output, or memory point."""
 
     address: int = Field(ge=0)
     memory_type: str = Field(pattern="^(Input|Output|Memory)$")
     writable: bool = False
     momentary: bool = False
+    data_type: Literal["Bit", "Float"] = "Bit"
 
 
 class DeviceStateRequest(BaseModel):
-    """A bounded command for a configured bit output."""
+    """A bounded command for one configured output or external-mode input."""
 
-    value: bool
+    value: bool | float
 
 
 class HomeIOEngine:
     """Lazy pythonnet wrapper so this module can be inspected off Windows."""
 
-    def __init__(self, sdk_path: str, points: dict[str, BitPoint]) -> None:
+    def __init__(self, sdk_path: str, points: dict[str, IOPoint]) -> None:
         try:
             # Home I/O and Connect I/O are .NET Framework applications.  Set
             # this before importing pythonnet so it does not select CoreCLR.
@@ -60,27 +61,34 @@ class HomeIOEngine:
         self._points = points
         self._lock = threading.Lock()
 
-    def read(self) -> dict[str, bool]:
-        """Synchronize and read all configured bit values."""
+    def read(self) -> dict[str, bool | float]:
+        """Synchronize and read all configured bit and float values."""
         with self._lock:
             self._memory_map.Update()
             return {
-                name: bool(
-                    self._memory_map.GetBit(point.address, getattr(self._memory_type, point.memory_type)).Value
-                )
+                name: self._read_point(point)
                 for name, point in self._points.items()
             }
 
-    def write(self, name: str, value: bool) -> bool:
-        """Write one already allow-listed output bit and synchronize it."""
+    def _read_point(self, point: IOPoint) -> bool | float:
+        memory_type = getattr(self._memory_type, point.memory_type)
+        if point.data_type == "Float":
+            return float(self._memory_map.GetFloat(point.address, memory_type).Value)
+        return bool(self._memory_map.GetBit(point.address, memory_type).Value)
+
+    def write(self, name: str, value: bool | float) -> bool | float:
+        """Write one already allow-listed bit output or float set point."""
         point = self._points[name]
         with self._lock:
-            bit = self._memory_map.GetBit(
-                point.address, getattr(self._memory_type, point.memory_type)
-            )
-            bit.Value = value
+            memory_type = getattr(self._memory_type, point.memory_type)
+            if point.data_type == "Float":
+                target = self._memory_map.GetFloat(point.address, memory_type)
+                target.Value = float(value)
+            else:
+                target = self._memory_map.GetBit(point.address, memory_type)
+                target.Value = bool(value)
             self._memory_map.Update()
-            return bool(bit.Value)
+            return self._read_point(point)
 
     def pulse(self, name: str, seconds: float = 0.45) -> None:
         """Send a bounded rising-edge command to a momentary output."""
@@ -159,7 +167,7 @@ class HomeIOWindowCapture:
         return encoded.getvalue()
 
 
-def _load_points() -> dict[str, BitPoint]:
+def _load_points() -> dict[str, IOPoint]:
     """Load the explicit address allow-list supplied by the bridge operator."""
     raw_map = os.environ.get("HOME_IO_BRIDGE_MAP", "{}")
     if raw_map.strip().lower() == "standard":
@@ -171,7 +179,7 @@ def _load_points() -> dict[str, BitPoint]:
                 "HOME_IO_BRIDGE_MAP=standard requires home_io_standard_map.json beside the bridge"
             ) from error
     try:
-        return {name: BitPoint.model_validate(value) for name, value in json.loads(raw_map).items()}
+        return {name: IOPoint.model_validate(value) for name, value in json.loads(raw_map).items()}
     except (json.JSONDecodeError, ValueError) as error:
         raise RuntimeError("HOME_IO_BRIDGE_MAP must be a JSON object of bit points") from error
 
@@ -206,7 +214,7 @@ async def health(_: None = Depends(_require_token)) -> dict[str, bool]:
 
 
 @app.get("/state")
-async def state(_: None = Depends(_require_token)) -> dict[str, dict[str, bool]]:
+async def state(_: None = Depends(_require_token)) -> dict[str, dict[str, bool | float]]:
     """Read the explicit Home I/O I/O allow-list."""
     return {"points": app.state.engine.read()}
 
@@ -228,11 +236,15 @@ async def frame(_: None = Depends(_require_token)) -> Response:
 @app.post("/devices/{device_id}/state")
 async def set_state(
     device_id: str, payload: DeviceStateRequest, _: None = Depends(_require_token)
-) -> dict[str, bool | str]:
-    """Write an allow-listed Home I/O output bit only."""
+) -> dict[str, bool | float | str]:
+    """Write an explicit allow-listed Home I/O output or thermostat set point."""
     point = app.state.engine._points.get(device_id)
-    if point is None or not point.writable or point.memory_type != "Output":
+    if point is None or not point.writable:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is not writable")
+    if point.data_type == "Bit" and not isinstance(payload.value, bool):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Bit device needs a boolean value")
+    if point.data_type == "Float" and (isinstance(payload.value, bool) or not isinstance(payload.value, (int, float))):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Float device needs a numeric value")
     applied = app.state.engine.write(device_id, payload.value)
     return {"device_id": device_id, "value": applied}
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class HomeIOPoint:
-    """A safe, named boolean Home I/O point."""
+    """A safe, named Home I/O point from the standard-house allow-list."""
 
     identifier: str
     zone: str
@@ -19,6 +19,7 @@ class HomeIOPoint:
     address: int
     memory_type: str
     kind: str
+    data_type: str = "Bit"
     writable: bool = False
     momentary: bool = False
 
@@ -42,6 +43,28 @@ def _point(
         kind=kind,
         writable=writable,
         momentary=momentary,
+    )
+
+
+def _float_point(
+    zone: str,
+    slug: str,
+    label: str,
+    address: int,
+    *,
+    memory_type: str,
+    writable: bool = False,
+) -> HomeIOPoint:
+    """Create one explicit floating-point sensor or thermostat point."""
+    return HomeIOPoint(
+        identifier=f"homeio_{zone.lower()}_{slug}",
+        zone=zone,
+        label=label,
+        address=address,
+        memory_type=memory_type,
+        kind="thermostat",
+        data_type="Float",
+        writable=writable,
     )
 
 
@@ -121,7 +144,18 @@ _INPUTS: tuple[HomeIOPoint, ...] = tuple(
     )
 )
 
-STANDARD_HOME_IO_POINTS: tuple[HomeIOPoint, ...] = _OUTPUTS + _INPUTS
+# Room-temperature memory is in Kelvin. Thermostat set points are Home I/O
+# Input floats in degrees Celsius and can be changed when that thermostat has
+# been placed in External Mode. Addresses are from the official SDK table.
+_THERMOSTATS: tuple[HomeIOPoint, ...] = tuple(
+    _float_point(zone, "room_temperature", "Room temperature", 150 + index, memory_type="Memory")
+    for index, zone in enumerate("ABCDEFGHIJKLM")
+) + tuple(
+    _float_point(zone, "thermostat_set_point", "Thermostat set point", address, memory_type="Input", writable=True)
+    for zone, address in (("A", 2), ("D", 14), ("E", 26), ("G", 47), ("H", 59), ("I", 70), ("J", 82), ("K", 93), ("L", 105), ("M", 117))
+)
+
+STANDARD_HOME_IO_POINTS: tuple[HomeIOPoint, ...] = _OUTPUTS + _INPUTS + _THERMOSTATS
 
 
 def standard_bridge_map() -> dict[str, dict[str, int | str | bool]]:
@@ -130,6 +164,7 @@ def standard_bridge_map() -> dict[str, dict[str, int | str | bool]]:
         point.identifier: {
             "address": point.address,
             "memory_type": point.memory_type,
+            "data_type": point.data_type,
             "writable": point.writable,
             "momentary": point.momentary,
         }

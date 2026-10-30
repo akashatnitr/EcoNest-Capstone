@@ -370,6 +370,7 @@ async def apply_dataset_manual_override(
     device_id: str | None = None,
     device_state: str | None = None,
     resident_room: str | None = None,
+    temperature_delta: float | None = None,
 ) -> dict[str, Any]:
     """Dispatch a manual override only to a supported dataset simulation."""
     if household_name == CASAS_ARUBA_NAME:
@@ -392,6 +393,7 @@ async def apply_dataset_manual_override(
             device_id=device_id,
             device_state=device_state,
             resident_room=resident_room,
+            temperature_delta=temperature_delta,
         )
     raise ValueError("Manual overrides are unavailable for this simulated household")
 
@@ -402,6 +404,7 @@ async def apply_home_io_manual_override(
     device_id: str | None = None,
     device_state: str | None = None,
     resident_room: str | None = None,
+    temperature_delta: float | None = None,
 ) -> dict[str, Any]:
     """Apply a Home I/O demo control, using the live bridge when configured."""
     settings = get_settings()
@@ -413,10 +416,26 @@ async def apply_home_io_manual_override(
         rooms = {str(room["id"]): room for room in state["rooms"]}
         devices = {str(device["id"]): device for device in state["devices"]}
         if device_id is not None:
-            if device_id not in devices or device_state not in {"normal", "active", "idle", "on", "off", "trigger"}:
+            if device_id not in devices:
                 raise ValueError("Unsupported Home I/O control")
             device = devices[device_id]
-            if device.get("momentary"):
+            if device.get("temperature_control"):
+                if temperature_delta is None:
+                    raise ValueError("Use the temperature controls to adjust this thermostat")
+                current_c = _home_io_temperature_c(device.get("detail"))
+                target_c = max(10.0, min(30.0, current_c + temperature_delta))
+                applied = await set_home_io_bridge_point(device_id, target_c)
+                if applied is None and settings.HOME_IO_BRIDGE_ENABLED:
+                    raise ValueError("Home I/O bridge is unavailable; the thermostat was not changed")
+                if isinstance(applied, bool):
+                    raise ValueError("Home I/O did not accept the thermostat setting")
+                if isinstance(applied, (int, float)):
+                    target_c = float(applied)
+                target_f = target_c * 9 / 5 + 32
+                device["state"] = "set"
+                device["detail"] = f"{target_c:.1f}°C / {target_f:.1f}°F · Live Home I/O thermostat setting"
+                _record(state, f"Home I/O: {device['label']} set to {target_c:.1f}°C in zone {device['room'].upper()}.")
+            elif device.get("momentary"):
                 if device_state != "trigger":
                     raise ValueError("This Home I/O action must be triggered, not left on")
                 applied = await pulse_home_io_bridge_point(device_id)
@@ -555,13 +574,38 @@ def _synchronize_home_io_clock(state: dict[str, Any]) -> None:
     live["mode"] = "EcoNest demo mode · Home I/O bridge disconnected"
 
 
-def _apply_live_home_io_points(state: dict[str, Any], points: dict[str, bool]) -> None:
+def _home_io_temperature_c(detail: Any) -> float:
+    """Extract a safe Celsius thermostat value from a rendered device detail."""
+    try:
+        return float(str(detail).split("°C", 1)[0])
+    except ValueError:
+        return 21.0
+
+
+def _apply_live_home_io_points(state: dict[str, Any], points: dict[str, bool | float]) -> None:
     """Merge only allow-listed desktop-simulator points into the visual twin."""
     devices = {str(device["id"]): device for device in state["devices"]}
     changed: list[str] = []
     for device_id, value in points.items():
         device = devices.get(device_id)
         if device is None:
+            continue
+        if device.get("temperature_sensor") and isinstance(value, (int, float)) and not isinstance(value, bool):
+            temperature_c = float(value) - 273.15
+            temperature_f = temperature_c * 9 / 5 + 32
+            device["state"] = "normal"
+            device["detail"] = f"{temperature_c:.1f}°C / {temperature_f:.1f}°F · Live Home I/O room-temperature memory"
+            room = next((room for room in state["rooms"] if room["id"] == device["room"]), None)
+            if room is not None:
+                room["temperature_f"] = round(temperature_f)
+            continue
+        if device.get("temperature_control") and isinstance(value, (int, float)) and not isinstance(value, bool):
+            temperature_c = float(value)
+            temperature_f = temperature_c * 9 / 5 + 32
+            device["state"] = "set"
+            device["detail"] = f"{temperature_c:.1f}°C / {temperature_f:.1f}°F · Live Home I/O thermostat setting"
+            continue
+        if not isinstance(value, bool):
             continue
         if device.get("live_writable"):
             next_state = "on" if value else "off"

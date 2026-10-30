@@ -47,7 +47,7 @@ async def home_io_bridge_status() -> dict[str, Any]:
     }
 
 
-async def home_io_bridge_points() -> dict[str, bool] | None:
+async def home_io_bridge_points() -> dict[str, bool | float] | None:
     """Read allow-listed Home I/O points, or return ``None`` if unavailable."""
     settings = get_settings()
     if not settings.HOME_IO_BRIDGE_ENABLED or not settings.HOME_IO_BRIDGE_URL:
@@ -63,13 +63,17 @@ async def home_io_bridge_points() -> dict[str, bool] | None:
         points = payload.get("points")
         if not isinstance(points, dict):
             return None
-        return {str(name): bool(value) for name, value in points.items()}
+        return {
+            str(name): value
+            for name, value in points.items()
+            if isinstance(value, (bool, int, float))
+        }
     except (httpx.HTTPError, ValueError) as error:
         logger.warning("Home I/O bridge state read failed: %s", type(error).__name__)
         return None
 
 
-async def set_home_io_bridge_point(name: str, value: bool) -> bool | None:
+async def set_home_io_bridge_point(name: str, value: bool | float) -> bool | float | None:
     """Set one allow-listed Home I/O output, or return ``None`` if unavailable."""
     settings = get_settings()
     if not settings.HOME_IO_BRIDGE_ENABLED or not settings.HOME_IO_BRIDGE_URL:
@@ -83,7 +87,8 @@ async def set_home_io_bridge_point(name: str, value: bool) -> bool | None:
             )
             response.raise_for_status()
             payload = response.json()
-        return bool(payload.get("value"))
+        applied = payload.get("value")
+        return applied if isinstance(applied, (bool, int, float)) else None
     except (httpx.HTTPError, ValueError) as error:
         logger.warning("Home I/O bridge command failed for %s: %s", name, type(error).__name__)
         return None

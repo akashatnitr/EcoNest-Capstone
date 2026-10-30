@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +51,7 @@ class SimulationOverrideRequest(BaseModel):
     household_id: int | None = None
     device_id: str | None = None
     device_state: str | None = None
+    temperature_delta: float | None = Field(default=None, ge=-5, le=5)
     resident_room: str | None = None
 
 
@@ -180,6 +181,7 @@ async def override_simulation_state(
     try:
         state = await apply_dataset_manual_override(
             resolved[0], resolved[1], device_id=payload.device_id, device_state=payload.device_state,
+            temperature_delta=payload.temperature_delta,
             resident_room=payload.resident_room,
         )
     except ValueError as error:

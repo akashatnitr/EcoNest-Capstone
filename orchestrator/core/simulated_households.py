@@ -49,15 +49,27 @@ def home_io_state() -> dict[str, Any]:
         initial_state = "off" if point.writable else "idle"
         if point.kind == "smoke":
             initial_state = "normal"
+        if point.identifier.endswith("room_temperature"):
+            initial_state = "normal"
+        if point.identifier.endswith("thermostat_set_point"):
+            initial_state = "set"
+        detail = "Off · Home I/O output" if point.writable else "Idle · Home I/O sensor"
+        if point.identifier.endswith("room_temperature"):
+            detail = "21.7°C / 71°F · Home I/O room-temperature memory"
+        elif point.identifier.endswith("thermostat_set_point"):
+            detail = "21.0°C / 69.8°F · Live Home I/O thermostat setting"
         devices.append({
             "id": point.identifier,
             "room": point.zone.lower(),
             "kind": point.kind,
             "label": point.label,
-            "detail": ("Off · Home I/O output" if point.writable else "Idle · Home I/O sensor"),
+            "detail": detail,
             "state": initial_state,
             "live_writable": point.writable,
             "momentary": point.momentary,
+            "data_type": point.data_type,
+            "temperature_control": point.identifier.endswith("thermostat_set_point"),
+            "temperature_sensor": point.identifier.endswith("room_temperature"),
             "address": point.address,
         })
     return {
